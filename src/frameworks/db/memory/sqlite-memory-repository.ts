@@ -14,6 +14,7 @@ import type { MemoryRepository } from "@usecases/memory/memory-repository";
 import type { MemoryReader } from "@usecases/memory/memory-reader";
 import type { MemoryWriter } from "@usecases/memory/memory-writer";
 import type { MemoryQueue } from "@usecases/memory/memory-queue";
+import type { EntryProjectionStore } from "@usecases/memory/entry-memory-projector";
 import { FID_READ_ANCHOR_REGEX } from "@entities/document/fid-format";
 import type { EmbedModelMeta } from "@usecases/memory/embedding-gateway";
 import {
@@ -52,7 +53,7 @@ import { escapeFtsQuery } from "../fts-utils";
 const DEFAULT_FTS_LIMIT = 50;
 const MAX_GET_DETAILS_BATCH = 100;
 
-export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, MemoryWriter, MemoryQueue {
+export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, MemoryWriter, MemoryQueue, EntryProjectionStore {
   private readonly db: Database.Database;
   /**
    * vec 表物理存在标志，构造时通过 checkVecTable 固化，readonly。
@@ -228,6 +229,53 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   async storeEntry(entry: MemoryEntry): Promise<void> {
     this.runInTx(() => {
       this.insertEntryRow(entry);
+    });
+  }
+
+  /** C2 统一投影：同 id 同内容重放零写入；内容变化时使旧 vec/task 失效。 */
+  upsertEntryProjection(entry: MemoryEntry): { contentChanged: boolean } {
+    return this.runInTx(() => {
+      const old = this.db.prepare("SELECT content FROM memory_entries WHERE id = ?").get(entry.id) as { content: string } | undefined;
+      if (old?.content === entry.content) {
+        if (!this.db.prepare("SELECT 1 FROM memory_fts_jieba WHERE memory_entry_id = ?").get(entry.id)) {
+          this.db.prepare("INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)")
+            .run(entry.id, tokenizeWithJieba(entry.content, { doubleWrite: true }));
+        }
+        this.db.prepare("INSERT OR IGNORE INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged) VALUES (?, 0, NULL, 0)").run(entry.id);
+        return { contentChanged: false };
+      }
+
+      if (!old) {
+        this.insertEntryRow(entry);
+        return { contentChanged: true };
+      }
+
+      this.db.prepare(`
+        UPDATE memory_entries SET layer = ?, content_type = ?, source_id = ?, source_table = ?,
+          conversation_id = ?, granularity = ?, content = ?, metadata = ?, created_at = ?
+        WHERE id = ?
+      `).run(
+        entry.layer, entry.contentType, entry.sourceId, entry.sourceTable,
+        entry.conversationId ?? null, entry.granularity, entry.content,
+        entry.metadata ? JSON.stringify(entry.metadata) : null, entry.createdAt, entry.id,
+      );
+      this.db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(entry.id);
+      this.db.prepare("INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)")
+        .run(entry.id, tokenizeWithJieba(entry.content, { doubleWrite: true }));
+      if (this.vecTableExists) {
+        this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(entry.id);
+      }
+      this.db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(entry.id);
+      // weights 与关系边随同一 entry.id 保留；新 embedding 由调用方或暗条目扫描补齐。
+      return { contentChanged: true };
+    });
+  }
+
+  /** 显式 cleanup 的完整卫星清理；启动迁移不得调用。 */
+  deleteEntryProjection(entryId: string): void {
+    this.runInTx(() => {
+      this.cascadeDeleteSatellites(entryId);
+      this.db.prepare("DELETE FROM memory_entries WHERE id = ?").run(entryId);
     });
   }
 

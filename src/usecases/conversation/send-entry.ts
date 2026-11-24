@@ -30,8 +30,8 @@ import type { MemoryIndexGateway } from "./memory-index-gateway";
 import type { Logger } from "@usecases/ports/logger";
 import { resolveSpeakerName } from "./speaker-resolver";
 import { resolveTargetsForSend, type ResolveTargetsDeps } from "./resolve-send-targets";
-import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
-import { buildUserIndexBody, loadAttachmentRefs } from "./send-entry-index-helpers";
+import type { AttachmentRef } from "@entities/conversation/attachment";
+import { loadAttachmentRefs } from "./send-entry-index-helpers";
 import { triggerUnfurlPrefetch } from "./send-entry-unfurl-scan";
 
 /** 用户发送条目输入 */
@@ -148,17 +148,15 @@ export class SendEntry {
   private readonly memoryIndex?: MemoryIndexGateway;
   private readonly unfurlPrefetch?: (urls: string[]) => void;
 
-  /** 索引消息正文到记忆系统（非阻断——失败仅 warn，文字优先送达）。
-   * sourceId = entry.id（ID 统一后投影主键即源 id，幂等对齐） */
-  private async indexEntryBody(entryId: string, conversationId: string, body: string): Promise<void> {
+  /** entries 统一经 C2 政策投影（非阻断——失败仅 warn，文字优先送达）。 */
+  private async indexEntry(entry: Entry, externalSpeak: boolean, attachments: AttachmentRef[]): Promise<void> {
     if (!this.memoryIndex) return;
     try {
-      await this.memoryIndex.indexMessage(entryId, conversationId, body);
+      const conversation = await this.conversationRepo.getById(entry.conversationId);
+      await this.memoryIndex.indexEntry({ entry, conversationKind: conversation?.kind === "external" ? "external" : "normal", externalSpeak, attachments });
     } catch (err) {
       this.logger.warn("Failed to index entry body to memory (non-fatal)", {
-        entryId,
-        conversationId,
-        error: err instanceof Error ? err.message : String(err),
+        entryId: entry.id, conversationId: entry.conversationId, error: err instanceof Error ? err.message : String(err),
       });
     }
   }
@@ -235,7 +233,7 @@ export class SendEntry {
     // （input.attachmentIds）而非 attach 结果——attach 失败仅影响展示，索引面
     // 与旧口径一致描述用户发送了什么（旧路径 input.attachmentRefs 同语义）
     const attachmentRefs = input.source === 'external' ? [] : await loadAttachmentRefs(this.entryRepo, this.logger, input.attachmentIds);
-    if (input.source !== 'external') await this.indexEntryBody(result.id, input.conversationId, buildUserIndexBody(input.body, attachmentRefs));
+    await this.indexEntry(result, false, attachmentRefs);
 
     return { entry: result, talkingStonePassedTo, mentionFeedback };
   }
@@ -357,7 +355,7 @@ export class SendEntry {
 
     // 索引 speak 正文到记忆（旧 SendMessage 同构：剥 html-card 围栏；
     // 失败消息不索引——旧 abort 路径只索引带 body 的中断正文，此处 completed 语义）
-    if (!external) await this.indexEntryBody(created.id, input.conversationId, stripHtmlCardFences(input.body));
+    await this.indexEntry(created, external === true, []);
 
     return { entry: created };
   }

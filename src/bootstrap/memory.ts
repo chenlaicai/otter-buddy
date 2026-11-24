@@ -13,6 +13,8 @@ import type { EmbeddingRetryWorker as EmbeddingRetryWorkerType } from "@usecases
 import { EMBED_TASK_PRIORITY, EMBED_QUEUE_HIGH_WATER } from "@usecases/memory/memory-queue";
 import { resolveBatchTokenBudget } from "@frameworks/embedding/embed-batch-sharding";
 import type { Repositories } from "./types";
+import { EntryMemoryProjector, type EntryProjectionStore } from "@usecases/memory/entry-memory-projector";
+import { decideEntryProjection, type EntryProjectionInput } from "@usecases/memory/entry-projection-policy";
 
 export class MemoryIndexAdapter implements MemoryIndexGateway {
   /**
@@ -23,22 +25,20 @@ export class MemoryIndexAdapter implements MemoryIndexGateway {
    * 启动 tickNow 与 patrol 周期兜底）。不引入 store→worker 反向依赖。
    */
   private readonly storeMemory: StoreMemory;
+  private readonly entryProjector: EntryMemoryProjector;
   private onBulkEnqueued: (() => void) | null;
 
-  constructor(storeMemory: StoreMemory, onBulkEnqueued?: (() => void) | null) {
+  constructor(storeMemory: StoreMemory, projectionStore: EntryProjectionStore, onBulkEnqueued?: (() => void) | null) {
     this.storeMemory = storeMemory;
+    this.entryProjector = new EntryMemoryProjector(projectionStore);
     this.onBulkEnqueued = onBulkEnqueued ?? null;
   }
 
-  async indexMessage(messageId: string, conversationId: string, content: string): Promise<void> {
-    // sourceTable 统一 'entries'——后消息已住在 entries 表，
-    // 旧 'messages' 是表族退役前的遗留口径；与回填迁移（backfillEntryMemoryIndex）同口径，
-    // 幂等按主键 id 对齐（后投影主键=源 id）
-    await this.storeMemory.execute({
-      layer: "working", contentType: "message",
-      sourceId: messageId, sourceTable: "entries",
-      conversationId, granularity: "fine", content,
-    });
+  async indexEntry(input: EntryProjectionInput): Promise<void> {
+    const result = this.entryProjector.apply(decideEntryProjection(input), input.entry.createdAt);
+    if (result.kind === "projected") {
+      this.storeMemory.embedEntryProjection(result.entryId, result.content);
+    }
   }
 
   async indexLinkedResource(resourceId: string, conversationId: string, content: string, resourceType?: string): Promise<void> {
@@ -155,7 +155,11 @@ export function createMemoryIndex(
   /** 检视处置：批量落库弱触发（接 retry worker tickNow） */
   onBulkEnqueued?: (() => void) | null,
 ): MemoryIndexGateway {
-  return new MemoryIndexAdapter(new StoreMemory(repos.memoryWriter, repos.memoryQueue, embeddingService, logger), onBulkEnqueued);
+  return new MemoryIndexAdapter(
+    new StoreMemory(repos.memoryWriter, repos.memoryQueue, embeddingService, logger),
+    repos.entryProjection,
+    onBulkEnqueued,
+  );
 }
 
 export async function syncDocuments(

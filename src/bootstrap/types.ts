@@ -5,6 +5,7 @@ import type { MemoryRepository } from "@usecases/memory/memory-repository";
 import type { MemoryReader } from "@usecases/memory/memory-reader";
 import type { MemoryWriter } from "@usecases/memory/memory-writer";
 import type { MemoryQueue } from "@usecases/memory/memory-queue";
+import type { EntryProjectionStore } from "@usecases/memory/entry-memory-projector";
 import type { SearchQueryLogRepository } from "@usecases/memory/search-query-log-repository";
 import type { ConsolidationStateRepository } from "@usecases/memory/consolidation-state-repository";
 import type { RecordSearchQuery } from "@usecases/memory/record-search-query";
@@ -67,6 +68,8 @@ export interface Repositories {
   memoryReader: MemoryReader;
   memoryWriter: MemoryWriter;
   memoryQueue: MemoryQueue;
+  /** entries→memory 统一投影的同步 SQLite 端口（与 memoryWriter 同一实例）。 */
+  entryProjection: EntryProjectionStore;
   /** 检索埋点（评估基线数据源） */
   searchQueryLog: SearchQueryLogRepository;
   /** 夜间审视治量状态（幂等键 + 失败区间 + 连败计数） */

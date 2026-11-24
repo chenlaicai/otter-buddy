@@ -167,7 +167,7 @@ created_at: 2026-11-10
         new NodeFileSystem(),
         featureRepo,
         new SqliteResearchRepository(db),
-        new MemoryIndexAdapter(store),
+        new MemoryIndexAdapter(store, repo),
         createTestLogger(),
       );
 

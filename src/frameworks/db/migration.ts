@@ -13,6 +13,10 @@ import { FID_READ_ANCHOR_REGEX } from "@entities/document/fid-format";
 import { SqliteDispatchRecordRepository } from "@frameworks/db/dispatch/sqlite-dispatch-record-repository";
 import { pickOtterColor } from "@entities/otter/palette-picking";
 import { OTTER_PALETTE_KEYS } from "@contract/api/otter-palette";
+import { EntryMemoryProjector } from "@usecases/memory/entry-memory-projector";
+import { decideEntryProjection, hashEntryProjectionContent, ENTRY_MEMORY_POLICY_VERSION } from "@usecases/memory/entry-projection-policy";
+import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
+import { readEntryProjectionInputs } from "@frameworks/db/memory/memory-projection-maintenance";
 
 /** 数据库迁移：添加 session_file 字段和 otter_configs 表 */
 // eslint-disable-next-line max-statements, max-lines-per-function -- 补丁集合，语句数和行数由历史补丁数决定（+otter_sessions.model_alias）
@@ -2119,98 +2123,43 @@ function backfillOtterColors(db: Database.Database, logger: Logger): void {
   if (filled > 0) logger.info(`Backfilled otter colors (${filled} rows, F20260921otcl)`);
 }
 
-/**
- * entries → memory_entries 消息索引存量回填。
- *
- * 背景：删除旧 SendMessage 的三处 indexMessage 调用后，
- * 9/13 至修复日的对话正文（user + speak）未入记忆——search_memory 对该时段
- * 对话内容失明（生产库实证：message 类记忆最后一条 = 9/13）。
- *
- * 回填口径（对齐旧 SendMessage 语义 + ID 统一）：
- * - 范围：entry_type IN ('user','speak') 且 body 非空（system/yield/invoke_* 边界
- *   条目不入——旧口径只有正文承载语义的条目入索引）
- * - 投影主键 = entry.id（sourceTable='entries'，generateId 直透）——与增量写入
- *   路径（SendEntry.indexEntryBody → indexMessage，本 PR 统一 'entries' 口径）同源，
- *   幂等按主键 id 判断（两种历史口径的存量行全部可见）；重跑时 NOT EXISTS 自然跳过
- * - 正文：双侧 stripHtmlCardFences（与 entries_fts 投影一致）；user 侧拼附件
- *   占位投影行（同旧 buildIndexBody：附件在正文后逐行拼接）
- * - 卫星写入：memory_fts_jieba（jieba 双写）+ memory_weights——与
- *   SqliteMemoryRepository.insertEntryRow 同构（不注入 FID 前缀——非文档类）
- * - vec：不在本迁移同步——启动时 createAndStartRetryWorker 扫暗条目入队
- *   渐进补齐（bge-m3 worker 串行，3837 条按历史速率 ~2-3 分钟量级）
- */
+/** entries → memory 的 C2 政策回填。只补写/纠偏，绝不在启动时删除污染数据。 */
 function backfillEntryMemoryIndex(db: Database.Database, logger: Logger): void {
-  // one-shot：存量回填一次性完成即标记，后续启动零扫描（settings 惯例同
-  // messages_to_entries_migrated）——首次启动回填存量，之后只在增量路径写入
-  const done = db.prepare("SELECT value FROM settings WHERE key = 'entry_memory_index_backfilled'").get() as { value: string } | undefined;
-  if (done?.value === 'done') return;
+  // 独立政策版本：旧 entry_memory_index_backfilled=done 不证明 external/secret 边界安全。
+  const applied = db.prepare("SELECT value FROM settings WHERE key = 'entry_memory_projection_policy_version'").get() as { value: string } | undefined;
+  if (applied?.value === ENTRY_MEMORY_POLICY_VERSION) return;
 
-  let entriesInserted = 0;
-
-  const tx = db.transaction(() => {
-    // 逐条处理：user 侧拼附件投影行（内存里替换占位符后插入），speak 侧纯剥围栏
-    const rows = db.prepare(`
-      SELECT e.id, e.entry_type, e.body, e.conversation_id, e.created_at,
-        (SELECT COUNT(*) FROM entry_attachments ea WHERE ea.entry_id = e.id) AS att_count
-      FROM entries e
-      WHERE e.entry_type IN ('user','speak')
-        AND e.body IS NOT NULL AND TRIM(e.body) != ''
-        -- 幂等按主键 id 判断（非 source_table 双口径）：#942 后投影主键=源 id，
-        -- 旧路径写 'messages' 口径（9/13 前存量 8021 条）与新写 'entries' 口径
-        -- 的行主键同为 entry.id——按 id 判重两种口径全部可见，双路径零撞车
-        AND NOT EXISTS (SELECT 1 FROM memory_entries m WHERE m.id = e.id)
-    `).all() as Array<{ id: string; entry_type: string; body: string; conversation_id: string; created_at: string; att_count: number }>;
-
-    const insEntry = db.prepare(`
-      INSERT INTO memory_entries (id, layer, content_type, source_id, source_table,
-        conversation_id, granularity, content, metadata, created_at)
-      VALUES (?, 'working', 'message', ?, 'entries', ?, 'fine', ?, NULL, ?)
-    `);
-    const insFts = db.prepare("INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)");
-    const insWeights = db.prepare("INSERT INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged) VALUES (?, 0, NULL, 0)");
-
-    for (const row of rows) {
-      let content = stripHtmlCardFences(row.body);
-      if (row.entry_type === 'user' && row.att_count > 0) {
-        const atts = db.prepare(`
-          SELECT a.kind, a.original_name, a.size_bytes, a.caption
-          FROM entry_attachments ea JOIN attachments a ON a.id = ea.attachment_id
-          WHERE ea.entry_id = ? ORDER BY ea.sequence_num
-        `).all(row.id) as Array<{ kind: string; original_name: string; size_bytes: number; caption: string | null }>;
-        const projection = atts.map(a => {
-          if (a.kind === 'image') {
-            const label = a.caption?.trim() ? a.caption.trim() : a.original_name;
-            return `[图片: ${label}]`;
-          }
-          if (a.kind === 'audio') return `[语音: ${a.original_name} (${humanSizeForIndex(a.size_bytes)})]`;
-          return `[文件: ${a.original_name} (${humanSizeForIndex(a.size_bytes)})]`;
-        }).join("\n");
-        if (projection) content = `${content}\n${projection}`;
-      }
-      // 剥离后为空的内容不入库（PollutedContentError 语义对齐——body 全空白防御；
-      // 纯卡片消息剥离后为占位符文本，是合法内容照常入库——公开契约，与增量路径同构）
-      if (content.trim().length === 0) continue;
-      insEntry.run(row.id, row.id, row.conversation_id, content, row.created_at);
-      insFts.run(row.id, tokenizeWithJieba(content, { doubleWrite: true }));
-      insWeights.run(row.id);
-      entriesInserted++;
-    }
-  });
-  tx();
-
-  // 标记 one-shot（事务外写 settings——即使回填 0 条也标记，幂等重跑同样零扫描）
-  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('entry_memory_index_backfilled', 'done', datetime('now'))").run();
-
-  if (entriesInserted > 0) {
-    logger.info(`[backfillEntryMemoryIndex] Backfilled ${entriesInserted} message entries to memory (#1191, F20260928rmix)`);
+  const projector = new EntryMemoryProjector(new SqliteMemoryRepository(db));
+  const inputs = readEntryProjectionInputs(db);
+  const existingContent = new Map<string, string>();
+  for (const row of db.prepare("SELECT id, content FROM memory_entries").all() as Array<{ id: string; content: string }>) {
+    existingContent.set(row.id, row.content);
   }
-}
+  let projected = 0;
+  let unchanged = 0;
+  let skipped = 0;
+  db.transaction(() => {
+    for (const input of inputs) {
+      const decision = decideEntryProjection(input);
+      const oldContent = decision.kind === "project" ? existingContent.get(input.entry.id) : undefined;
+      if (decision.kind === "project" && oldContent !== undefined
+        && hashEntryProjectionContent(oldContent) === decision.contentHash) {
+        unchanged++;
+        continue;
+      }
+      const result = projector.apply(decision, input.createdAt);
+      if (result.kind === "projected") projected++;
+      else if (result.kind === "unchanged") unchanged++;
+      else skipped++;
+    }
+  })();
 
-/** 人类可读文件大小（与 attachment-projection.ts humanSize 同构，migration 独立持有避免跨层 import） */
-function humanSizeForIndex(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${bytes}B`;
+  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('entry_memory_projection_policy_version', ?, datetime('now'))").run(ENTRY_MEMORY_POLICY_VERSION);
+  // 旧键只为历史观测保留写入；本政策及未来版本均不读取它作为安全证明。
+  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('entry_memory_index_backfilled', 'done', datetime('now'))").run();
+  logger.info("[backfillEntryMemoryIndex] Applied C2 entry projection policy", {
+    policyVersion: ENTRY_MEMORY_POLICY_VERSION, scanned: inputs.length, projected, unchanged, skipped,
+  });
 }
 
 /** entries 表 (conversation_id, sequence_num) 普通索引升级 UNIQUE（存量库迁移）。

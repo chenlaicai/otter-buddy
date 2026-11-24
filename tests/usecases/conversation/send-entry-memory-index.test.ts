@@ -21,6 +21,7 @@ import type { ConversationRepository } from "@usecases/conversation/conversation
 import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gateway";
 import type { Logger } from "@usecases/ports/logger";
 import type { Entry } from "@entities/conversation/entry";
+import { decideEntryProjection } from "@usecases/memory/entry-projection-policy";
 
 function createLogger(): Logger {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn().mockReturnThis() } as unknown as Logger;
@@ -48,7 +49,9 @@ function makeRepos() {
   const otterRepo = {
     getById: vi.fn(async (id: string) => ({ id, name: "大獭", status: "active" })),
   } as unknown as OtterRepository;
-  const conversationRepo = {} as unknown as ConversationRepository;
+  const conversationRepo = {
+    getById: vi.fn(async (id: string) => ({ id, kind: id === "conv-colink" ? "external" : "normal" })),
+  } as unknown as ConversationRepository;
   return { entryRepo, invokeRepo, otterRepo, conversationRepo, entries, invokes };
 }
 
@@ -56,8 +59,11 @@ function makeRepos() {
 function makeMemoryIndex() {
   const indexed: Array<{ messageId: string; conversationId: string; content: string }> = [];
   const gateway: MemoryIndexGateway = {
-    indexMessage: vi.fn(async (messageId: string, conversationId: string, content: string) => {
-      indexed.push({ messageId, conversationId, content });
+    indexEntry: vi.fn(async (input: Parameters<MemoryIndexGateway["indexEntry"]>[0]) => {
+      const decision = decideEntryProjection(input);
+      if (decision.kind === "project") {
+        indexed.push({ messageId: input.entry.id, conversationId: input.entry.conversationId, content: decision.value.content });
+      }
     }),
     indexLinkedResource: vi.fn(),
     indexFeature: vi.fn(),
@@ -120,7 +126,7 @@ describe("#1191 消息索引链路接回：sendUserEntry", () => {
   it("索引失败不阻断发送（warn 后正常返回 entry）", async () => {
     const badIndex: MemoryIndexGateway = {
       ...makeMemoryIndex().gateway,
-      indexMessage: vi.fn(async () => { throw new Error("memory db locked"); }),
+      indexEntry: vi.fn(async () => { throw new Error("memory db locked"); }),
     };
     const { sendEntry } = makeSendEntry({ memoryIndex: badIndex });
     const res = await sendEntry.sendUserEntry({
@@ -198,7 +204,7 @@ describe("#1191 消息索引链路接回：createSpeakEntry", () => {
     const badIndex: MemoryIndexGateway = {
       ...makeMemoryIndex().gateway,
       attachWorkaround: undefined,
-      indexMessage: vi.fn(async () => { throw new Error("boom"); }),
+      indexEntry: vi.fn(async () => { throw new Error("boom"); }),
     } as MemoryIndexGateway;
     const { sendEntry } = makeSendEntry({ memoryIndex: badIndex });
     const res = await sendEntry.createSpeakEntry({

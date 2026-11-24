@@ -130,6 +130,11 @@ export class StoreMemory {
    * 失败即入 retry 队列（bulk 优先级），不会无限挂起。至此本方法是 RAM 侧唯一
    * 合法的批量等待入口，每次最多挂 1 条文本（实时消息粒度）。
    */
+  /** EntryMemoryProjector 已持久化后调度实时 embedding；content 已由统一政策脱敏。 */
+  embedEntryProjection(entryId: string, content: string): void {
+    this.fireAndForgetEmbed(entryId, content, EMBED_TASK_PRIORITY.live);
+  }
+
   private fireAndForgetEmbed(entryId: string, content: string, priority: number = EMBED_TASK_PRIORITY.normal): void {
     // 显式禁用：off 时无 worker 可等——条目照存（FTS 可检索）不入队，
     // 避免每条写入积一条永不消费的 retry 任务。注意判据是显式 env 而非

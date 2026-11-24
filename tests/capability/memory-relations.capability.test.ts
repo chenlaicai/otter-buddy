@@ -207,6 +207,7 @@ created_in_conversation: ${conv.id}
     // 3. 触发同步（与 sync_docs 工具同一 SyncDocuments 代码路径）
     const memoryIndex = new MemoryIndexAdapter(
       new StoreMemory(ctx.built.repos.memoryWriter, ctx.built.repos.memoryQueue, ctx.built.embeddingService, createTestLogger()),
+      ctx.built.repos.entryProjection,
     );
     const syncDocs = new SyncDocuments(
       new NodeFileSystem(), ctx.built.repos.feature, ctx.built.repos.research, memoryIndex, createTestLogger(),
