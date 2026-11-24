@@ -28,6 +28,8 @@ describe('ConnectorOnboardingPanel', () => {
     await waitFor(() => expect(screen.getByTestId('pairing-code').textContent).toBe('ABCD2345'))
     expect(screen.getByTestId('hub-url').textContent).toBe(window.location.origin)
     expect(screen.getByText(/10 分钟内单次有效/)).toBeTruthy()
+    expect(screen.getByText('此前已生成但未核销的码在各自到期前仍可使用；每码只能核销一次。')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '生成新码' })).toBeTruthy()
     expect(screen.getByTestId('pairing-command').textContent).toContain(`--hub ${window.location.origin} --pair ABCD2345`)
 
     fireEvent.click(screen.getByRole('button', { name: '复制首启命令' }))
@@ -70,7 +72,7 @@ describe('ConnectorOnboardingPanel', () => {
     expect(screen.queryByText('已下载')).toBeNull()
   })
 
-  it('签发 401 显示登录过期，旧配对码在重新签发时立即撤下', async () => {
+  it('生成新码失败时显示 401 并撤下当前旧码，但不暗示服务端撤销旧码', async () => {
     const fetchMock = vi.fn()
       .mockImplementationOnce(() => Promise.resolve(jsonResponse(issuedFixture(), 201)))
       .mockImplementationOnce(() => Promise.resolve(jsonResponse({ error: 'unauthorized' }, 401)))
@@ -79,7 +81,7 @@ describe('ConnectorOnboardingPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '生成配对码' }))
     await waitFor(() => expect(screen.getByTestId('pairing-code')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: '重新签发' }))
+    fireEvent.click(screen.getByRole('button', { name: '生成新码' }))
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('登录已过期'))
     expect(screen.queryByTestId('pairing-code')).toBeNull()
   })

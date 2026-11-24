@@ -39,7 +39,7 @@ intent:
 
 | 取舍 | 决策 | 被否替代 | 理由 |
 |---|---|---|---|
-| 配对事实源 | 新 usecase 生成码并调用既有 `createPairingCode`，核销仍走原 controller/repo | 新表、新 token 机制、Web 直接写 SQL | 保持 TTL、字母表、原子核销与撤销语义单一 |
+| 配对事实源 | 新 usecase 生成码并调用既有 `createPairingCode`，核销仍走原 controller/repo | 新表、新 token 机制、Web 直接写 SQL | 保持 TTL、字母表、多码并存与原子单次核销语义单一 |
 | 权限 | 签发 admin；下载 write（user/admin）；匿名 401，低档位 403 | 两端点 public 或一律 admin | 码能注册执行设备，必须 owner；安装包不含秘密，登录 user 即可读取，符合最小权限 |
 | 中枢地址 | 浏览器只展示 `window.location.origin` | API 接收任意 hub URL、硬编码 ECS | 部署位置无关，避免把调用方输入当可信配置 |
 | 包供给 | `npm run build` 连带 `package:connector`；下载读取组合根注入的固定文件名 | 请求时 `npm pack`/shell、用户输入路径、提交二进制 | 构建期决定版本与内容，运行时无 shell/路径注入，缺包 fail-closed |
@@ -61,6 +61,8 @@ intent:
 
 新增一条构建产物链和一个运行时下载读取点，后续升级必须继续同步根包/connector 版本并保留 tarball；Web 增加一次性秘密展示面，禁止日志和持久化。没有绕过既有保护：公开核销仍要求有效单次码，签发与下载新增身份闸，WSS 鉴权与总闸不变。
 
+**多码并存的既有语义**：生成新码只撤下 Web 当前显示的旧码，不撤销服务端旧码；此前已生成但未核销的码在各自到期前仍可使用，每码仍只能原子核销一次。本切片不新增 revoke 仓储端口或授权语义，UI 按钮使用「生成新码」并显式提示，避免把界面替换误解为服务端撤销。
+
 ## 机械验收
 
 | 场景 | 操作 | 预期结果 |
@@ -70,7 +72,7 @@ intent:
 | TTL 与单次核销 | admin 签发后公开 pair 核销，再重放；过期码再试 | 首次 201 建设备；重放/过期均 403 且不建第二个设备 |
 | 下载内容 | GET 下载并计算 SHA-256、读取文件名和版本头 | 字节等于构建 tarball；hash 一致；版本等于根 package.json |
 | 缺包 | 指向不存在的固定产物后 GET | 503 `connector_package_missing`，不执行 shell，不返回伪空包 |
-| Web 正常/错误 | 点击添加设备、下载；模拟 401/403/503 | 显示码、过期时间、当前 origin、开发态提示；错误可见且不伪装成功 |
+| Web 正常/错误 | 点击添加设备、生成新码、下载；模拟 401/403/503 | 显示码、过期时间、当前 origin、开发态与多码并存提示；错误可见且不伪装成功或撤销 |
 | 真实浏览器 | 运行 Playwright 打开执行机弹窗并截图、读 bounding rect | 入口与配对信息在视口内可见；下载文件可核，测试 connector 可核销 |
 | 上线回归 | 用签发码换 token，经真 WSS hello | online_sessions 出现 online 行，执行机列表可见设备 |
 | 旧契约 | 直接 POST 原 `/api/connector/pair` 并跑既有 connector 测试 | 无登录核销语义、协议与在线状态行为不变 |
@@ -88,6 +90,10 @@ intent:
 | `npm run lint:intent` / `npm run lint:docs` | 0 error；仅既有 warning，本文 intent 与 docs 校验通过 |
 | `CONNECTOR_EVIDENCE_DIR=<对话工作区>/connector-onboarding-evidence scripts/e2e-server.sh run e2e/connector-onboarding.spec.ts` | 真实 Chromium 1 test passed；签发、核销、重放 403、下载 hash 和几何断言通过；服务已 stop |
 | 真实 CLI 验证脚本（工作区 `verify-real-connector.mjs`） | 临时 HOME + 临时 npm global prefix 安装 96 packages；真实 connector paired + protocol v2 online；重放 403；下载字节等于 tarball；SIGTERM 优雅退出，e2e 服务已 stop |
+| 独立检视 delta：定向 Web 测试 | 2 files / 11 tests passed；覆盖「生成新码」与多码并存提示 |
+| 独立检视 delta：真实 Chromium 复跑 | 1 test passed；新按钮与提示 `toBeVisible`，截图已更新，服务已 stop |
+| `node scripts/check-pr-evidence.mjs --base origin/main --pr-body-file <PR body>` | 通过：Rollback 与「机器锚点」「agent 陈述」两层就位 |
+| 签发规则机器回读 | usecase 与独立 CLI 均为 alphabet `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`、8 bytes、TTL 600000ms（10 分钟）；assertions passed |
 
 证据目录：`/Users/orca/ai/otter-buddy/data/workspaces/6af46649-f93f-4c5b-a6d2-245a4ed33e9f/connector-onboarding-evidence/`
 

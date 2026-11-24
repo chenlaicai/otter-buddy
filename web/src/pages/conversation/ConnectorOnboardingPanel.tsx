@@ -99,7 +99,7 @@ export function ConnectorOnboardingPanel() {
           disabled={issuing}
           className="shrink-0 px-2.5 py-1.5 text-[11px] font-medium text-white rounded-lg shadow-glow bg-otter-500 hover:bg-otter-600 disabled:opacity-50"
         >
-          {issuing ? '签发中…' : issued ? '重新签发' : '生成配对码'}
+          {issuing ? '签发中…' : issued ? '生成新码' : '生成配对码'}
         </button>
       </div>
 
@@ -148,6 +148,7 @@ export function ConnectorOnboardingPanel() {
             {copied ? <Check size={12} className="text-teal-500" /> : <Copy size={12} />}
             {copied ? '已复制首启命令' : '复制首启命令'}
           </button>
+          <p className="text-[10px] text-stone-400">此前已生成但未核销的码在各自到期前仍可使用；每码只能核销一次。</p>
           <p className="text-[10px] text-stone-400">配对码只在此处显示；请只交给你要添加的设备。设备上线后可关闭弹窗。</p>
         </div>
       )}

@@ -37,6 +37,8 @@ test('Web 添加设备：登录签发、公开核销、CLI 下载与可见几何
   expect(code).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/)
   await expect(page.getByTestId('hub-url')).toHaveText(new URL(page.url()).origin)
   await expect(page.getByTestId('pairing-command')).toContainText(`--pair ${code}`)
+  await expect(page.getByRole('button', { name: '生成新码' })).toBeVisible()
+  await expect(onboarding.getByText('此前已生成但未核销的码在各自到期前仍可使用；每码只能核销一次。')).toBeVisible()
 
   const redeemed = await page.request.post('/api/connector/pair', {
     data: { code, name: 'Playwright 验收设备' },
