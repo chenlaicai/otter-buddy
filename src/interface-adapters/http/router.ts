@@ -30,6 +30,7 @@ import type { MatterController } from "./controllers/matter-controller";
 import type { UnfurlController } from "./controllers/unfurl-controller";
 import type { MahjongController } from "./controllers/mahjong-controller";
 import type { ConnectorPairController } from "./controllers/connector-pair-controller";
+import type { ConnectorOnboardingController } from "./controllers/connector-onboarding-controller";
 
 
 
@@ -59,6 +60,8 @@ export interface RouterPlumbingOptions {
   };
   /** connector 配对端点（码即秘密，无登录态） */
   connectorPair?: ConnectorPairController;
+  /** Web 设备接入（登录态签发 + CLI tarball 下载） */
+  connectorOnboarding?: ConnectorOnboardingController;
 }
 
 export interface Controllers {
@@ -447,5 +450,9 @@ function registerPlumbingRoutes(app: Hono, plumbing?: RouterPlumbingOptions): vo
   // connector 配对——码即秘密，不要求登录态（connector 无浏览器）
   if (plumbing?.connectorPair) {
     app.post("/api/connector/pair", (ctx) => plumbing.connectorPair!.pair(ctx));
+  }
+  if (plumbing?.connectorOnboarding) {
+    app.post("/api/connector/pairing-codes", (ctx) => plumbing.connectorOnboarding!.issueCode(ctx));
+    app.get("/api/connector/download", (ctx) => plumbing.connectorOnboarding!.download(ctx));
   }
 }

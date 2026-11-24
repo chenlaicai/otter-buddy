@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Cpu, RefreshCw, CircleCheck, CircleX, CircleHelp, CirclePause, Clock } from 'lucide-react'
 import { Modal } from '../../components/Modal'
 import { fmtTime } from '../../lib/utils'
+import { ConnectorOnboardingPanel } from './ConnectorOnboardingPanel'
 
 /**
  * 执行机选择器 + 远程动作状态。
@@ -9,7 +10,7 @@ import { fmtTime } from '../../lib/utils'
  * - 选择器：全量设备列表（含离线——人要看得见才能决定切回）+ 当前对话机回显/切换
  *   （PUT；离线设备置灰不可选——重连后可切）
  * - 状态列表：该对话最近远程动作五态（requested/succeeded/failed/interrupted/unknown）
- * - SDK 边界提示：远程对话里 SDK 文件/bash 面落 hub 本地（协议 v1 只放六动作，对齐）
+ * - 添加设备：登录态签发一次性码 + 当前中枢 CLI tarball 下载
  */
 
 interface MachineEntry {
@@ -128,6 +129,8 @@ export function ExecutionMachineModal({ conversationId, onClose, onSwitched }: P
   return (
     <Modal isOpen onClose={onClose} title="执行机与远程动作" width="max-w-lg">
       <div className="space-y-4">
+        <ConnectorOnboardingPanel />
+
         {error && (
           <div className="text-xs text-red-500 bg-red-400/10 rounded-lg px-3 py-2">{error}</div>
         )}
@@ -183,7 +186,7 @@ export function ExecutionMachineModal({ conversationId, onClose, onSwitched }: P
             )}
           </div>
           <p className="text-[10px] text-stone-400 mt-2 px-1">
-            边界：仅 workspace 六动作按此路由；SDK 文件/bash 面仍落中枢本地（阶段 7 对齐）。
+            边界：workspace 动作与 SDK 文件/bash 按对话当前执行机路由；无对话的后台任务仍落中枢本机。
           </p>
         </section>
 

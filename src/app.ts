@@ -37,6 +37,8 @@ import { ConnectorWsGateway } from "@frameworks/execution/connector-ws-gateway";
 import { RemoteExecutionMachine } from "@frameworks/execution/remote-execution-machine";
 import { SqliteRemoteActionRegistry } from "@frameworks/db/execution/sqlite-remote-action-registry";
 import { ConnectorPairController } from "@interface-adapters/http/controllers/connector-pair-controller";
+import { ConnectorOnboardingController } from "@interface-adapters/http/controllers/connector-onboarding-controller";
+import { IssueConnectorPairingCode } from "@usecases/execution/issue-connector-pairing-code";
 import { DEPRECATED_OWNER_PASSWORD_ENV, resolveOwnerPassword, verifyOwnerPassword } from "@interface-adapters/http/auth/owner-password";
 import { createSessionSigner } from "@interface-adapters/http/auth/session-cookie";
 import { AuthController } from "@interface-adapters/http/controllers/auth-controller";
@@ -776,6 +778,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // 清扫完成前不接受新连接语义上更干净，且代价仅一行 UPDATE）。
   // 上线投影换真 RemoteExecutionMachine（总闸三道→登记→下发→等待/超时落 unknown）。
   const connectorRepo = new SqliteConnectorRegistryRepository(db);
+  const connectorPackageRoot = getRepoRoot();
+  const connectorCliVersion = (JSON.parse(fs.readFileSync(path.join(connectorPackageRoot, "package.json"), "utf8")) as { version: string }).version;
+  const connectorCliFileName = `otter-buddy-connector-${connectorCliVersion}.tgz`;
   const remoteActionRegistry = new SqliteRemoteActionRegistry(db); // 登记落点 + 摘要数据源
   const hubBootEpoch = Date.now(); // actionId 前缀纪元（跨重启防碰撞）
   // Origin 白名单：OTTER_WS_ALLOWED_ORIGINS 逗号分隔 exact match；未配置=空
@@ -853,6 +858,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
         },
       },
       connectorPair: new ConnectorPairController(connectorRepo, logger),
+      connectorOnboarding: new ConnectorOnboardingController(
+        new IssueConnectorPairingCode(connectorRepo),
+        {
+          filePath: path.join(connectorPackageRoot, "packages", "connector", "release", connectorCliFileName),
+          fileName: connectorCliFileName,
+          version: connectorCliVersion,
+        },
+        logger,
+      ),
     },
   );
 

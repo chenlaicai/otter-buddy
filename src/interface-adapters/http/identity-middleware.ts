@@ -85,6 +85,18 @@ export const POLICY_TABLE: readonly PolicyRule[] = [
     policy: "public",
     note: "F20261117cnnct（阶段 4 C1）：connector 配对端点——码即秘密（一次性+时效+原子核销，防探测不区分拒绝原因），connector 是无浏览器进程无登录态；后续需评估配对失败限频",
   },
+  {
+    methods: ["POST"],
+    path: /^\/api\/connector\/pairing-codes$/,
+    policy: "admin",
+    note: "Web 设备接入签发的是注册执行设备的秘密，只有 owner/admin 可签发；公开核销口不受此规则影响",
+  },
+  {
+    methods: ["GET", "HEAD"],
+    path: /^\/api\/connector\/download$/,
+    policy: "write",
+    note: "CLI 安装包不含设备秘密，登录 user 即可下载；匿名与 guest 不可读取中枢构建产物",
+  },
   // ── 族内例外（必须先于同族 admin 规则命中）──
   { methods: ["POST"], path: /^\/api\/otters\/[^/]+\/retry$/, policy: "write", note: "会话重试=用户级交互，非建散重启" },
   // POST :id/leave 已随死端点下线，正则 leave 分支休眠保留（零行为变化，防未来误挂时语义退化）
