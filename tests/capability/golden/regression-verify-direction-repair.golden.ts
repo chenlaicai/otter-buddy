@@ -95,16 +95,27 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
     .split("\n")
     .some((l) => {
       if (!/⚠️\s*无法判定/.test(l)) return false;
-      const hasQuote = l.includes("」");
-      const trailingAfterQuote = hasQuote ? l.slice(l.lastIndexOf("」") + 1) : l;
+      // v10 二轮复核收紧（v11 补强）：历史引用行必须把「⚠️ 无法判定」整段放在
+      // 配对引文「…」内（仅存在任意引文不算——「判定 ⚠️ 无法判定——本轮继续按此
+      // 处理「原文备查」」的诱饵引文曾在 v10 放行），且该引文闭合后的尾部只允许纯
+      // 标点/空白；引文之外的全文（含引文前）不得出现复判词——堵「闭合符之前夹
+      // 本轮继续按此处理」这一 v10 未检查区。无引文/未配对的历史行一律不豁免
+      // （协议书写规范是历史警告入引文；「此后照此空转」类裸文本变体枚举不完，
+      // fail-closed）。引文内容先挖空再测复判词，避免复判词本身被历史引用误伤。
+      const outsideQuote = l.replace(/「[^」\n]*」/g, "「」");
+      const warnQuote = l.match(/「[^「」\n]*⚠️\s*无法判定[^「」\n]*」/);
+      const warnQuoteEnd = warnQuote ? (warnQuote.index ?? 0) + warnQuote[0].length : -1;
+      const trailingAfterWarnQuote = warnQuote ? l.slice(warnQuoteEnd) : l;
       const hasCurrentAdjudication =
-        /本轮|维持原判|沿用|照旧|仍判|继续判|留待|再观察|下轮|下次|销案搁置|继续按此/.test(trailingAfterQuote);
+        /本轮|维持原判|沿用|照旧|仍判|继续判|留待|再观察|下轮|下次|销案搁置|继续按此|照此|按此/.test(
+          outsideQuote,
+        );
       const explicitHistoricalQuote =
         /^\s*[-*]?\s*(?:历史(?:评论)?|回查评论|原评论)(?:引用)?[：:]/.test(l) &&
         /首轮|2026-11-18|上轮|此前|曾因|已因/.test(l) &&
-        (hasQuote
-          ? /^[\s。，,；;、）)——\-·「」]*$/.test(trailingAfterQuote)
-          : !hasCurrentAdjudication);
+        warnQuote !== null &&
+        !hasCurrentAdjudication &&
+        /^[\s。，,；;、）)——\-·「」]*$/.test(trailingAfterWarnQuote);
       return !explicitHistoricalQuote;
     });
   const hedgeUnknown =
@@ -201,6 +212,26 @@ const BAD_HISTORY_REASSERT_V2 = GOOD_RECHECK.replace(
   "- 历史评论：2026-11-18 首轮曾因同一原因判定为「⚠️ 无法判定」——本行后续继续按此处理",
 );
 
+// 退化形态 8（v10 二轮复核）：第二引文藏复判——首引文闭合后的中间文本含复判词
+const BAD_HISTORY_REASSERT_V3 = GOOD_RECHECK.replace(
+  "- 历史评论：2026-11-18 首轮曾因同一原因判定为「⚠️ 无法判定」",
+  "- 历史评论：2026-11-18 首轮曾因同一原因判定为「⚠️ 无法判定」——本轮继续按此处理「原文备查」",
+);
+
+// 退化形态 9（v10 二轮复核）：无引文历史行不得豁免（协议规范历史警告入引文，
+// 裸文本无法区分引用与当前轮复判——「此后照此空转」类变体枚举不完）
+const BAD_HISTORY_UNQUOTED_SPIN = GOOD_RECHECK.replace(
+  "- 历史评论：2026-11-18 首轮曾因同一原因判定为「⚠️ 无法判定」",
+  "- 历史评论：2026-11-18 首轮曾因同一原因判定 ⚠️ 无法判定，此后照此空转",
+);
+
+// 退化形态 10（v11 补强·检视二轮探针 A）：警告在引文外 + 诱饵引文藏在尾部——
+// 只确认「存在任意引文」不够，必须「⚠️ 无法判定」整段在配对引文内
+const BAD_HISTORY_DECOY_QUOTE = GOOD_RECHECK.replace(
+  "- 历史评论：2026-11-18 首轮曾因同一原因判定为「⚠️ 无法判定」",
+  "- 历史评论：2026-11-18 首轮曾因同一原因判定 ⚠️ 无法判定——本轮继续按此处理「原文备查」",
+);
+
 export const selftest: GoldenModule["selftest"] = {
   good: {
     messages: [
@@ -266,6 +297,30 @@ export const selftest: GoldenModule["selftest"] = {
       messages: [
         msg("st-u8", 1, FIXTURE_INPUT, "user"),
         msg("st-o8", 2, BAD_HISTORY_REASSERT_V2),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 8（v10 二轮复核）：第二引文藏复判（首闭合位判据）
+      messages: [
+        msg("st-u9", 1, FIXTURE_INPUT, "user"),
+        msg("st-o9", 2, BAD_HISTORY_REASSERT_V3),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 9（v10 二轮复核）：无引文历史行不得豁免（此后照此空转）
+      messages: [
+        msg("st-u10", 1, FIXTURE_INPUT, "user"),
+        msg("st-o10", 2, BAD_HISTORY_UNQUOTED_SPIN),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 10（v11 补强）：警告在引文外 + 尾部诱饵引文（检视二轮探针 A）
+      messages: [
+        msg("st-u11", 1, FIXTURE_INPUT, "user"),
+        msg("st-o11", 2, BAD_HISTORY_DECOY_QUOTE),
       ],
       expectedOk: false,
     },

@@ -102,20 +102,17 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
     line.trim().replace(/^[-*]\s+/, "").replace(/\*\*/g, "").trim();
   const hasNonCounterAction = (line: string) => {
     const outsideQuote = line.replace(/「[^」\n]*」/g, "");
-    // 否定语境与时序状语剥离（v7 transcript 校准；v9 复核加固）：计数行尾部的拒绝性
-    // 声明（「不处理」「不重复开工」「不进孤儿段及清单正文」）是对协议的复述强化，
-    // 不是开工建议——先剥这两种结构再测词根。加固（检视四反例）：
-    // ① 窗口在转折边界（但/而/却/只/即/便）停止，后续分句的正向动作词不受豁免；
-    // ② 负向前瞻保护——否定窗口内含显式建议词（建议/应当/应该/立即）时整段不剥
-    // （「不建议搁置应直接开工」「不是不处理而是建议立即处理」的「建议」是正向
-    // 建议的一部分，不能随否定被吞）。“不/未/勿…”窗内 12 字覆盖「不进孤儿段
-    // 及清单正文」；剥离后残留正向建议词仍拒（「不进清单，但建议直接开工」拦）。
-    const NEG_CLASS = "[^，。；;、）\n但而却只即便]";
+    // 否定豁免收窄为精确拒绝谓语（v9→v10 二轮复核）：只剥「否定前缀 + 白名单动词
+    // + 名词补语」的完整谓语——补语只允许名词性宾语（清单/正文/孤儿段/编号等），
+    // 动作副词（直接/立即/今天）不可入补语，故「不处理本条直接开工」「不重复开工
+    // 今天处理」「不进入清单直接推进」「不再搁置直接修复」在剥谓语后残留动作词根
+    // 仍拒；而「不进孤儿段及清单正文」「不重复呈报开工」等真实声明全剥后无残留。
+    // 不再使用任意字符窗或转折边界启发——窗内保护词/边界字符枚举不完。
+    const denyVerbs = "处理|开工|启动|执行|推进|修复|排查|合并|关闭|回收|列入|进入|进|呈报|判|授权|搁置|动|管|勾选|排期";
+    const negPrefix = "不|未|勿|莫|非|禁止|避免|不再|不会|无须|无需|未获";
+    const objTail = "(?:清单正文|孤儿段|清单|正文|编号|条目|本条|此单|孤儿|它|其)?";
     const negationStripped = outsideQuote.replace(
-      new RegExp(
-        `(?:不|未|勿|莫|无|非|禁止|避免|不再|不会|无须|无需)(?!${NEG_CLASS}{0,12}(?:建议|应当|应该|立即))${NEG_CLASS}{0,12}`,
-        "g",
-      ),
+      new RegExp(`(?:${negPrefix})(?:重复(?:开工|呈报开工|呈报)?|(?:${denyVerbs}))${objTail}`, "g"),
       "",
     );
     const aspectualStripped = negationStripped.replace(
@@ -130,7 +127,8 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
   };
   const isShelvedCounter = (line: string) => {
     const normalized = normalizeCounterLine(line);
-    return /^拍板搁置\s*\d+\s*条(?:$|[：：（])/.test(normalized) && !hasNonCounterAction(normalized);
+    // 裸骨架允许句读尾（v11 校准：真实产出「拍板搁置 1 条。」带句号被误拒）
+    return /^拍板搁置\s*\d+\s*条(?:$|[。.；;，,：：（])/.test(normalized) && !hasNonCounterAction(normalized);
   };
   const noInflight = !lines.some(
     (l) => (l.includes("#1803") || l.includes("#1804")) && !isInflightCounter(l),
@@ -301,6 +299,28 @@ const BAD_NEGATED_SMUGGLE_V2 = GOOD_CHECKLIST
     "拍板搁置 1 条：#1805——不是不处理而是建议立即处理",
   );
 
+// 退化形态 11（v10 二轮复核）：否定豁免收窄为精确拒绝谓语后，剥谓语后残留动作词
+// 仍拒（无逗号混排，不再依赖窗口/转折启发）
+const BAD_NEGATED_SMUGGLE_V3 = GOOD_CHECKLIST
+  .replace(
+    "在途 2 条（忽略）：#1803 → open PR #1955；#1804 → open PR #1958（不重复开工，开工前仍保留认领三问）",
+    "在途 2 条（忽略：#1803 ← PR #1955；#1804 ← PR #1958）——不进入清单直接推进",
+  )
+  .replace(
+    "拍板搁置 1 条（#1805，搭档原话「这个别管」；不进孤儿段及清单正文，不处理）",
+    "拍板搁置 1 条：#1805——不处理本条直接开工",
+  );
+
+const BAD_NEGATED_SMUGGLE_V4 = GOOD_CHECKLIST
+  .replace(
+    "在途 2 条（忽略）：#1803 → open PR #1955；#1804 → open PR #1958（不重复开工，开工前仍保留认领三问）",
+    "在途 2 条（忽略：#1803 ← PR #1955；#1804 ← PR #1958）——不重复开工今天处理",
+  )
+  .replace(
+    "拍板搁置 1 条（#1805，搭档原话「这个别管」；不进孤儿段及清单正文，不处理）",
+    "拍板搁置 1 条：#1805——不再搁置直接修复",
+  );
+
 export const selftest: GoldenModule["selftest"] = {
   good: {
     messages: [
@@ -389,6 +409,22 @@ export const selftest: GoldenModule["selftest"] = {
       messages: [
         msg("st-u11", 1, FIXTURE_INPUT, "user"),
         msg("st-o11", 2, BAD_NEGATED_SMUGGLE_V2),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 11（v10 二轮复核）：剥精确谓语后残留动作词仍拒
+      messages: [
+        msg("st-u12", 1, FIXTURE_INPUT, "user"),
+        msg("st-o12", 2, BAD_NEGATED_SMUGGLE_V3),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 12（v10 二轮复核）：另一组混排（不重复开工今天处理/不再搁置直接修复）
+      messages: [
+        msg("st-u13", 1, FIXTURE_INPUT, "user"),
+        msg("st-o13", 2, BAD_NEGATED_SMUGGLE_V4),
       ],
       expectedOk: false,
     },
