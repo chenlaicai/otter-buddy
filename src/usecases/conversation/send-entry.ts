@@ -148,7 +148,7 @@ export class SendEntry {
   private readonly memoryIndex?: MemoryIndexGateway;
   private readonly unfurlPrefetch?: (urls: string[]) => void;
 
-  /** entries 统一经 C2 政策投影（非阻断——失败仅 warn，文字优先送达）。 */
+  /** entries 统一经投影政策处理（非阻断——失败仅 warn，文字优先送达）。 */
   private async indexEntry(entry: Entry, externalSpeak: boolean, attachments: AttachmentRef[]): Promise<void> {
     if (!this.memoryIndex) return;
     try {

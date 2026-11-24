@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * C2 entries→memory 清理：默认 dry-run；--apply 先 SQLite 在线备份再联动清理。
+ * entries→memory 统一投影清理：默认 dry-run；--apply 先 SQLite 在线备份再联动清理。
  * 用法：npm run build && node scripts/cleanup-memory-projection.mjs --db=/path/to.db [--apply] [--backup=/path/backup.db]
  */
 import fs from "node:fs";

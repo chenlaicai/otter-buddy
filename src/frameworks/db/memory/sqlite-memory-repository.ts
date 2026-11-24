@@ -232,7 +232,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     });
   }
 
-  /** C2 统一投影：同 id 同内容重放零写入；内容变化时使旧 vec/task 失效。 */
+  /** 统一投影：同 id 同内容重放零写入；内容变化时使旧 vec/task 失效。 */
   upsertEntryProjection(entry: MemoryEntry): { contentChanged: boolean } {
     return this.runInTx(() => {
       const old = this.db.prepare("SELECT content FROM memory_entries WHERE id = ?").get(entry.id) as { content: string } | undefined;

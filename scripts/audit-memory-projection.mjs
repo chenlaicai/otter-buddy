@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** C2 entries→memory 只读审计。先 npm run build，再执行；输出绝无正文。 */
+/** entries→memory 统一投影只读审计。先 npm run build，再执行；输出绝无正文。 */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

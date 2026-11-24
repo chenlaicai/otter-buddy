@@ -2123,7 +2123,7 @@ function backfillOtterColors(db: Database.Database, logger: Logger): void {
   if (filled > 0) logger.info(`Backfilled otter colors (${filled} rows, F20260921otcl)`);
 }
 
-/** entries → memory 的 C2 政策回填。只补写/纠偏，绝不在启动时删除污染数据。 */
+/** entries → memory 的统一政策回填。只补写/纠偏，绝不在启动时删除污染数据。 */
 function backfillEntryMemoryIndex(db: Database.Database, logger: Logger): void {
   // 独立政策版本：旧 entry_memory_index_backfilled=done 不证明 external/secret 边界安全。
   const applied = db.prepare("SELECT value FROM settings WHERE key = 'entry_memory_projection_policy_version'").get() as { value: string } | undefined;
