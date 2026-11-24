@@ -8,6 +8,7 @@
  *   3. Mica 薄纱规则：var 带 fallback、无 backdrop-filter
  *   4. 六轮弹窗终局语义不被破坏（与 scrim-flicker-6 互补）
  *   5. 瞬态层白名单闭合（浮动助手 utility 在位 + 窄屏按钮不引用 .glass-overlay）
+ *   6. 小面积一级导航例外：只给 .glass-nav 采样，减少透明度时退化实色
  *
  * jsdom 不渲染层叠；真实观感由真浏览器验收（方案「验证」节 7 项）。
  */
@@ -103,6 +104,32 @@ describe('材质 v3.0 契约：瞬态/遮罩层真玻璃保留（白名单闭合
     for (const f of files) {
       expect(readSrc(f), `${f} 不应含内联 backdropFilter`).not.toMatch(/backdropFilter/)
     }
+  })
+})
+
+describe('材质 v3.0 契约：小面积一级导航真玻璃例外', () => {
+  it('宽底座保持静止，开源 GlassLens 驱动单枚透镜，乳白静止块与清晰链接独立', () => {
+    const topBar = readSrc('web/src/components/TopBar.tsx')
+    const lens = readSrc('web/src/components/liquid-glass/glass-lens.tsx')
+    const engine = readSrc('web/src/components/liquid-glass/engine.ts')
+    expect(topBar).toMatch(/from '\.\/liquid-glass\/glass-lens'/)
+    expect(topBar).toMatch(/<GlassLens value=\{activeRoute\} disabled=\{reducedTransparency\}/)
+    expect(topBar).toMatch(/data-glass-host=""/)
+    expect(topBar).toMatch(/data-glass-option=""/)
+    expect(topBar).toMatch(/data-glass-highlight=""/)
+    expect(topBar).not.toMatch(/@samasante|animateGlassValue|useLensWobble/)
+    expect(lens).toMatch(/new ResizeObserver/)
+    expect(lens).toMatch(/prefers-reduced-motion: reduce/)
+    expect(lens).toMatch(/data-glass-option/)
+    expect(engine).toMatch(/COPY THIS FILE VERBATIM/)
+    expect(engine).toMatch(/getContext\(['"]webgl2/)
+    expect(css).toMatch(/\.glass-nav-highlight\s*\{[^}]*background:\s*#ffffff/)
+    expect(css).toMatch(/\.glass-nav\[data-glass-moving\]\s+\.glass-nav-highlight\s*\{\s*opacity:\s*0/)
+    expect(css).toMatch(/\.glass-nav-content\s*\{[^}]*z-index:\s*10/)
+    expect(css).toMatch(/\.glass-nav-item-content\s*\{[^}]*z-index:\s*2/)
+    expect(css).not.toMatch(/\.glass-nav-copy|\.glass-nav-tint|\.glass-nav-selection/)
+    expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\)\s*\{\s*\.glass-nav,\s*:root\[data-custom-bg='true'\] \.glass-nav\s*\{\s*background:\s*var\(--nav-glass-bg\);\s*border-color:\s*var\(--hairline\);\s*\}/)
+    expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\)[\s\S]*?\.glass-nav canvas\s*\{\s*display:\s*none;\s*\}/)
   })
 })
 

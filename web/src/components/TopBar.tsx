@@ -2,18 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { MessageCircle, Search, Package, Settings, Activity, ClipboardList, type LucideIcon } from 'lucide-react'
 import { NAV_ROUTES } from '@contract/web/pages'
+import { GlassLens } from './liquid-glass/glass-lens'
 
-interface ExecutionMachineDTO {
-  id: string
-  name?: string
-}
-
-interface ExecutionMachinesDTO {
-  machines: ExecutionMachineDTO[]
-  currentMachineId: string
-}
-
-/** icon 映射（路由 path → icon 组件）。新增路由忘配 icon 只视觉降级不编译失败 */
 const ICONS: Record<string, LucideIcon> = {
   '/conversation': MessageCircle,
   '/memory': Search,
@@ -24,77 +14,75 @@ const ICONS: Record<string, LucideIcon> = {
   '/settings': Settings,
 }
 
-/** SPA TopBar —— 由 AppLayout 渲染一次，导航用 <Link> 客户端路由 */
+/** SPA TopBar —— 系统图标与名称 + 居中 Liquid Glass 主导航，由 AppLayout 渲染一次。 */
 export function TopBar() {
   const location = useLocation()
-  // 当前执行机投影（恒为本机，后续多终端接入后随侧边栏选持久机变化）
-  const [machineName, setMachineName] = useState<string | null>(null)
+  const [reducedTransparency, setReducedTransparency] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-    fetch('/api/execution-machines', { credentials: 'same-origin' })
-      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`))))
-      .then((d: ExecutionMachinesDTO) => {
-        if (!cancelled) {
-          const cur = d.machines.find(m => m.id === d.currentMachineId)
-          setMachineName(cur?.name ?? d.currentMachineId)
-        }
-      })
-      .catch(() => { if (!cancelled) setMachineName(null) })
-    return () => { cancelled = true }
-  }, [])
-
-  /** 判断当前路由是否激活：精确匹配或前缀匹配（/conversation 匹配 /conversation/xxx） */
   function isActive(path: string): boolean {
     if (path === '/conversation') {
-      return location.pathname === '/conversation' || location.pathname === '/'
+      return location.pathname === '/conversation'
+        || location.pathname === '/'
+        || location.pathname.startsWith('/conversation/')
     }
     return location.pathname === path
   }
 
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const preference = window.matchMedia('(prefers-reduced-transparency: reduce)')
+    const update = () => setReducedTransparency(preference.matches)
+    update()
+    preference.addEventListener?.('change', update)
+    return () => preference.removeEventListener?.('change', update)
+  }, [])
+
+  const activeRoute = NAV_ROUTES.find(route => isActive(route.path))?.path ?? null
+
   return (
-    <header className="flex items-center px-5 h-12 glass-strong z-20 flex-shrink-0 mx-3 mt-3 rounded-2xl">
-      {/* Logo left-aligned */}
-      <div className="flex items-center gap-2 flex-1">
-        <img src="/otter-icon.png" alt="Otter Buddy" className="w-6 h-6 rounded-full" />
-        <span className="text-sm font-bold tracking-tight text-otter-600">Otter Buddy</span>
+    <header className="relative z-20 mx-3 mt-3 flex h-12 flex-shrink-0 items-center justify-center">
+      <div className="absolute left-2 top-1/2 flex -translate-y-1/2 items-center gap-2" data-testid="system-brand">
+        <img
+          src="/otter-icon.png"
+          alt="Otter Buddy"
+          className="h-8 w-8 rounded-full shadow-otter"
+        />
+        <span className="topbar-brand-name">Otter Buddy</span>
       </div>
 
-      {/* Tabs centered */}
-      <nav className="flex gap-0.5 p-1 rounded-full" style={{ background: 'rgba(139,111,71,0.06)' }}>
-        {NAV_ROUTES.map(route => {
-          const Icon = ICONS[route.path] ?? MessageCircle
-          const active = isActive(route.path)
-          return (
-            <Link
-              key={route.path}
-              to={route.nav ?? route.path}
-              className={`px-4 py-1 text-xs font-medium rounded-full transition flex items-center gap-1.5 ${
-                active
-                  ? 'nav-pill-active text-otter-600 font-semibold'
-                  : 'text-stone-500 hover:text-stone-700'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              {route.label}
-            </Link>
-          )
-        })}
+      <nav
+        aria-label="主导航"
+        data-testid="primary-nav"
+        data-glass-host=""
+        className="glass-nav max-w-[calc(100vw-11rem)] rounded-full"
+      >
+        <GlassLens value={activeRoute} disabled={reducedTransparency} />
+        <div className="glass-nav-content flex items-center gap-0.5 overflow-x-auto p-1">
+          {NAV_ROUTES.map(route => {
+            const Icon = ICONS[route.path] ?? MessageCircle
+            const active = isActive(route.path)
+            return (
+              <Link
+                key={route.path}
+                to={route.nav ?? route.path}
+                data-glass-option=""
+                className={`glass-nav-item flex shrink-0 items-center rounded-full px-4 py-1.5 text-xs font-medium ${
+                  active ? 'nav-pill-active text-stone-800 font-semibold' : 'text-stone-700 hover:text-stone-900'
+                }`}
+                data-active={active}
+                data-route={route.path}
+                aria-current={active ? 'page' : undefined}
+              >
+                {active && <span aria-hidden="true" data-glass-highlight="" className="glass-nav-highlight" />}
+                <span className="glass-nav-item-content flex items-center gap-1.5">
+                  <Icon className="w-3.5 h-3.5" />
+                  {route.label}
+                </span>
+              </Link>
+            )
+          })}
+        </div>
       </nav>
-
-      {/* Right：当前执行机投影（数据不可得时静默隐藏，不阻塞布局） */}
-      <div className="flex-1 flex justify-end">
-        {machineName && (
-          <span
-            data-testid="execution-machine"
-            title={`当前执行机：${machineName}`}
-            className="px-2.5 py-1 text-xs font-medium rounded-full text-otter-600"
-            style={{ background: 'rgba(139,111,71,0.06)' }}
-          >
-            执行机：{machineName}
-          </span>
-        )}
-      </div>
     </header>
   )
 }

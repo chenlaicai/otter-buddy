@@ -99,6 +99,14 @@ export default tseslint.config(
     },
   },
   {
+    // Vendored Liquid Glass upstream: keep engine and DOM sampler byte-identical;
+    // integration-only changes belong in TopBar or the documented option selector.
+    files: ["web/src/components/liquid-glass/**/*.{ts,tsx}"],
+    rules: {
+      "prefer-const": "off",
+    },
+  },
+  {
     files: ["src/**/*.ts"],
     rules: {
       "complexity": ["error", 12],
