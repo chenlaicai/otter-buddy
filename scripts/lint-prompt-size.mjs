@@ -21,7 +21,9 @@
  * 即码点数），本 lint 计的是字节。字符数 ≤ 字节数（中文 1 字符 3 字节），字节
  * 口径更严，不会漏放行任何会超 DB 约束的文件——护栏取严侧，安全方向正确。
  *
- * 用法：node scripts/lint-prompt-size.mjs [--dir <dir>]
+ * 核心常驻 prompt 另按当前实际体积建立只降 ratchet，并拒绝 body <signal> 旧协议。
+ *
+ * 用法：node scripts/lint-prompt-size.mjs [--dir <dir>] [--core-root <dir>]
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { Buffer } from "node:buffer";
@@ -36,9 +38,18 @@ const BUDGET_BYTES = 10000;
 /** 警告线（字节）：预算的 80%，触线提示增量纪律（加 X 减 X）。 */
 const WARN_BYTES = 8000;
 
+/** 核心常驻 prompt 的只降预算；提升预算必须单独评审，不能随正文顺带膨胀。 */
+const CORE_PROMPTS = [
+  { path: ".pi/SYSTEM.md", budgetBytes: 24089, requiresSignalParam: true },
+  { path: "prompts/identity/BIG_OTTER.md", budgetBytes: 16143, requiresSignalParam: false },
+  { path: "prompts/identity/SMALL_OTTER.md", budgetBytes: 8442, requiresSignalParam: true },
+];
+
 const args = process.argv.slice(2);
-let dirIdx = args.indexOf("--dir");
+const dirIdx = args.indexOf("--dir");
+const coreRootIdx = args.indexOf("--core-root");
 const templateDir = dirIdx !== -1 ? resolve(args[dirIdx + 1]) : join(repoRoot, "prompts", "scheduled");
+const coreRoot = coreRootIdx !== -1 ? resolve(args[coreRootIdx + 1]) : repoRoot;
 
 /** 剥离 frontmatter 后的 body 字节与字符数（与 update-scheduled-task-body.mjs 同则） */
 function stripFrontmatter(content) {
@@ -62,8 +73,18 @@ try {
   process.exit(2);
 }
 
+/** 核心 prompt 中只允许否定式提及旧标签；任何示例或肯定式用法都视为旧协议回流。 */
+function findLegacySignalLines(content) {
+  return content.split(/\r?\n/).flatMap((line, index) => {
+    if (!/<signal\b/i.test(line)) return [];
+    if (/(?:禁止|不得|不再)[^\n]*<signal\b/i.test(line)) return [];
+    return [index + 1];
+  });
+}
+
 let violations = 0;
 let warns = 0;
+let coreReadFailed = false;
 const perFile = [];
 
 for (const file of files) {
@@ -87,7 +108,55 @@ for (const file of files) {
   perFile.push(`${file}: ${bytes}B`);
 }
 
-console.log(`prompt 体积预算闸：${files.length} 个模板，${violations} 超预算 / ${warns} 警告`);
-if (process.env.VERBOSE) perFile.forEach((l) => console.log(`  ${l}`));
+const corePerFile = [];
+for (const prompt of CORE_PROMPTS) {
+  let content;
+  try {
+    content = readFileSync(join(coreRoot, prompt.path), "utf8");
+  } catch {
+    coreReadFailed = true;
+    console.error(`lint-prompt-size: 核心 prompt 不可读（${prompt.path}）`);
+    continue;
+  }
 
-process.exit(violations > 0 ? 1 : 0);
+  const bytes = Buffer.byteLength(content, "utf8");
+  if (bytes > prompt.budgetBytes) {
+    violations += 1;
+    console.error(`✗ ${prompt.path}: ${bytes}B 超 ratchet ${prompt.budgetBytes}B——核心常驻 prompt 只准降，不准随改动顺带增长`);
+  }
+  if (prompt.requiresSignalParam && !(content.includes("speak") && content.includes("`signal` 结构化参数"))) {
+    violations += 1;
+    console.error(`✗ ${prompt.path}: 缺少 speak 的 signal 结构化参数协议`);
+  }
+  for (const line of findLegacySignalLines(content)) {
+    violations += 1;
+    console.error(`✗ ${prompt.path}:${line}: 禁止指示在 body 写 <signal>；唯一协议是 speak 的 signal 结构化参数`);
+  }
+  corePerFile.push(`${prompt.path}: ${bytes}B / ratchet ${prompt.budgetBytes}B`);
+}
+
+try {
+  const toolFactory = readFileSync(join(repoRoot, "src/interface-adapters/agent-runtime/tools/tool-factory.ts"), "utf8");
+  const signalTools = readFileSync(join(repoRoot, "src/interface-adapters/agent-runtime/tools/signal-tools.ts"), "utf8");
+  const contractChecks = [
+    toolFactory.includes("signal: SPEAK_SIGNAL_PARAM_SCHEMA"),
+    signalTools.includes("export const SPEAK_SIGNAL_PARAM_SCHEMA"),
+    signalTools.includes('type: "array"'),
+    signalTools.includes('required: ["type", "payload"]'),
+  ];
+  if (contractChecks.some((ok) => !ok)) {
+    violations += 1;
+    console.error("✗ speak.signal 结构化参数定义或 tool-factory 接线缺失");
+  } else {
+    console.log("speak.signal 结构化参数：通过");
+  }
+} catch {
+  coreReadFailed = true;
+  console.error("lint-prompt-size: speak.signal 工具契约源码不可读");
+}
+
+console.log(`prompt 体积预算闸：${files.length} 个模板，${violations} 超预算或协议冲突 / ${warns} 警告`);
+console.log(`核心 prompt：${CORE_PROMPTS.length} 个文件纳入只降 ratchet`);
+if (process.env.VERBOSE) [...perFile, ...corePerFile].forEach((l) => console.log(`  ${l}`));
+
+process.exit(coreReadFailed ? 2 : violations > 0 ? 1 : 0);

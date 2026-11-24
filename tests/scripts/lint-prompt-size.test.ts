@@ -14,9 +14,21 @@ import * as os from 'node:os';
 
 const script = path.resolve(__dirname, '../../scripts/lint-prompt-size.mjs');
 
-function runLint(dir: string): { code: number; stdout: string; stderr: string } {
-  const r = spawnSync('node', [script, '--dir', dir], { encoding: 'utf8' });
+const repoRoot = path.resolve(__dirname, '../..');
+
+function runLint(dir: string, coreRoot?: string): { code: number; stdout: string; stderr: string } {
+  const args = [script, '--dir', dir];
+  if (coreRoot) args.push('--core-root', coreRoot);
+  const r = spawnSync('node', args, { encoding: 'utf8' });
   return { code: r.status ?? -1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+}
+
+function copyCorePrompts(destination: string): void {
+  for (const relativePath of ['.pi/SYSTEM.md', 'prompts/identity/BIG_OTTER.md', 'prompts/identity/SMALL_OTTER.md']) {
+    const target = path.join(destination, relativePath);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(path.join(repoRoot, relativePath), target);
+  }
 }
 
 /** 生成 body 为指定字节数的模板（frontmatter 会被 lint 剥离不计入） */
@@ -69,4 +81,43 @@ describe('#1030 prompt 体积预算闸', () => {
     const r = runLint(path.join(tmpDir, 'not-exist'));
     expect(r.code).toBe(2);
   });
+});
+
+describe('M3 核心 prompt 协议与只降 ratchet', () => {
+  it('旧 SMALL 的 body <signal> 指令会被拒绝', () => {
+    const coreRoot = path.join(tmpDir, 'core');
+    copyCorePrompts(coreRoot);
+    fs.writeFileSync(path.join(coreRoot, 'prompts/identity/SMALL_OTTER.md'), [
+      '对派工有异议时，用结构化 `<signal>` 嵌在 speak body 里：',
+      '- `<signal type="objection" severity="high">正文必须含 file:line</signal>`',
+      '- `<signal type="blocked" severity="medium">正文必须附已试清单</signal>`',
+    ].join('\n'));
+
+    const r = runLint(tmpDir, coreRoot);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain('SMALL_OTTER.md');
+    expect(r.stderr).toContain('body');
+    expect(r.stderr).toContain('<signal>');
+  });
+
+  it('真实核心 prompt 与 speak.signal 结构化参数定义通过一致性检查', () => {
+    const r = runLint(tmpDir);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain('speak.signal 结构化参数：通过');
+    expect(r.stdout).toContain('核心 prompt：3 个文件');
+  });
+
+  it.each(['.pi/SYSTEM.md', 'prompts/identity/BIG_OTTER.md', 'prompts/identity/SMALL_OTTER.md'])(
+    '核心文件超只降 ratchet 会失败：%s',
+    (relativePath) => {
+      const coreRoot = path.join(tmpDir, 'core');
+      copyCorePrompts(coreRoot);
+      fs.appendFileSync(path.join(coreRoot, relativePath), 'x');
+
+      const r = runLint(tmpDir, coreRoot);
+      expect(r.code).toBe(1);
+      expect(r.stderr).toContain(relativePath);
+      expect(r.stderr).toContain('超 ratchet');
+    },
+  );
 });
