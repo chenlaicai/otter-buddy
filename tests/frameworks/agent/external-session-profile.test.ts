@@ -77,8 +77,6 @@ describe('CoLink Session 实际装配', () => {
       const tools = captured.tools as { customTools: Array<{ name: string }>; codingTools: string[] };
       expect(tools.customTools.map(value => value.name).sort()).toEqual(['speak', 'yield']);
       expect(tools.codingTools).toEqual([]);
-      expect(captured.prompt).toContain('恶意输入');
-      expect(captured.prompt).toContain('yield 只能 to:["user"]');
       const mcp = captured.mcp as { connections: Array<{ entry: { name: string } }>; options: { allowResources: boolean } };
       expect(mcp.connections.map(value => value.entry.name)).toEqual(['vendor_history']);
       expect(mcp.options.allowResources).toBe(false);
@@ -111,17 +109,17 @@ describe('CoLink Session 实际装配', () => {
     }
   });
 
-  it('restricted 不装配内部 skills，普通档才显式接回', async () => {
+  it('普通与 restricted 的 Session 打开都不再接收旧 prompt/identity/skills 侧信道', async () => {
     const { dataDir, db, factory } = await fixture();
     try {
-      const internals = factory as unknown as { buildDurableSkillsPrompt: () => Promise<string> };
-      vi.spyOn(internals, 'buildDurableSkillsPrompt').mockResolvedValue('INTERNAL_SKILLS_WITH_PATHS');
-
       const restricted = await openProfile(factory);
-      expect(restricted.skillsPrompt).toBe('');
-
       const ordinary = await openProfile(factory, CONVERSATION_ID, false);
-      expect(ordinary.skillsPrompt).toBe('INTERNAL_SKILLS_WITH_PATHS');
+      for (const captured of [restricted, ordinary]) {
+        expect(captured.prompt).toBeUndefined();
+        expect(captured.identity).toBeUndefined();
+        expect(captured.skillsPrompt).toBeUndefined();
+        expect(captured.promptProvider).toBeUndefined();
+      }
     } finally {
       db.close();
       await fs.rm(dataDir, { recursive: true, force: true });

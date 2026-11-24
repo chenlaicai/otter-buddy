@@ -3,7 +3,7 @@
  *
  * 从 PiSessionFactory 拆出（瘦身），职责：
  * - 加载身份文案文件（BIG_OTTER.md / SMALL_OTTER.md）
- * - 构建首次 invoke 的身份前缀（名称/ID/类型 + 按类型加载的身份文案）
+ * - 构建每 invoke 的身份前缀（名称/ID/类型 + 按类型加载的身份文案）
  * - 构建召唤者身份段（小獭专用）
  * - 构建模型选择指南（注入大獭 prompt）
  */
@@ -17,9 +17,9 @@ import { loadPromptFile } from "./prompt-loader";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 
 export class IdentityBuilder {
-  /** 大獭身份文案（首次 invoke 时注入，从 identityPromptDir 加载） */
+  /** 大獭身份文案（每 invoke 注入，从 identityPromptDir 加载） */
   private bigOtterIdentity = "";
-  /** 小獭身份文案（首次 invoke 时注入，从 identityPromptDir 加载） */
+  /** 小獭身份文案（每 invoke 注入，从 identityPromptDir 加载） */
   private smallOtterIdentity = "";
 
   // eslint-disable-next-line max-params -- 加 conversationRepo 后 6 参；DI 装配参数，拆 options 对象无增益
@@ -30,24 +30,24 @@ export class IdentityBuilder {
     private readonly conversationRepo: ConversationRepository | undefined,
     private readonly modelPool: ModelPool | undefined,
     private readonly logger: Logger,
-    identityPromptDir?: string,
+    private readonly identityPromptDir?: string,
   ) {
     if (identityPromptDir) {
       this.bigOtterIdentity = loadPromptFile(`${identityPromptDir}/BIG_OTTER.md`) ?? "";
       this.smallOtterIdentity = loadPromptFile(`${identityPromptDir}/SMALL_OTTER.md`) ?? "";
       if (!this.bigOtterIdentity || !this.smallOtterIdentity) {
-        this.logger.warn('Otter 身份文案缺失，身份注入降级为仅名称/类型', {
+        this.logger.warn('Otter 身份文案缺失，内部 invoke 将在 model submit 前失败', {
           dir: identityPromptDir,
           bigOtterLoaded: Boolean(this.bigOtterIdentity),
           smallOtterLoaded: Boolean(this.smallOtterIdentity),
         });
       }
     } else {
-      this.logger.warn('未配置 identityPromptDir，身份注入降级为仅名称/类型');
+      this.logger.warn('未配置 identityPromptDir，内部 invoke 将在 model submit 前失败');
     }
   }
 
-  /** 构建首次 invoke 的身份前缀：名称/ID/类型 + 按类型加载的身份文案。类型以 otterConfig 为准（与工具门控同一事实源）
+  /** 构建每 invoke 的身份前缀：名称/ID/类型 + 按类型加载的身份文案。类型以 otterConfig 为准（与工具门控同一事实源）
    * @param modelAlias 当前 otter 的模型别名（来自 otterConfigProvider），用于注入模型身份段 */
   /** otter 显示名（压缩钩子 meta 行用）。查不到返回 undefined */
   async getOtterName(otterId: string): Promise<string | undefined> {
@@ -58,12 +58,11 @@ export class IdentityBuilder {
   async buildIdentityPrefix(otterId: string, otterType: string, conversationId: string, modelAlias?: string): Promise<string> {
     const otter = await this.otterRepo.getById(otterId);
     if (!otter) {
-      this.logger.warn('身份注入跳过：otters 表中不存在该记录', { otterId });
-      return "";
+      throw new Error(`Required identity subject is missing: ${otterId}`);
     }
     /** 未知类型按小獭处理（文案侧的保守默认；schema 约束下不可达，工具门控独立判定） */
     const isBig = otterType === 'big';
-    const identityBody = isBig ? this.bigOtterIdentity : this.smallOtterIdentity;
+    const identityBody = this.requireIdentityBody(isBig);
 
     // 大獭且多模型时注入模型选择指南
     const modelGuidance = isBig ? this.buildModelSelectionGuidance() : '';
@@ -108,6 +107,15 @@ export class IdentityBuilder {
       modelIdentity,
       modelGuidance,
     ].filter(Boolean).join("\n\n");
+  }
+
+  private requireIdentityBody(isBig: boolean): string {
+    const body = isBig ? this.bigOtterIdentity : this.smallOtterIdentity;
+    if (body) return body;
+    // Why: internal and readOnly invokes require the same complete identity.
+    // A name-only fallback would silently turn a broken asset installation into
+    // a different agent instead of stopping before the model request.
+    throw new Error(`Required ${isBig ? "BIG_OTTER.md" : "SMALL_OTTER.md"} identity asset is unavailable: ${this.identityPromptDir}`);
   }
 
   /** 构建所在对话身份段。对话无标题（空串/纯空白）时返回空——

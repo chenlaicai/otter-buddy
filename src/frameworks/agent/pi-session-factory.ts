@@ -5,7 +5,7 @@
  * - Session 复用机制：首次 invoke 创建 session 并持久化，后续 invoke 恢复已有 session
  * - 只有在 reset/create 时才创建新 session，构建 session 链
  * - tools 配置控制编码工具启用，customTools 注入 Otter 工具
- * - 系统提示通过 extension before_agent_start 事件注入 system role（）
+ * - 系统提示由 PromptComposer 在每 invoke submit 前编译为唯一 renderedPrompt
  * - 熔断器通过 session.subscribe 拦截 tool_execution_start 事件
  * - 并发安全：外部方法获取锁，内部方法不获取锁，避免死锁
  *
@@ -135,7 +135,7 @@ import type { MatterRepository } from "@usecases/matter/matter-repository";
 import type { WorkLedgerBinder } from "@usecases/health/work-ledger-binder";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
-import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext, buildOtterPrompt, buildInvokeSystemPrompt, RESTRICTED_EXTERNAL_IDENTITY } from "./session-helpers";
+import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext } from "./session-helpers";
 import { DelegationInFlightError, isSessionLockConflictError, SessionLockConflictError } from "@entities/errors";
 import { randomUUID } from "node:crypto";
 // （EazoTack 工具瘦身 v1）：manifest toolExposure 段读取
@@ -200,7 +200,9 @@ import { SYNTHESIS_READ_ONLY_TOOL_WHITELIST } from "./synthesis-prompt-builder";
 import { ModelRuntimeRegistry, otterInvokeStorage } from "./model-runtime-registry";
 import { invokeEpochStorage, mintEpoch, type InvokeEpoch } from "./invoke-epoch";
 import type { PiCodingAgentModule } from "./model-runtime-registry";
-import { formatSkillsForPrompt, type ResourceLoader } from "@earendil-works/pi-coding-agent";
+import type { ResourceLoader } from "@earendil-works/pi-coding-agent";
+import { PromptAssetProvider } from "./prompt-asset-provider";
+import { composePrompt, type ExternalTaskConfig } from "./prompt-composer";
 import { createEventHandler } from "./agent-event-utils";
 import type { AgentEvent } from "./agent-event-utils";
 
@@ -272,6 +274,8 @@ export interface InvokeOptions {
   currentInvokeId?: string;
   /** 受限外部会话：受限工具、独立 Session 与工作区 MCP，禁止普通池和其他工具面。 */
   externalProfile?: 'restricted';
+  /** 外部 conversation/connector 已审公开配置；绝不回退普通 otter systemPrompt。 */
+  externalTaskConfig?: ExternalTaskConfig;
   /** SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
   emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
   /** 本对话搭档（用户）id——belief preference 来源身份校验用。
@@ -325,6 +329,8 @@ export interface AgentSessionFactoryConfig {
   dataDir?: string;
   /** 对话仓库（可选）——身份注入读对话标题用 */
   conversationRepo?: ConversationRepository;
+  /** 内部 SYSTEM/Skill 资产根；测试隔离时显式覆盖。 */
+  promptAssetRoot?: string;
 }
 
 /** Durable 1.5.0 是唯一执行 runtime；ResourceLoader 仅用于只读 profile/MCP。 */
@@ -357,6 +363,7 @@ export class PiSessionFactory implements AgentGateway {
 
   private readonly identityBuilder: IdentityBuilder;
   private readonly modelRuntimeRegistry: ModelRuntimeRegistry;
+  private readonly promptAssets: PromptAssetProvider;
   /** 待注入身份的 otter（create/reset 后标记，注入成功才消费；进程重启丢失由 createdNew 兜底。已知边界：首次注入被 abort 时重试会重复注入一次，罕见无害，有意不处理） */
   private readonly pendingIdentity = new Set<string>();
   private otterToolClient: OtterToolClient | null;
@@ -407,6 +414,8 @@ export class PiSessionFactory implements AgentGateway {
       dataDir?: string;
       /** 对话仓库（可选）——身份注入读对话标题用 */
       conversationRepo?: ConversationRepository;
+      /** 内部 SYSTEM/Skill 资产根；测试隔离时显式覆盖。 */
+      promptAssetRoot?: string;
     },
     private readonly logger: Logger,
   ) {
@@ -415,6 +424,7 @@ export class PiSessionFactory implements AgentGateway {
 
     this.identityBuilder = new IdentityBuilder(cfg.otterRepo, cfg.settingsRepo, cfg.conversationRepo, cfg.modelPool, logger, cfg.identityPromptDir);
     this.modelRuntimeRegistry = new ModelRuntimeRegistry(cfg.modelPool, logger, cfg.resourceLoader, cfg.onHaltFirstBlock);
+    this.promptAssets = new PromptAssetProvider(() => this.modelRuntimeRegistry.getResourceLoader(), cfg.promptAssetRoot);
     this.circuitBreakerConfig = {
       ...DEFAULT_CIRCUIT_BREAKER_CONFIG,
       ...getConfig().circuitBreaker,
@@ -453,13 +463,6 @@ export class PiSessionFactory implements AgentGateway {
   /** 获取 ResourceLoader（profile 端点用；需 warmup 完成后调用） */
   getResourceLoader() {
     return this.modelRuntimeRegistry.getResourceLoader();
-  }
-
-  /** durable 显式接回 coding-agent skills 资源面；loader 未预热时保持空并沿用现有启动口径。 */
-  private async buildDurableSkillsPrompt(): Promise<string> {
-    const loader = this.modelRuntimeRegistry.getResourceLoader();
-    if (!loader) return "";
-    return formatSkillsForPrompt((await loader.getSkills()).skills);
   }
 
   /** 懒加载 pi-coding-agent（ESM-only）+ ResourceLoader（skill 发现）+ ModelRuntime（API key） */
@@ -1103,7 +1106,7 @@ export class PiSessionFactory implements AgentGateway {
         const sessionKey = options?.messageId ? `${otterId}:${options.messageId}` : otterId;
         // 池命中时重置 cwd 到当前对话工作区（U1：invoke 入口重置，不动池结构）
         await this._resetSessionCwd(existing.session, options?.conversationId ?? "");
-        existing.session.updateOptions({ currentInvokeId: options?.currentInvokeId, prompt: buildOtterPrompt(this.cfg.otterConfigProvider.getConfig(otterId)?.systemPrompt) });
+        existing.session.updateOptions({ currentInvokeId: options?.currentInvokeId });
         this._transferPoolOwnership(existing, otterId);
         this._registerActiveSession(sessionKey, existing.session);
         return { session: existing.session, sessionKey, toolContext: existing.toolContext, turnText, isPooled: true, createdNew: false };
@@ -1217,6 +1220,53 @@ export class PiSessionFactory implements AgentGateway {
   /** 影子下线：buildShadowEvalHook（观察期对照构造）已删——主判定切
    *  evaluateWriteVerdict 后无「旧链 vs 新链」对照面，shadow-eval-recorder 模块整体移除。 */
 
+  private async composeInvokePrompt(otterId: string, options: InvokeOptions | undefined, session: DurableSession): Promise<string> {
+    const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
+    if (!otterConfig) throw new Error(`Otter config not found: ${otterId}. Call create() first.`);
+    const scope = {
+      otterId,
+      conversationId: options?.conversationId ?? "",
+      otterType: otterConfig.otterType,
+    };
+    if (options?.externalProfile === "restricted") {
+      return composePrompt({
+        scope: { ...scope, externalProfile: "restricted" },
+        externalTaskConfig: options.externalTaskConfig,
+        publicMcpInstructions: session.mcpInstructions,
+      }).text;
+    }
+    const [assets, identity] = await Promise.all([
+      this.promptAssets.snapshot(),
+      this.identityBuilder.buildIdentityPrefix(otterId, otterConfig.otterType, scope.conversationId, otterConfig.modelAlias),
+    ]);
+    return composePrompt({
+      scope,
+      assets,
+      identity,
+      taskConfig: otterConfig.systemPrompt,
+      mcpInstructions: session.mcpInstructions,
+    }).text;
+  }
+
+  private async prepareRenderedPrompt(
+    otterId: string,
+    options: InvokeOptions | undefined,
+    session: DurableSession,
+    sessionKey: string,
+  ): Promise<string> {
+    try {
+      return await this.composeInvokePrompt(otterId, options, session);
+    } catch (error) {
+      // Why: composition failed before the guarded prompt boundary, so its finally
+      // block cannot release the active entry registered during acquisition.
+      this._deleteActiveSessionIfOwned(sessionKey);
+      // Bypassed-pool sessions have no later owner; ordinary pooled sessions remain
+      // reusable so repaired assets can be retried without rewriting the pool.
+      if (options?.readOnly || options?.externalProfile === "restricted") session.dispose();
+      throw error;
+    }
+  }
+
   /** 使用 session 执行 invoke（session 由 _acquirePooled 获取，本方法不再创建；
    * wrappedHandler 启动游标推进 + pushCursorOnStartup 在此） */
   // eslint-disable-next-line max-params, max-lines-per-function -- 池化后 session/sessionKey/toolContext/turnText 由 acquire 产出透传（拆对象会切断参数与 acquire 返回值的对应关系）；wrappedHandler 启动游标 + ctlv 合流面
@@ -1230,30 +1280,14 @@ export class PiSessionFactory implements AgentGateway {
     turnText: { text: string },
   ): Promise<AgentRunResult> {
 
-    const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId)!;
-    const otterType = otterConfig.otterType; const otterPromptConfig = otterConfig.systemPrompt;
-
-    // 身份前缀在 ALS scope 外构建（含 DB 查询）。
-    // system prompt 不被 session history 持久化，每次 invoke 重建 session 时
-    // system role 是空的。身份信息必须每次都注入，否则 invoke 2+ 起的 LLM 不知道自己的身份。
-    // （旧代码拼在 user message 里被持久化，但 system role 方案不持久化——改为每次都构建）
     const conversationId = options?.conversationId ?? "";
-    // 传递 raw config 的 modelAlias（可能 undefined）给身份构建，
-    // 让 buildModelIdentity 正确判定 isDefault（未显式指定 = 默认）。
-    // getModelAliasForLog 返回解析后的非空值，此处用 config 裸值。
-    const rawConfig = this.cfg.otterConfigProvider?.getConfig(otterId);
-    const rawModelAlias = rawConfig?.modelAlias;
-    // 受限外部会话不注入真实身份段（搭档名/仓库/邮箱/大獭职责文案）——
-    // 改用中性身份常量。身份信息属于内部资产，不得进外部 prompt。
-    const identityPrefix = options?.externalProfile === 'restricted'
-      ? RESTRICTED_EXTERNAL_IDENTITY
-      : await this.identityBuilder.buildIdentityPrefix(otterId, otterType, conversationId, rawModelAlias);
-    // 压缩钩子合成 prompt 的 meta 行要显示名而非 UUID。
-    // 查询失败不影响链路（catch 降级 undefined，钩子用"海獭"兜底）。
-    const displayName = await this.identityBuilder.getOtterName(otterId).catch(() => undefined);
+    const renderedPrompt = await this.prepareRenderedPrompt(otterId, options, session, sessionKey);
+    // 压缩钩子合成 prompt 的 meta 行要显示名而非 UUID；restricted 不读取内部名称。
+    const displayName = options?.externalProfile === "restricted"
+      ? undefined
+      : await this.identityBuilder.getOtterName(otterId).catch(() => undefined);
 
-    // 整个 createAgentSession + prompt 包在 ALS scope 内，
-    // extension 的 before_agent_start handler 从 store 读 otterPromptConfig + identityPrefix。
+    // prompt 政策已在上方编译完成；ALS 只承载执行守卫，不再充当 prompt 真源。
     // loopBlockedTools 入 store（tool_call 门读）+ 传 attachGuards（检测器写）。
     const loopBlockedTools = new Map<string, string>();
     // （M-2bf6e98c）：守卫参数提为单一真相源——store（tool_call 门）与
@@ -1269,7 +1303,7 @@ export class PiSessionFactory implements AgentGateway {
     const loopBlockOnIntercept = this.buildLoopBlockInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId });
     return await otterInvokeStorage.run(
       // otterId 进 store——tool_call handler 查 halt 标用
-      { otterPromptConfig, identityPrefix, otterId, displayName, currentConversationId: conversationId, loopBlockedTools, loopBlockOnIntercept, guardProjectRoot, guardSessionCwd, guardOnIntercept },
+      { otterPromptConfig: undefined, identityPrefix: "", otterId, displayName, currentConversationId: conversationId, loopBlockedTools, loopBlockOnIntercept, guardProjectRoot, guardSessionCwd, guardOnIntercept },
       // eslint-disable-next-line max-statements, complexity -- pool hit/miss 两条路径 + startup cursor push；pendingRestart 检查增加语句数；守卫拦截 hook 增加分支
       async () => {
         // 1. session 已由 _acquirePooled 提供（池化：命中复用 / 未命中冷启动入池）
@@ -1280,7 +1314,7 @@ export class PiSessionFactory implements AgentGateway {
         //    bashGuardGate 直读 store 的 guard* 参数），不再经本链传参。
         const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), loopBlockedTools });
 
-        // 3. 构建用户消息（dynamicContext 仍拼在 user message；system prompt 由 extension handler 注入 system role）
+        // 3. 构建用户消息（dynamicContext 仍拼在 user message；system prompt 已编译为唯一 renderedPrompt）
         const fullMessage = buildMessageWithContext("", message, options?.dynamicContext);
         this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, modelAlias: this.getModelAliasForLog(otterId), messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });
 
@@ -1300,8 +1334,8 @@ export class PiSessionFactory implements AgentGateway {
         try {
           /** prompt 前 arm 首字节超时（覆盖排队+prefill 静默，此前区间无任何兜底） */
           armFirstByte();
-          /** durable 身份经 otter section 进入 system role；每轮刷新，避免模型只见用户消息与工具。 */
-          session.updateOptions({ currentInvokeId: options?.currentInvokeId, identity: identityPrefix });
+          /** 每 invoke 在 submit 前替换完整 system 面，池命中与 restart 走同一契约。 */
+          session.updateOptions({ currentInvokeId: options?.currentInvokeId, renderedPrompt });
           /** 多模态 images 透传（机制层不做策略；SDK 按模型 input 自动降级）。
    *  空对象省略：undefined 与 {images:[]} 等价走纯文本路径 */
           await session.prompt(fullMessage, buildPromptOptions(options), durableStream, BACKGROUND_CONTEXT);
@@ -1579,16 +1613,12 @@ export class PiSessionFactory implements AgentGateway {
     const mcpPath = (await import("node:path")).default;
     const mcpEntries = await readSessionMcpConfig(workspaceCwd, mcpPath.resolve(this.cfg.sessionDir, "mcp.json"), options?.externalProfile);
     const mcp = mcpEntries.length ? new DurableMcpBridge(mcpEntries, workspaceCwd, this.logger, { allowResources: !external }) : undefined;
-    const prompt = buildInvokeSystemPrompt(this.cfg.otterConfigProvider.getConfig(otterId)?.systemPrompt, options?.externalProfile);
     const session = await DurableAgentSession.open({
       otterId,
       file: this.durableFile(otterId, options?.externalProfile, conversationId),
       models: getModelSource(this.cfg.modelPool),
       model: resolvedModel,
       thinkingLevel: this.cfg.modelPool?.getThinkingLevel(resolvedAlias),
-      prompt,
-      // 内部 skill 名称、描述与绝对路径只接回普通档；restricted 外部档保持最小信息面。
-      skillsPrompt: external ? "" : await this.buildDurableSkillsPrompt(),
       cwd: workspaceCwd,
       executionMachines: this.cfg.executionMachines,
       tools: { customTools: filteredCustomTools, codingTools: filteredCodingTools, readOnly, toolExposure },
@@ -1597,7 +1627,6 @@ export class PiSessionFactory implements AgentGateway {
       invokeId: options?.currentInvokeId,
       context: BACKGROUND_CONTEXT,
       mcp,
-      promptProvider: () => buildInvokeSystemPrompt(this.cfg.otterConfigProvider.getConfig(otterId)?.systemPrompt, options?.externalProfile),
       haltRegistry,
       onHaltFirstBlock: this.cfg.onHaltFirstBlock as never,
     });
@@ -1798,6 +1827,7 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig,
     settingsRepo: config.settingsRepo,
     conversationRepo: config.conversationRepo,
     dataDir: config.dataDir,
+    promptAssetRoot: config.promptAssetRoot,
     synthesisFallbackAlias: config.synthesisFallbackAlias,
   }, logger);
 }

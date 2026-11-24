@@ -16,7 +16,7 @@ import type { ModelConfig } from "@frameworks/config";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import { otterInvokeStorage, type OtterInvokeContext } from "@entities/execution/otter-invoke-context";
 import { getConfig } from "../config";
-import { buildOtterPrompt } from "./session-helpers";
+import { getRepoRoot } from "@frameworks/repo-root";
 import { externalizeHistoricalImages } from "./image-externalizer";
 import { externalizeHistoricalToolResults } from "./toolresult-externalizer";
 // compaction-hook 导入退役（session_before_compact 钩子随时机权回收而退役）
@@ -93,7 +93,9 @@ export class ModelRuntimeRegistry {
       if (!this.resourceLoader) {
         const { DefaultResourceLoader, getAgentDir } = piCodingAgent;
         this.resourceLoader = this.resourceLoaderOverride ?? new DefaultResourceLoader({
-          cwd: process.cwd(), agentDir: getAgentDir(),
+          // Why: prompt assets and Skill discovery must share the code-root anchor;
+          // service WorkingDirectory or an alpha data root is not the asset root.
+          cwd: getRepoRoot(), agentDir: getAgentDir(),
           noContextFiles: true, // 屏蔽祖先 CLAUDE.md（Claude Code 指令污染 otter agent；.pi/SYSTEM.md 不受影响）
           // 不再注册 SDK createToolSearchExtension——它经共享
           // extension runtime 工作，任一 session dispose 即全进程 stale（三会话实证）。
@@ -117,14 +119,6 @@ export class ModelRuntimeRegistry {
                 return haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry, event.toolName)
                   ?? loopBlockGuard(otterInvokeStorage.getStore(), event.toolName, event.input)
                   ?? bashGuardGate(otterInvokeStorage.getStore(), event.toolName, event.input);
-              });
-              // otter system prompt 注入 system role。
-              // handler 在 prompt() 调用栈内执行，此时 AsyncLocalStorage scope 有效，
-              // 可读到 per-invoke 的 otterPromptConfig + identityPrefix。
-              // 返回的 systemPrompt 会替换 SDK base（runner.js 链式覆盖语义），
-              // 因此在 event.systemPrompt（SDK base 含工具描述）基础上追加 otter 专属内容。
-              pi.on("before_agent_start", (event: { systemPrompt: string }) => {
-                return buildBeforeAgentStartResult(event, otterInvokeStorage.getStore());
               });
               /**
                * isError 透传。
@@ -273,27 +267,6 @@ export function stripHistoricalThinking(messages: any[]) {
     if (nonThinking.length === 0) return msg;
     return { ...msg, content: nonThinking };
   });
-}
-
-/**
- * before_agent_start handler 的纯函数实现。
- * 提取为独立导出函数以便测试——不需要走完整 SDK 调用链即可验证 system prompt 注入逻辑。
- *
- * 在 SDK base systemPrompt 基础上追加 otterPrompt + identityPrefix，返回新 systemPrompt。
- * SDK runner.js 的链式覆盖语义：返回的 systemPrompt 替换当前值。
- */
-export function buildBeforeAgentStartResult(
-  event: { systemPrompt: string },
-  ctx: OtterInvokeContext | undefined,
-): { systemPrompt: string } | undefined {
-  if (!ctx) return undefined;
-  const parts: string[] = [];
-  if (event.systemPrompt) parts.push(event.systemPrompt);
-  const otterPrompt = buildOtterPrompt(ctx.otterPromptConfig);
-  if (otterPrompt) parts.push(otterPrompt);
-  if (ctx.identityPrefix) parts.push(ctx.identityPrefix);
-  if (parts.length <= 1) return undefined; // 只有 base，无需覆盖
-  return { systemPrompt: parts.join("\n\n") };
 }
 
 /** per-invoke 上下文，通过 AsyncLocalStorage 传递给 extension handler。 */

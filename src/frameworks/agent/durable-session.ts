@@ -37,10 +37,6 @@ export interface DurableSessionOptions {
   models: Models;
   model: Model<Api>;
   thinkingLevel?: string;
-  prompt?: string;
-  identity?: string;
-  /** coding-agent ResourceLoader 发现的 skills 可见面；durable 不做隐式资源继承。 */
-  skillsPrompt?: string;
   cwd: string;
   executionMachines: ExecutionMachineResolver;
   tools: DurableToolBundle;
@@ -48,7 +44,6 @@ export interface DurableSessionOptions {
   register: InvokeRegister;
   invokeId?: string;
   context: Context;
-  promptProvider?: () => string | Promise<string>;
   mcp?: { registrations(signal?: AbortSignal): Promise<ToolRegistration[]>; instructions(): string; close(): Promise<void> };
   haltRegistry?: { takeForBlock(otterId: string): any[]; isHalted(otterId: string): boolean };
   haltSignal?: { addHook(otterId: string, hook: () => void): void };
@@ -84,19 +79,20 @@ export class DurableSession {
   private toolSearchExtension?: ReturnType<typeof defineExtension>;
   private currentInvokeId?: string;
   private hasBoundInvoke = false;
-  private promptText: string;
+  private renderedPrompt = "";
   private extraTools: ToolRegistration[] = [];
 
   private constructor(private readonly options: DurableSessionOptions) {
     this.model = options.model;
     this.currentInvokeId = options.invokeId;
     this.hasBoundInvoke = options.invokeId !== undefined;
-    this.promptText = options.prompt ?? "";
     this.contextWindow = options.model.contextWindow;
     this.deferredTools = options.tools.customTools.filter(t => options.tools.toolExposure?.[t.name] === "deferred").map(t => t.name);
     this.otterExtension = defineExtension({
       name: "otter",
-      sections: [section("otter", () => [this.promptText, this.options.identity, this.options.skillsPrompt, this.options.mcp?.instructions()].filter(Boolean).join("\n\n"), { tag: false })],
+      // Why: Durable executes the one prompt compiled at the invoke boundary; it must
+      // not reconstruct policy from legacy identity, skill, or MCP side channels.
+      sections: [section("otter", () => this.renderedPrompt, { tag: false })],
       tools: this.customToolRegistrations().map(tool => options.tools.toolExposure?.[tool.name] === "deferred" ? { ...tool, deferred: true as const } : tool),
       hooks: [hook(ToolTask, {
         beforeTool: (call) => this.beforeTool(call),
@@ -304,12 +300,14 @@ export class DurableSession {
     return () => { this.listeners.delete(listener); };
   }
 
-  updateOptions(next: { currentInvokeId?: string; prompt?: string; identity?: string }): void {
+  updateOptions(next: { currentInvokeId?: string; renderedPrompt?: string }): void {
     this.currentInvokeId = next.currentInvokeId;
     this.hasBoundInvoke = true;
-    if (next.prompt !== undefined) this.promptText = next.prompt;
-    // 池命中只刷新 invoke/prompt；undefined 不得清空上一轮身份。
-    if (next.identity !== undefined) this.options.identity = next.identity;
+    if (next.renderedPrompt !== undefined) this.renderedPrompt = next.renderedPrompt;
+  }
+
+  get mcpInstructions(): string {
+    return this.options.mcp?.instructions() ?? "";
   }
 
   // A turn owns watch, admission, settlement and usage accounting as one boundary.
@@ -324,7 +322,6 @@ export class DurableSession {
     // invoke id 写入 ALS store——动作台账归属（RecordingNodeExecutionEnv
     // 与 LocalExecutionMachine 读取）；工具调用 id 由 beforeTool 逐枚覆盖。
     if (scope) scope.currentInvokeId = invokeId;
-    if (this.options.promptProvider) this.promptText = await this.options.promptProvider();
     // 不再每轮 configure(agentChange())——它会把 state.tools 重置为初始激活集，
     // 覆盖 tool_search `control.addTools` 的加载结果（deferred 工具跨 invoke 报 not available）。
     // 初始 tools/modelTools 由 open() 的 harness.root 首次创建时写入（重开时只刷新会变字段）；

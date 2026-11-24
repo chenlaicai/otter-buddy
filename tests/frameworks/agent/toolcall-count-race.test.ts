@@ -24,7 +24,7 @@ import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-reposit
 type StubSession = {
   prompt: (text: string, options?: unknown, stream?: { event: (event: unknown) => Promise<void> }) => Promise<void>;
   subscribe: (fn: (event: unknown) => void) => () => void;
-  updateOptions: (next: { currentInvokeId?: string; identity?: string }) => void;
+  updateOptions: (next: { currentInvokeId?: string; renderedPrompt?: string }) => void;
   abort: () => Promise<void>;
   getSessionStats: () => { tokens: { input: number; output: number } };
   sessionManager: { getBranch: () => unknown[] };
@@ -53,6 +53,7 @@ function makeFactory() {
   const internals = factory as unknown as {
     activeSessions: Map<string, { abort: () => Promise<void>; toolCallCount: number; guardAbortReason?: string }>;
     identityBuilder: { buildIdentityPrefix: () => Promise<string>; getOtterName: () => Promise<string> };
+    composeInvokePrompt: () => Promise<string>;
     _executeWithSession: (
       otterId: string,
       message: string,
@@ -63,6 +64,8 @@ function makeFactory() {
       turnText: { text: string },
     ) => Promise<never>;
   };
+  // 本用例驱动 prompt 后的 catch 现场；prompt 编译由真实 wire 测试单独覆盖。
+  internals.composeInvokePrompt = async () => "PROMPT";
   return { internals, db };
 }
 
