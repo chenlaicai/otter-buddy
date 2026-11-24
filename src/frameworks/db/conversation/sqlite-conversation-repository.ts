@@ -147,7 +147,7 @@ export class SqliteConversationRepository implements ConversationRepository {
     if (rows.length > 0) return rows.map(r => r.conversation_id);
     // fallback 查 conversation_participants——小獭经 invite_otter 加入对话
     //  只写 participants 不写 conversation_otters（两表数据不一致的历史遗留），导致
-    //  resolveFirstConversationId 找不到对话 → restartWithUnifiedHandoff 降级 bare restart
+    //  resolveRestartConversationId 找不到对话 → restartWithUnifiedHandoff 降级 bare restart
     //  → 无系统消息（搭档点小獭重启獭生按钮没有 ⏳/✅ 反馈的根因）。
     //  此处不改写 schema/迁移数据，只在查询层做兼容——参与者表是现行归属真相源。
     const participantRows = this.db.prepare(

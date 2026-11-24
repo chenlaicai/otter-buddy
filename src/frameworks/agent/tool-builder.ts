@@ -25,13 +25,15 @@ import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider"
  */
 export interface InvokeRegister {
   currentMessageId: string;
+  /** 当前 invoke 的工具副作用归属；池命中必须随 conversationId 重绑。 */
+  currentConversationId: string;
   /** speak 检测「卡片写在 speak 外」用的本轮 assistant 文本缓冲 */
   turnText: { text: string };
   pendingDispatches: Map<string, string>;
   dispatchWarningShown: boolean;
   orchestrationWarningShown: boolean;
   /** synthesizePast 透传（restart_otter 工具参数→自重启统一交接） */
-  pendingRestart?: { summary?: string; modelAlias?: string; synthesizePast?: boolean };
+  pendingRestart?: { conversationId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean };
   /** 当前 invoke ID（invoke 级上下文——池命中不刷新则第二次 invoke 复用旧 ID，
    *  speak/yield entry 会挂错 invoke；随寄存器 invoke 入口重置） */
   currentInvokeId?: string;
@@ -54,6 +56,7 @@ export interface InvokeRegister {
 export function createInvokeRegister(): InvokeRegister {
   return {
     currentMessageId: "",
+    currentConversationId: "",
     turnText: { text: "" },
     pendingDispatches: new Map<string, string>(),
     dispatchWarningShown: false,
@@ -73,8 +76,9 @@ export function createInvokeRegister(): InvokeRegister {
  * 扩展：currentInvokeId/emitEvent 每次刷新（池命中不刷新则第二次
  *  invoke 复用旧 invoke ID，speak/yield entry 挂错 invoke）；lastSpeakEntryId
  *  重置 undefined（新 invoke 从零开始计发言）。 */
-export function resetInvokeRegister(reg: InvokeRegister, messageId?: string, invokeDeps?: { currentInvokeId?: string; emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void }): void {
+export function resetInvokeRegister(reg: InvokeRegister, messageId?: string, invokeDeps?: { currentConversationId?: string; currentInvokeId?: string; emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void }): void {
   reg.currentMessageId = messageId ?? "";
+  reg.currentConversationId = invokeDeps?.currentConversationId ?? "";
   reg.turnText.text = "";
   reg.pendingDispatches.clear();
   reg.dispatchWarningShown = false;
@@ -161,6 +165,8 @@ function prGuardAccessors(register: InvokeRegister): Pick<ToolContext, "turnPrUr
  */
 export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToolsResult {
   const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, rhiSignalRepo, matterRepo, workLedgerBinder, isOtterRunning, logger, toolExposure, partnerUserId, externalRestricted } = params;
+  // 新建 session 时初始化；后续 invoke 只能经 resetInvokeRegister 重绑。
+  register.currentConversationId = conversationId;
   // signalRepo 挂 ToolContext（tool-factory 从 ctx 读，避免 createTools 参数膨胀）
   // matterRepo 同模式挂 ToolContext
 
@@ -170,7 +176,7 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
   const toolContext: ToolContext = {
     client: otterToolClient,
     otterId,
-    conversationId,
+    get conversationId() { return register.currentConversationId; },
     partnerUserId: partnerUserId ?? "user",
     ...(externalRestricted ? { externalRestricted: true } : {}),
     modelPool,
@@ -187,7 +193,7 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     get orchestrationWarningShown() { return register.orchestrationWarningShown; },
     set orchestrationWarningShown(v: boolean) { register.orchestrationWarningShown = v; },
     get pendingRestart() { return register.pendingRestart; },
-    set pendingRestart(v: { summary?: string; modelAlias?: string } | undefined) { register.pendingRestart = v; },
+    set pendingRestart(v: { conversationId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean } | undefined) { register.pendingRestart = v; },
     // invoke 级字段 getter 化（与 模式合流——池命中经 resetInvokeRegister 刷新）
     get currentInvokeId() { return register.currentInvokeId; },
     set currentInvokeId(v: string | undefined) { register.currentInvokeId = v; },

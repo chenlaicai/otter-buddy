@@ -120,9 +120,8 @@ export interface AgentTool {
  *
  * （session 池化）：session 常驻后工具闭包跨 invoke 复用，
  * 「每 invoke 必变」的字段从值捕获改为 getter 引用（invoke 入口统一重置寄存器）。
- * conversationId 保持值捕获——池 key = 对话内獭实例（每个对话的獭是独立实体，
- * manage-conversation.ts「为每个对话创建独立的大獭」），一个常驻 session 终身
- * 只服务一个对话，conversationId 在池条目生命周期内恒定。
+ * conversationId 同样 getter 化——池 key 保持 otterId，同一常驻 session 可在 A→B
+ * invoke 间复用；普通 transcript 仍为 otter-global，工具副作用必须读取本轮 B。
  */
 export interface ToolContext {
   client: OtterToolClient;
@@ -161,7 +160,7 @@ export interface ToolContext {
    * 延迟到 prompt 完成后执行，消息生命周期不受影响。
    */
   /** synthesizePast 透传（restart_otter 工具参数→自重启统一交接） */
-  pendingRestart?: { summary?: string; modelAlias?: string; synthesizePast?: boolean };
+  pendingRestart?: { conversationId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean };
   /**
    * 本轮待派工票据（otterId → otterName）。
    * create_otter 创建后注册；speak 派工后清除已覆盖的；未清空时 speak 给一次软提醒（非阻断）。

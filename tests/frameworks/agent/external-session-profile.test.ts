@@ -93,6 +93,24 @@ describe('CoLink Session 实际装配', () => {
     }
   });
 
+  it('普通 A/B 继续共用 otter-global transcript，restricted 仍只落本 Conversation 分区', async () => {
+    const { dataDir, db, factory } = await fixture();
+    try {
+      const ordinaryA = await openProfile(factory, CONVERSATION_ID, false);
+      const ordinaryB = await openProfile(factory, 'b1b2c3d4-e5f6-7890-abcd-ef1234567890', false);
+      const globalFile = path.join(dataDir, 'durable-sessions', 'o1.sqlite');
+      expect(ordinaryA.file).toBe(globalFile);
+      expect(ordinaryB.file).toBe(globalFile);
+
+      const restricted = await openProfile(factory, CONVERSATION_ID, true);
+      expect(restricted.file).toBe(path.join(dataDir, 'durable-sessions', 'external', CONVERSATION_ID, 'o1.sqlite'));
+      expect(restricted.file).not.toBe(globalFile);
+    } finally {
+      db.close();
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
   it('restricted 不装配内部 skills，普通档才显式接回', async () => {
     const { dataDir, db, factory } = await fixture();
     try {

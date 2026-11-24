@@ -244,7 +244,7 @@ export interface AgentRunResult {
   sessionRebuilt?: boolean;
   /** LLM 调用 restart_otter(self) 时标记，由 agent-invoker 执行 restart + 全新 invoke。
    * synthesizePast 透传（工具参数→统一交接管线） */
-  _selfRestart?: { otterId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean };
+  _selfRestart?: { otterId: string; conversationId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean };
   /** 末条 assistant 消息的 stopReason（length=生成被 token 上限截断） */
   lastStopReason?: string;
 }
@@ -1068,7 +1068,7 @@ export class PiSessionFactory implements AgentGateway {
       }
       if (createdNew) this.pendingIdentity.add(otterId);
       const register = createInvokeRegister();
-      resetInvokeRegister(register, options?.messageId, { currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
+      resetInvokeRegister(register, options?.messageId, { currentConversationId: options?.conversationId, currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
       const { session, sessionKey, toolContext } = await this._createSessionWithTools(
         otterId, otterConfig.otterType, options, register, options?.readOnly,
       );
@@ -1098,7 +1098,7 @@ export class PiSessionFactory implements AgentGateway {
       } else {
         // 整合移植：池命中时刷新 invoke 级 ctlv 字段——currentInvokeId 不刷新
         // 则第二次 invoke 复用旧 ID，speak/yield entry 挂错 invoke（时间线结错链）
-        resetInvokeRegister(existing.register, options?.messageId, { currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
+        resetInvokeRegister(existing.register, options?.messageId, { currentConversationId: options?.conversationId, currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
         const turnText = existing.register.turnText;
         const sessionKey = options?.messageId ? `${otterId}:${options.messageId}` : otterId;
         // 池命中时重置 cwd 到当前对话工作区（U1：invoke 入口重置，不动池结构）
@@ -1118,7 +1118,7 @@ export class PiSessionFactory implements AgentGateway {
     }
     if (createdNew) this.pendingIdentity.add(otterId);
     const register = createInvokeRegister();
-    resetInvokeRegister(register, options?.messageId, { currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
+    resetInvokeRegister(register, options?.messageId, { currentConversationId: options?.conversationId, currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
     const { session, sessionKey, toolContext } = await this._createSessionWithTools(
       otterId, otterConfig.otterType, options, register, options?.readOnly,
     );
@@ -1321,7 +1321,7 @@ export class PiSessionFactory implements AgentGateway {
           // Why 在 try 内、return 前：finally 的 dispose 清理当前 session，
           // 信号必须在 session 生命周期内捕获。
           if (toolContext.pendingRestart) {
-            result._selfRestart = { otterId, summary: toolContext.pendingRestart.summary, modelAlias: toolContext.pendingRestart.modelAlias, synthesizePast: toolContext.pendingRestart.synthesizePast };
+            result._selfRestart = { otterId, conversationId: toolContext.pendingRestart.conversationId, summary: toolContext.pendingRestart.summary, modelAlias: toolContext.pendingRestart.modelAlias, synthesizePast: toolContext.pendingRestart.synthesizePast };
             this.logger.info('Self-restart signal set on result', { otterId });
           }
           return result;

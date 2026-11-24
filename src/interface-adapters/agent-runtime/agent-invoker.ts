@@ -586,7 +586,7 @@ export class AgentInvoker implements AgentTurnPort {
       let previousRestartDelta: AgentTurnResult["tokenUsageDelta"];
       // 用闭包捕获自重启信号（orchestrator 不透传未知字段）
       // 扩展 modelAlias 字段——配额耗尽时应急切模型
-      let pendingSelfRestart: { otterId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean } | undefined;
+      let pendingSelfRestart: { otterId: string; conversationId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean } | undefined;
 
       // 创建 AttemptDriver 和 TurnCallbacks
       const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, otterType: otter?.type, otterColor: otter?.color ?? null, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images, batchMaxSeq, currentInvokeId, externalProfile });
@@ -662,7 +662,7 @@ export class AgentInvoker implements AgentTurnPort {
     conversationId: string,
     dynamicContext: DynamicContext,
     emitEvent: (event: SSEEvent) => void,
-    opts: { otterName?: string; otterType?: string; otterColor?: string | null; onSelfRestart?: (signal: { otterId: string; summary?: string; synthesizePast?: boolean }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId: string; externalProfile?: 'restricted' },
+    opts: { otterName?: string; otterType?: string; otterColor?: string | null; onSelfRestart?: (signal: { otterId: string; conversationId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId: string; externalProfile?: 'restricted' },
   ): AttemptDriver {
     /** ctxTokens 旁路盒——TurnResult 不带 ctxTokens，闭包直改
      *  外部 let 不可行，driver 对象生命周期覆盖整个 turn，invokeConversationInner 收尾处
@@ -1874,6 +1874,8 @@ export class AgentInvoker implements AgentTurnPort {
       selfSummary?: string;
       synthesizePast?: boolean;
       modelAlias?: string;
+      /** 当前调用侧 Conversation；省略时只允许唯一关联对话，禁止取 ids[0] 猜测。 */
+      conversationId?: string;
     },
   ): Promise<OtterSession> {
     const { selfSummary, synthesizePast = HANDOFF_SYNTHESIZE_PAST_DEFAULT, modelAlias } = params;
@@ -1887,9 +1889,9 @@ export class AgentInvoker implements AgentTurnPort {
     /** 裸重启统一收口——换世必须清水位状态，
      *  否则旧世 ctxTokens 残留 → 下轮 invoke 误判超阈值 → 二次换世（幽灵世代）。
      *  所有 unifiedHandoff 之外的 restartSession 调用点（手动降级/自重启保底）必须走本 helper。 */
-    const bareRestart = async (): Promise<OtterSession> => {
+    const bareRestart = async (summary?: string): Promise<OtterSession> => {
       this.handoffState.clearLastCtxTokens(otterId);
-      const session = await this.manageSession.restartSession(otterId, selfSummary, modelAlias);
+      const session = await this.manageSession.restartSession(otterId, summary, modelAlias);
       // 裸重启成功 = 换世完成，失败链已断——熔断计数清零。
       //  此前只 +1 永不清（clearHandoffFailures 只在合成成功时调），进程重启也不恢复
       //  （内存态），该獭会被永久熔断（9/23 实证：重启后仍反复交接失败）。
@@ -1900,9 +1902,15 @@ export class AgentInvoker implements AgentTurnPort {
       return session;
     };
 
-    const conversationId = await this.resolveFirstConversationId(otterId);
+    const conversationId = await this.resolveRestartConversationId(otterId, params.conversationId);
     if (!conversationId) {
       this.logger.warn('[manual-restart] No conversation found, restarting bare', { otterId });
+      return bareRestart(selfSummary);
+    }
+    // 外部原文与普通内部交接档案严格分域；restricted durable 分区仍由 session 工厂维护。
+    // 连 selfSummary 也不写入普通新 session，避免经 HTTP 参数绕回普通档案。
+    if (await this.externalProfileForConversationKind(conversationId)) {
+      this.logger.info('[manual-restart] External conversation excluded from ordinary handoff', { otterId, conversationId });
       return bareRestart();
     }
 
@@ -1924,27 +1932,27 @@ export class AgentInvoker implements AgentTurnPort {
         otterId, error: err instanceof Error ? err.message : String(err),
         synthesizePast, consecutiveFailures: failures,
       });
-      return bareRestart();
+      return bareRestart(selfSummary);
     }
   }
 
-  /** 取 otter 关联的第一个对话 ID（无对话时返回 undefined，不阻塞重启）
-   *  经 manageSession.conversationQuery 窄接口（ConversationQueryGateway.getIdsByOtterId），
-   *  不经 queryOtter（它只管 otter 元数据）
-   * ids[0] 取查询结果第一条，多对话小獭的 ⏳/✅ 可能发到
-   *  非搭档当前所在对话。getIdsByOtterId 无 ORDER BY，返回序未定义。此为既有语义，本次
-   *  未改（选对话策略是独立议题）；fallback 路径同样受此法影响。若未来要精准定位当前对话，
-   *  需在调用侧传 conversationId 参数（controller 已持有）。*/
-  private async resolveFirstConversationId(otterId: string): Promise<string | undefined> {
+  /** 工具/自重启/显式 HTTP 始终携带当前 Conversation；只有旧 HTTP 客户端省略时才查关联。
+   *  唯一关联可安全解析，多关联必须 conflict，零关联保留裸重启降级。 */
+  private async resolveRestartConversationId(otterId: string, explicitConversationId?: string): Promise<string | undefined> {
+    if (explicitConversationId) return explicitConversationId;
+    let ids: string[];
     try {
-      const ids = await this.manageSession.conversationQuery.getIdsByOtterId(otterId);
-      return ids[0];
+      ids = await this.manageSession.conversationQuery.getIdsByOtterId(otterId);
     } catch (err) {
       this.logger.warn('[manual-restart-auto] Conversation resolve failed', {
         otterId, error: err instanceof Error ? err.message : String(err),
       });
       return undefined;
     }
+    if (ids.length > 1) {
+      throw new DomainError(`Otter ${otterId} 关联 ${ids.length} 个对话，省略 conversationId 无法确定交接作用域；请显式传入当前 conversationId`, 'conflict');
+    }
+    return ids.length === 1 ? ids[0] : undefined;
   }
 
   /** 压缩钩子合成函数。
@@ -2133,7 +2141,7 @@ export class AgentInvoker implements AgentTurnPort {
 
   // eslint-disable-next-line max-lines-per-function, complexity, max-statements -- 自重启统一交接 + 防循环 + 裸重启保底 + continuation 递归（同内聚，拆分割裂降级链；计数收敛 +1 语句仍在阈值边缘）
   private async handleSelfRestartSignal(
-    signal: { otterId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean },
+    signal: { otterId: string; conversationId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean },
     params: {
       otterId: string;
       conversationId: string;
@@ -2146,13 +2154,13 @@ export class AgentInvoker implements AgentTurnPort {
     currentMessageId: string,
   ): Promise<AgentTurnResult | null> {
     if (!signal) return null;
-    const { otterId, summary } = signal;
+    const { otterId, summary, conversationId } = signal;
 
     // 防循环（第二道防线）：当前 session 是否由自重启创建
     // 加意图来源维度——传 conversationId 检测用户消息介入，
     // 搭档显式指令的重启不再误拦（issue 现场：重启后搭档发过 2 条新指令仍被拦）
     if (this.circuitBreak) {
-      const isSelfRestartSession = await this.circuitBreak.isSessionSelfRestartCreated(otterId, params.conversationId, { invokeId: currentMessageId });
+      const isSelfRestartSession = await this.circuitBreak.isSessionSelfRestartCreated(otterId, conversationId, { invokeId: currentMessageId });
       if (isSelfRestartSession) {
         this.logger.warn('Self-restart blocked: current session was created by self-restart', { otterId });
         return null;
@@ -2165,7 +2173,7 @@ export class AgentInvoker implements AgentTurnPort {
     // 前世价值；summary=自总结作为叠加档案的 §① 意图书 + 合成原料）。
     // 防循环机制不变（本方法开头的 session 成因判定 + tool 层拦截）。
     try {
-      const newSession = await this.unifiedHandoff(otterId, params.conversationId, {
+      const newSession = await this.unifiedHandoff(otterId, conversationId, {
         trigger: '自重启',
         selfSummary: summary,
         // 獭未传 summary 且前世有料时也合成（修复现状 gap：空 summary 自重启 = 从零开始）；
@@ -2201,7 +2209,7 @@ export class AgentInvoker implements AgentTurnPort {
 
     // 写 self_restart 事件（上限判定数据源）
     if (this.circuitBreak) {
-      await this.circuitBreak.writeSelfRestartEvent(otterId, params.conversationId, newSessionId, currentMessageId).catch(err => {
+      await this.circuitBreak.writeSelfRestartEvent(otterId, conversationId, newSessionId, currentMessageId).catch(err => {
         this.logger.error('self_restart event write failed (non-fatal)', err instanceof Error ? err : new Error(String(err)), { otterId, newSessionId });
       });
     }
@@ -2213,6 +2221,7 @@ export class AgentInvoker implements AgentTurnPort {
         : `[系统] 你已完成自重启，前世上下文已封存。请告知搭档你已重启完成，等待新指令。`;
       return await this.invokeConversationInner({
         ...params,
+        conversationId,
         userMessageContent: continuationMessage,
         retryCount: 0,
         manualRetry: false,

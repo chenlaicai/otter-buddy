@@ -181,6 +181,7 @@ function makeInvokerWithEngine(opts: {
   broadcaster?: { events: Array<{ conversationId: string; event: string; data: unknown }> };
   sendEntry?: { bodies: string[] };
   ctxWindowProvider?: { window?: number; threshold?: number };
+  conversationKinds?: Record<string, string>;
 }): AgentInvoker {
   const manageSession = {
     getActiveSession: async () => makeSession({ id: "sess-old", summary: "- gen1 sess-0: 初代" }),
@@ -203,7 +204,7 @@ function makeInvokerWithEngine(opts: {
     undefined, // settingsRepo
     undefined, // metrics
     undefined, // healingRepo
-    {} as ConversationRepository, // conversationRepo（统一交接必需）
+    { getById: async (id: string) => ({ id, kind: opts.conversationKinds?.[id] ?? 'normal' }) } as unknown as ConversationRepository, // conversationRepo（统一交接必需）
     undefined, // scheduledTaskRepo
     undefined, // listArtifacts
     undefined, // manageContext
@@ -561,6 +562,63 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
     const invoker2 = makeInvokerWithEngine({ sdk: failSdk, engine: engine2 });
     await invoker2.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
     expect(invoker2["handoffState"].getConsecutiveFailures("otter-1")).toBe(1); // 非锁冲突计入
+  });
+
+  it("显式 conversationId=A 时不得读取排在关联列表前面的 B", async () => {
+    const engine = makeEngine();
+    const reads: string[] = [];
+    const invoker = makeInvokerWithEngine({ engine, conversationIds: ["conv-B", "conv-A"] });
+    const scoped = invoker as unknown as { sendEntry: unknown };
+    scoped.sendEntry = {
+      getEntries: async (conversationId: string) => {
+        reads.push(conversationId);
+        return [{ id: `entry-${conversationId}`, entryType: "user", body: `${conversationId}-raw` }];
+      },
+      createSystemEntry: async () => ({ entry: { id: "system-1", body: "", sequenceNum: 1 } }),
+    };
+
+    await invoker.restartWithUnifiedHandoff("otter-1", { conversationId: "conv-A", synthesizePast: true });
+
+    expect(reads).toEqual(["conv-A"]);
+    expect(engine.prompts).toHaveLength(1);
+  });
+
+  it("HTTP 省略 conversationId 且关联多对话时响亮 conflict，不取 ids[0] 也不重启", async () => {
+    const engine = makeEngine();
+    const restartSession = vi.fn(async () => makeSession({ id: "must-not-restart" }));
+    const invoker = makeInvokerWithEngine({ engine, conversationIds: ["conv-A", "conv-B"], restartSession });
+
+    await expect(invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true })).rejects.toMatchObject({
+      kind: "conflict",
+      message: expect.stringContaining("conversationId"),
+    });
+    expect(engine.prompts).toEqual([]);
+    expect(restartSession).not.toHaveBeenCalled();
+  });
+
+  it("external Conversation 不进入普通交接，external 原文不读且不发普通交接消息", async () => {
+    const engine = makeEngine();
+    const sendEntry = { bodies: [] as string[] };
+    const invoker = makeInvokerWithEngine({
+      engine,
+      sendEntry,
+      conversationIds: ["conv-external"],
+      conversationKinds: { "conv-external": "external" },
+    });
+    const scoped = invoker as unknown as { sendEntry: unknown };
+    scoped.sendEntry = {
+      getEntries: async () => { throw new Error("external entries must not enter ordinary handoff"); },
+      createSystemEntry: async (input: { body: string }) => {
+        sendEntry.bodies.push(input.body);
+        return { entry: { id: "system-1", body: input.body, sequenceNum: 1 } };
+      },
+    };
+
+    const session = await invoker.restartWithUnifiedHandoff("otter-1", { conversationId: "conv-external", selfSummary: "external-local-only", synthesizePast: true });
+
+    expect(session.summary).toBeNull();
+    expect(engine.prompts).toEqual([]);
+    expect(sendEntry.bodies).toEqual([]);
   });
 
   it("无对话记录 → 降级裸重启（selfSummary 直透），D9 不阻塞", async () => {

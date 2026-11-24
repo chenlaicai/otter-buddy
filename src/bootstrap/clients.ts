@@ -295,8 +295,8 @@ export function buildOtterToolClient(
       getActiveSession: (otterId) => uc.manageSession.getActiveSession(otterId),
       // restart_otter 工具（大獭重启别人）走统一交接管线——synthesizePast 透传；
       // agentInvoker 未装配时降级域层直透（测试装配兼容）
-      restart: (otterId, summary, modelAlias, synthesizePast) => deps?.agentInvoker
-        ? deps.agentInvoker.restartWithUnifiedHandoff(otterId, { selfSummary: summary, modelAlias, synthesizePast: synthesizePast ?? HANDOFF_SYNTHESIZE_PAST_DEFAULT })
+      restart: (otterId, summary, modelAlias, synthesizePast, conversationId) => deps?.agentInvoker
+        ? deps.agentInvoker.restartWithUnifiedHandoff(otterId, { selfSummary: summary, modelAlias, synthesizePast: synthesizePast ?? HANDOFF_SYNTHESIZE_PAST_DEFAULT, conversationId })
         : uc.manageSession.restartSession(otterId, summary, modelAlias),
     },
     context: {

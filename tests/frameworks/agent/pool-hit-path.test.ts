@@ -18,7 +18,7 @@ vi.mock("@frameworks/config", () => ({ getConfig: () => ({ circuitBreaker: {} })
 import { createTestDb } from "../../helpers/db";
 import { createTestLogger } from "../../helpers/logger";
 import { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
-import { createInvokeRegister, resetInvokeRegister } from "@frameworks/agent/tool-builder";
+import { buildCustomTools, createInvokeRegister, resetInvokeRegister } from "@frameworks/agent/tool-builder";
 import { invokeEpochStorage, mintEpoch } from "@frameworks/agent/invoke-epoch";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
 import { SessionLockConflictError } from "@entities/errors";
@@ -85,7 +85,7 @@ function makeFactory() {
     _restoreOrCreateSession: (id: string) => Promise<{ sessionManager: unknown; createdNew: boolean }>;
     _createSessionWithTools: (...args: unknown[]) => Promise<{ session: unknown; sessionKey: string; toolContext: unknown }>;
     _acquirePooled: (id: string, opts: unknown) => Promise<{
-      session: FakeSession; sessionKey: string; toolContext: { register?: unknown };
+      session: FakeSession; sessionKey: string; toolContext: { conversationId: string };
       turnText: { text: string }; isPooled: boolean; createdNew: boolean;
     }>;
     poolMeta: Map<string, { session: FakeSession; register: ReturnType<typeof createInvokeRegister> }>;
@@ -94,16 +94,25 @@ function makeFactory() {
   };
 
   internals._restoreOrCreateSession = async () => ({ sessionManager: {}, createdNew: false });
-  internals._createSessionWithTools = async (otterId: unknown, _otterType: unknown, options: unknown, _sm: unknown, register: unknown) => {
+  internals._createSessionWithTools = async (otterId: unknown, _otterType: unknown, options: unknown, register: unknown) => {
     createCount++;
     const session = fakeSession();
     sessions.set(otterId as string, session);
     // 与真实实现同构：sessionKey 按 messageId 键控
     const msgId = (options as { messageId?: string })?.messageId;
+    const { toolContext } = buildCustomTools({
+      otterId: otterId as string,
+      conversationId: (options as { conversationId?: string })?.conversationId ?? "",
+      allowedNames: [],
+      register: register as ReturnType<typeof createInvokeRegister>,
+      otterToolClient: {} as never,
+      createTools: () => [],
+      logger: createTestLogger(),
+    });
     return {
       session,
       sessionKey: msgId ? `${otterId}:${msgId}` : (otterId as string),
-      toolContext: { register },
+      toolContext,
     };
   };
   return { factory, internals, sessions, db, getCreateCount: () => createCount };
@@ -234,6 +243,7 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
     //（回归锁——「先 build 后赋」使 build 捕获旧 cwdA，成功路径必坏）
     const second = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m2", conversationId: "conv-B" }));
     expect(second.isPooled).toBe(true);
+    expect(second.toolContext.conversationId).toBe("conv-B");
     expect(session._cwd).toContain(path.join("workspaces", "conv-B"));
     expect(session.builtWithCwd.length).toBe(1);
     expect(session.builtWithCwd[0]).toBe(session._cwd); // build 调用时 _cwd 已是新值
@@ -251,6 +261,7 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
     function s0_built(fs2: FakeSession) { fs2.builtWithCwd.push(fs2._cwd); }
     const retry = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m4", conversationId: "conv-C" }));
     expect(retry.isPooled).toBe(true);
+    expect(retry.toolContext.conversationId).toBe("conv-C");
     expect(session._cwd).toContain(path.join("workspaces", "conv-C"));
     expect(session.builtWithCwd[1]).toBe(session._cwd);
     db.close();
@@ -282,7 +293,7 @@ describe("InvokeRegister 寄存器（getter 穿透的守护）", () => {
     reg.pendingDispatches.set("a", "b");
     reg.dispatchWarningShown = true;
     reg.orchestrationWarningShown = true;
-    reg.pendingRestart = { summary: "x" };
+    reg.pendingRestart = { conversationId: "conv-old", summary: "x" };
     reg.turnPrUrls = { strong: ["https://github.com/a/b/pull/1"], weak: [], registered: ["https://github.com/a/b/pull/2"] };
     reg.turnYieldPrRemindCount = 1;
     reg.turnYieldPrGapSnapshot = "m:a/b/pull/1|p:|w:";
@@ -291,6 +302,7 @@ describe("InvokeRegister 寄存器（getter 穿透的守护）", () => {
     resetInvokeRegister(reg, "new-msg");
 
     expect(reg.currentMessageId).toBe("new-msg");
+    expect(reg.currentConversationId).toBe("");
     expect(reg.turnText.text).toBe("");
     expect(reg.pendingDispatches.size).toBe(0);
     expect(reg.dispatchWarningShown).toBe(false);
