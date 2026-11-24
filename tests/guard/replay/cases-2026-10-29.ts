@@ -1011,6 +1011,13 @@ export const mustBlockCases: ReplayCase[] = [
     reasonContains: "下载即执行",
     note: "远端 manifest 直接管道 Node；后续已改先落盘再 JSON.parse",
   },
+  // ── 2026-11-23 UTC 日报实录：ALLOW 1 / BLOCK 0 / SKIP 0 ──
+  {
+    command: "cd /Users/orca/ai/otter-buddy && sed -n '1,220p' deploy/ecs/otter-buddy.service 2>/dev/null || true && ls -la deploy/ecs && printf '\\nSSH config aliases\\n' && grep -n -A8 -B2 '60.205.214.148\\|colink\\|otter' ~/.ssh/config 2>/dev/null | head -n 120",
+    expect: "allow",
+    source: "healing d536ca28（2026-11-23）",
+    note: "部署公开只读链末段 grep SSH config；与既有 ssh config 放行样本同政策，前置 deploy 只读命令不改变判定。",
+  },
 ];
 
 /** 放行抽样：日常正常工作流形态（守卫不应有任何反应） */
