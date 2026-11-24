@@ -16,6 +16,9 @@ export interface ConnectorRegistryRepository {
   createPairingCode(code: string, expiresAt: string): Promise<void>;
   /** 原子核销配对码：时效内且未核销 → 标记核销并返回 true；否则 false（fail-closed） */
   redeemPairingCode(code: string, now: string): Promise<boolean>;
+  /** 查活跃配对码（未核销且未过期）——引导文件下载前的服务端验证（fail-closed：
+   *  不存在/已核销/已过期一律 null，不区分拒绝原因，与核销口防探测同口径） */
+  findActivePairingCode(code: string, now: string): Promise<{ code: string; expiresAt: string } | null>;
   /** 核销成功后建立设备身份（写 devices 行，返长效 token 由调用方生成传入） */
   createDevice(device: Device): Promise<void>;
   /** 核销+建设备事务原子化——消除「码已烧但设备未建」的窗口（进程崩溃/并发）。
