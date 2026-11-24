@@ -56,6 +56,7 @@ export interface UseCaseDeps {
   agentGateway: PiSessionFactory;
   embeddingService: EmbeddingGateway;
   memoryIndex: MemoryIndexGateway;
+  onEntryProjectionEnqueued?: (entryId: string) => void;
   appConfig: AppConfig;
   logger: Logger;
   workspaceGateway?: WorkspaceGateway;
@@ -66,7 +67,7 @@ export interface UseCaseDeps {
 }
 
 export function initUseCases(deps: UseCaseDeps): UseCases {
-  const { repos, entryRepo, invokeRepo, agentGateway, embeddingService, memoryIndex, appConfig, logger, workspaceGateway, otterConfigProvider, modelPool } = deps;
+  const { repos, entryRepo, invokeRepo, agentGateway, embeddingService, memoryIndex, onEntryProjectionEnqueued, appConfig, logger, workspaceGateway, otterConfigProvider, modelPool } = deps;
   const memoryUcs = buildMemoryUseCases(repos, embeddingService, appConfig, logger);
   const { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries, recordBelief, transitionBelief, supersedeBelief, manageConsolidationState } = memoryUcs;
   // 彻底切换：未读状态读 entries
@@ -125,7 +126,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
     repos.otter,
     invokeRepo,
   );
-  const sendEntry = buildSendEntry({ entryRepo, invokeRepo, repos, logger, resolveDeps, memoryIndex });
+  const sendEntry = buildSendEntry({ entryRepo, invokeRepo, repos, logger, resolveDeps, onEntryProjectionEnqueued });
   return {
     manageConversation, manageMemory, manageTerminology, searchMemory, scanDarkEntries,
     queryMessage, manageReadState, manageParticipant, manageKeyInfo, recordSearchQuery,
@@ -248,12 +249,12 @@ function buildSendEntry(opts: {
   repos: Repositories;
   logger: Logger;
   resolveDeps: ResolveTargetsDeps;
-  memoryIndex?: MemoryIndexGateway;
+  onEntryProjectionEnqueued?: (entryId: string) => void;
 }): SendEntry {
   return new SendEntry(opts.entryRepo, opts.invokeRepo, opts.repos.otter, opts.repos.conversation, {
     logger: opts.logger,
     resolveDeps: opts.resolveDeps,
-    ...(opts.memoryIndex ? { memoryIndex: opts.memoryIndex } : {}),
+    ...(opts.onEntryProjectionEnqueued ? { onEntryProjectionEnqueued: opts.onEntryProjectionEnqueued } : {}),
     // unfurl 预抓取钩子（非阻断——逐 URL 后台抓取，失败落 failed 记录）
     unfurlPrefetch: buildUnfurlPrefetch(opts.repos.unfurlCache, opts.logger),
   });

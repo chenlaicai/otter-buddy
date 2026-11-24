@@ -15,16 +15,21 @@ export interface GetEntriesOptions {
   entryType?: EntryType;
 }
 
+export interface CreateEntryOptions {
+  /** 用户发送意图中的附件 ID；outbox 不保存附件或消息正文。 */
+  attachmentIntentIds?: string[];
+}
+
 export interface EntryRepository {
   // Entry 生命周期
-  createEntry(entry: Entry): Promise<void>;
+  createEntry(entry: Entry, options?: CreateEntryOptions): Promise<void>;
   createEntries(entries: Entry[]): Promise<void>;
   /**
    * 彻底切换：原子序号插入——INSERT ... SELECT COALESCE(MAX(sequence_num),0)+1
    * 消灭「读 MAX 再写」竞态（多獭并发 invoke_start/speak 撞号 → UNIQUE 冲突丢条目）。
    * 入参 sequenceNum 被忽略，返回的 Entry 携带 DB 分配的真实序号。
    */
-  createEntryAtomic(entry: Entry): Promise<Entry>;
+  createEntryAtomic(entry: Entry, options?: CreateEntryOptions): Promise<Entry>;
   /** 原子序号批量插入（事务内逐条 MAX+1，天然连续递增）；返回携带真实序号的 Entry 列表 */
   createEntriesAtomic(entries: Entry[]): Promise<Entry[]>;
   /** 信号销账：consumed 标记写 metadata */

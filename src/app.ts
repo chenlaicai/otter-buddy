@@ -49,7 +49,7 @@ import {
   verifyEmbeddingVersion,
 } from "./bootstrap/database";
 import { setupDelayedReconcile, createInvokeOrphanReconcileDuty } from "./bootstrap/invoke-reconcile";
-import { createMemoryIndex, syncDocuments, createAndStartRetryWorker } from "./bootstrap/memory";
+import { createMemoryIndex, syncDocuments, createAndStartRetryWorker, createEntryProjectionWorker } from "./bootstrap/memory";
 import { initUseCases } from "./bootstrap/usecases";
 import { QueryOtterProfile } from "@usecases/otter/query-otter-profile";
 import { SqliteStatsQuery } from "@frameworks/db/stats/sqlite-stats-query";
@@ -83,6 +83,11 @@ import { collectHealingEvents } from "@usecases/health/healing-collector";
 import type { AgentSessionSource } from "@usecases/health/cost-output-collector";
 import type { CreateSnapshotRow } from "@usecases/health/snapshot-rows";
 import { readSkillBody, readSystemSections, listAllToolSummaries } from "@frameworks/agent/codex-sources";
+
+async function stopEntryProjectionWorker(worker: ReturnType<typeof createEntryProjectionWorker> | null): Promise<void> {
+  if (!worker) return;
+  await worker.stop();
+}
 
 /** 创建 PinoLogger 实例（stdout + 文件持久化），logDir 不存在时创建 */
 export function createLogger(logDir: string): PinoLogger {
@@ -292,6 +297,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // 运行中入库的 chunk 任务不再等 patrol 1h，落库即触发 retry worker 消费（worker
   // 未就绪时静默，启动 tickNow/patrol 周期兜底）。ref 桥接 worker 的延迟创建。
   const retryWorkerRef: { current: Awaited<ReturnType<typeof createAndStartRetryWorker>> } = { current: null };
+  const projectionWorkerRef: { current: ReturnType<typeof createEntryProjectionWorker> | null } = { current: null };
   const memoryIndex = createMemoryIndex(repos, liveEmbedding, logger, () => {
     const w = retryWorkerRef.current;
     if (!w) return; // worker 未就绪：启动 tickNow 会吃掉已落库任务
@@ -316,6 +322,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
    *  失败不炸进程：sync/迁移失败只落 error 日志（与原 buildApp 内 await 失败即
    *  启动失败相比，listen 后失败不该拖垮已就绪的 HTTP 服务） */
   const postListenInit = async (): Promise<void> => {
+    try {
+      projectionWorkerRef.current = createEntryProjectionWorker(db, repos, liveEmbedding, logger);
+      await projectionWorkerRef.current.reconcileNow();
+    } catch (err) {
+      logger.error("Post-listen entry projection worker init failed", err instanceof Error ? err : new Error(String(err)));
+    }
     try {
       const syncResult = await syncDocuments(repos, memoryIndex, logger, appRootDir, { canonicalRootDir: appRootDir });
       postSyncMigrations(db, logger, syncResult);
@@ -370,6 +382,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     { name: 'rhi-signal-aging', run: async () => { await rhiSignalAgingWorker.scanOnce(); } },
     { name: 'rhi-scan', run: async () => { await rhiScanWorker.scanOnce(); } },
     createInvokeOrphanReconcileDuty(db, repos, logger),
+    { name: 'entry-projection', run: async () => {
+      const worker = projectionWorkerRef.current;
+      if (!worker) {
+        logger.warn('entry-projection duty: worker not ready; durable outbox rows remain pending');
+        return;
+      }
+      await worker.reconcileNow();
+    } },
     // 经 ref 读——worker 由 postListenInit 创建，可能晚于 PatrolWorker 构造；
     // late-bind duty 每轮 tick 动态查 ref（worker 未就绪时空转，就绪后自动接管），
     // 不再用展开时快照条件——那会在 worker 未创建时永久丢掉该 duty
@@ -434,7 +454,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     toolActionRunner: toolActionRouter,
     dataDir,
   });
-  const uc = initUseCases({ repos, entryRepo: repos.entry, invokeRepo: repos.invoke, agentGateway, embeddingService: queryEmbedding, memoryIndex, appConfig: config, logger, workspaceGateway, otterConfigProvider, modelPool });
+  const uc = initUseCases({
+    repos, entryRepo: repos.entry, invokeRepo: repos.invoke, agentGateway,
+    embeddingService: queryEmbedding, memoryIndex, appConfig: config, logger,
+    workspaceGateway, otterConfigProvider, modelPool,
+    onEntryProjectionEnqueued: () => {
+      const worker = projectionWorkerRef.current;
+      if (!worker) return;
+      void worker.tickNow().catch((err) => logger.warn('Entry projection trigger failed; patrol will retry', {
+        error: err instanceof Error ? err.message : String(err),
+      }));
+    },
+  });
   // sync_docs 工具注入——海獭写完文档可立即触发同步入库
   // rootDir 透传——worktree 流程下文槛在 worktree，海獭可传 worktree 绝对路径
   // agentInvoker 延迟绑定容器——buildOtterToolClient 先于 agentInvoker 构造
@@ -950,7 +981,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       // 防御性清空通道状态注册表（防未来加事件监听/定时器泄漏）
       registry?.clear();
       schedulerService.stop();
-      // 先停 retry worker 再关 DB（经 ref——listen 前后都可能）
+      // 先等源投影与 embedding 在途写入结束，再关 DB。
+      await stopEntryProjectionWorker(projectionWorkerRef.current);
       retryWorkerRef.current?.stopSync();
       // 巡检 worker 统一停（原 RHI/Signal Aging/运行时对账/Embedding Retry 的定时器）。
       // start 已移至 initAgentAndScheduler 之后；stop 幂等（timer/inflight 均空安全），
