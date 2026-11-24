@@ -46,6 +46,26 @@ describe("buildOtterToolClient syncDocs 接线（F20260813mren 审视三轮 #11�
   });
 });
 
+describe("buildOtterToolClient restart ConversationScope", () => {
+  it("把调用工具的当前 conversationId 显式传给统一交接", async () => {
+    let received: Record<string, unknown> | undefined;
+    const restartWithUnifiedHandoff = vi.fn(async (_otterId: string, params: Record<string, unknown>) => {
+      received = params;
+      return { id: "session-new" };
+    });
+    const client = buildOtterToolClient(minimalUseCases(), { agentInvoker: { restartWithUnifiedHandoff } as never });
+
+    await client.otter.restart("otter-2", "summary", "model-b", false, "conversation-B");
+
+    expect(received).toEqual({
+      selfSummary: "summary",
+      modelAlias: "model-b",
+      synthesizePast: false,
+      conversationId: "conversation-B",
+    });
+  });
+});
+
 /** 二轮审视：vecCoverage 必须透传到 agent 路径——
  * 移除 otter_context 降级告警后这是 agent 感知 FTS-only 降级的唯一通道，
  * 此前在 client 层被丢弃（工具 description 却已承诺该字段）。 */

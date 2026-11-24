@@ -1551,7 +1551,7 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
       // 自重启时延迟执行——session.prompt() 是原子的，
       // 中途 restart 会打断 LLM 生成。标记 pending，prompt 完成后由 PiSessionFactory 执行。
       if (targetOtterId === ctx.otterId) {
-        ctx.pendingRestart = { summary, modelAlias, synthesizePast };
+        ctx.pendingRestart = { conversationId: ctx.conversationId, summary, modelAlias, synthesizePast };
         return textResponse(
           `已标记重启当前獭生。当前发言完成后将自动执行。` +
           (summary ? ` 交接意图书：${summary}` : '') +
@@ -1562,7 +1562,7 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
 
       // 重启别人：直接执行（不涉及自身 session）
       // synthesizePast 透传统一交接管线（otter client → manageSession.restartSession 域层 reason）
-      const session = await ctx.client.otter.restart(targetOtterId, summary, modelAlias, synthesizePast);
+      const session = await ctx.client.otter.restart(targetOtterId, summary, modelAlias, synthesizePast, ctx.conversationId);
       return textResponse(`Otter ${targetOtterId} 已重启獭生。新 Session ID: ${session.id}` + (modelAlias ? `，模型切换至：${modelAlias}` : ''));
     },
   };

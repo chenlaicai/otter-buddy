@@ -46,7 +46,7 @@ export interface AgentRunResult {
   sessionRebuilt?: boolean;
   /** LLM 调用 restart_otter(self) 时，SDK 不执行 restart，改为标记信号由调用方处理 */
   /** synthesizePast 透传（restart_otter 工具参数——獭决定前世是否值得合成） */
-  _selfRestart?: { otterId: string; summary?: string; synthesizePast?: boolean };
+  _selfRestart?: { otterId: string; conversationId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean };
   /** LLM 直出文本（未通过 speak 输出，对其他人不可见）。用于检测"旁白流失"失败形态 */
   directText?: string;
   /** 末条 assistant 消息的 stopReason（length=生成被 token 上限截断） */

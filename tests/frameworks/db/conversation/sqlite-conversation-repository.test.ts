@@ -121,7 +121,7 @@ describe("SqliteConversationRepository - 对话基础操作", () => {
 
     it("F20261009s6ej6：conversation_otters 无记录时 fallback 查 conversation_participants", async () => {
       // Why：小獭经 invite_otter 加入对话只写 participants 不写 conversation_otters（历史遗留），
-      //  导致 restartWithUnifiedHandoff 的 resolveFirstConversationId 找不到对话 → 裸重启无系统消息。
+      //  导致 restartWithUnifiedHandoff 的 resolveRestartConversationId 找不到对话 → 裸重启无系统消息。
       insertOtter(db, "otter-1");
       await repo.create(conversationFixture());
       // 不经 conversation_otters，直接写 participants（模拟 invite_otter 路径）

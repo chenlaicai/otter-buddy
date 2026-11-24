@@ -376,7 +376,7 @@ describe("POST /api/otters/:id/restart（含 F20260920uhuc 统一交接）", () 
         const res = await app.request("/api/otters/otter-1/restart", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ synthesizePast: false }),
+          body: JSON.stringify({ synthesizePast: false, conversationId: "conv-A" }),
         });
 
         expect(res.status).toBe(201);
@@ -384,6 +384,7 @@ describe("POST /api/otters/:id/restart（含 F20260920uhuc 统一交接）", () 
           selfSummary: undefined,
           synthesizePast: false,
           modelAlias: undefined,
+          conversationId: "conv-A",
         });
       });
 

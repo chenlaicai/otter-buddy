@@ -31,8 +31,8 @@ function createRecordingLogger() {
 }
 
 /** 创建 ToolContext mock，使用 spy 记录 restart 调用 */
-function createMockToolContext(overrides: Partial<ToolContext> = {}): ToolContext & { _restartCalls: Array<{ id: string; summary?: string }> } {
-  const restartCalls: Array<{ id: string; summary?: string }> = [];
+function createMockToolContext(overrides: Partial<ToolContext> = {}): ToolContext & { _restartCalls: Array<{ id: string; summary?: string; conversationId?: string }> } {
+  const restartCalls: Array<{ id: string; summary?: string; conversationId?: string }> = [];
 
   return {
     _restartCalls: restartCalls,
@@ -47,8 +47,8 @@ function createMockToolContext(overrides: Partial<ToolContext> = {}): ToolContex
           return null;
         }),
         getActiveSession: vi.fn(async () => null),
-        restart: vi.fn(async (id: string, summary?: string) => {
-          restartCalls.push({ id, summary });
+        restart: vi.fn(async (id: string, summary?: string, _modelAlias?: string, _synthesizePast?: boolean, conversationId?: string) => {
+          restartCalls.push({ id, summary, conversationId });
           return { id: `new-session-${id}`, summary };
         }),
       },
@@ -67,7 +67,7 @@ function createMockToolContext(overrides: Partial<ToolContext> = {}): ToolContex
     },
     logger: createRecordingLogger(),
     ...overrides,
-  } as unknown as ToolContext & { _restartCalls: Array<{ id: string; summary?: string }> };
+  } as unknown as ToolContext & { _restartCalls: Array<{ id: string; summary?: string; conversationId?: string }> };
 }
 
 /** 获取 restart_otter 工具 */
@@ -95,6 +95,7 @@ describe('restart_otter pendingRestart 路径（F20260815rstrt）', () => {
     // 验证 pendingRestart 被设置
     expect(ctx.pendingRestart).toBeDefined();
     expect(ctx.pendingRestart!.summary).toBe('测试前情摘要');
+    expect(ctx.pendingRestart!.conversationId).toBe('conv-1');
 
     // 验证 restart 没有被调用（延迟执行）
     expect(ctx._restartCalls).toHaveLength(0);
@@ -133,6 +134,7 @@ describe('restart_otter pendingRestart 路径（F20260815rstrt）', () => {
     expect(ctx._restartCalls).toHaveLength(1);
     expect(ctx._restartCalls[0].id).toBe('otter-2');
     expect(ctx._restartCalls[0].summary).toBe('测试前情摘要');
+    expect(ctx._restartCalls[0].conversationId).toBe('conv-1');
 
     // 验证 pendingRestart 没有被设置
     expect(ctx.pendingRestart).toBeUndefined();

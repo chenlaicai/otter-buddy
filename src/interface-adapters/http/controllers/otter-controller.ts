@@ -114,7 +114,7 @@ export class OtterController {
     try {
       const id = param(c, "id");
       // safeJsonBody 兜底非法 JSON 与 JSON null，防 body.summary on null 崩溃
-      const body = await safeJsonBody<{ summary?: string; modelAlias?: string; synthesizePast?: boolean }>(c);
+      const body = await safeJsonBody<{ summary?: string; modelAlias?: string; synthesizePast?: boolean; conversationId?: string }>(c);
       // restart body 增 modelAlias + hasModel 校验
       if (this.modelPool && body.modelAlias && !this.modelPool.hasModel(body.modelAlias)) {
         const available = this.modelPool.describeModels().map(m => m.alias).join(", ");
@@ -137,6 +137,7 @@ export class OtterController {
         // 层积岩清理：默认值收敛 HANDOFF_SYNTHESIZE_PAST_DEFAULT 单点。
         synthesizePast: body.synthesizePast ?? HANDOFF_SYNTHESIZE_PAST_DEFAULT,
         modelAlias: body.modelAlias,
+        ...(body.conversationId ? { conversationId: body.conversationId } : {}),
       });
       return c.json(toOtterSessionDTO(session), 201);
     } catch (err) {
