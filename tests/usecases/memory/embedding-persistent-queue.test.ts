@@ -457,7 +457,7 @@ describe("F20261109epqst 检视处置：运行期入库弱触发（onBulkEnqueue
     const store = new StoreMemory(repo, repo, gateway, createTestLogger());
     let triggerCount = 0;
     // 模拟 bootstrap 装配：回调接 worker tickNow（这里只记数——worker 接线由 app 装配测试覆盖）
-    const adapter = new MemoryIndexAdapter(store, () => { triggerCount++; });
+    const adapter = new MemoryIndexAdapter(store, repo, () => { triggerCount++; });
     // feature chunk 索引（内部走 replaceChunksBySource → 落库 → 触发）
     await adapter.indexFeatureChunks("F-test-doc", [
       { content: "运行期触发验证 chunk 一，内容长度足够通过校验", headingPath: ["a"], charCount: 30 },
@@ -471,7 +471,7 @@ describe("F20261109epqst 检视处置：运行期入库弱触发（onBulkEnqueue
     ], { title: "测试研究" });
     expect(triggerCount).toBe(2);
     // 无回调构造不炸（向后兼容）
-    const bare = new MemoryIndexAdapter(store);
+    const bare = new MemoryIndexAdapter(store, repo);
     await bare.indexFeatureChunks("F-bare", [
       { content: "无回调兼容验证，内容长度足够校验", headingPath: ["x"], charCount: 20 },
     ], { title: "裸适配" });

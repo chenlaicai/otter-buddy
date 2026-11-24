@@ -48,6 +48,7 @@ export function initRepositories(db: Database.Database, logger?: Logger): Reposi
     memoryReader: memoryRepo,
     memoryWriter: memoryRepo,
     memoryQueue: memoryRepo,
+    entryProjection: memoryRepo,
     searchQueryLog: new SqliteSearchQueryLogRepository(db),
     /** 夜间审视治量状态（consolidation_state 表） */
     consolidationState: new SqliteConsolidationStateRepository(db),
