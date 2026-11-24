@@ -125,17 +125,15 @@ describe("buildIdentityPrefix 分支", () => {
     expect(prefix).toContain("由大獭为完成特定任务而创建");
   });
 
-  it("otter 不存在时返回空串", async () => {
-    await expect(buildIdentityPrefix(makeFactory(db, REAL_IDENTITY_DIR), "ghost", "big")).resolves.toBe("");
+  it("otter 不存在时响亮失败，不生成匿名内部身份", async () => {
+    await expect(buildIdentityPrefix(makeFactory(db, REAL_IDENTITY_DIR), "ghost", "big"))
+      .rejects.toThrow("Required identity subject is missing: ghost");
   });
 
-  it("身份文件目录缺失：降级为仅头部（不含身份正文）", async () => {
+  it("身份文件目录缺失：响亮失败，不降级为仅头部", async () => {
     await seedOtter("o-big", "大獭", "big");
-    const prefix = await buildIdentityPrefix(makeFactory(db, "/nonexistent/identity/dir"), "o-big", "big");
-
-    expect(prefix).toContain("名称：大獭");
-    expect(prefix).toContain("类型：大獭");
-    expect(prefix).not.toContain("海獭团队的头儿");
+    await expect(buildIdentityPrefix(makeFactory(db, "/nonexistent/identity/dir"), "o-big", "big"))
+      .rejects.toThrow("Required BIG_OTTER.md identity asset is unavailable");
   });
 });
 

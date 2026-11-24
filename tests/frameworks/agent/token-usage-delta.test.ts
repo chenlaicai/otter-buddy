@@ -37,8 +37,10 @@ describe("F20261026ctbg invoke token 透传", () => {
     const internals = factory as unknown as {
       activeSessions: Map<string, { abort: () => Promise<void>; toolCallCount: number }>;
       identityBuilder: { buildIdentityPrefix: () => Promise<string>; getOtterName: () => Promise<string> };
+      composeInvokePrompt: () => Promise<string>;
       _executeWithSession: (...args: unknown[]) => Promise<unknown>;
     };
+    internals.composeInvokePrompt = async () => "PROMPT";
     internals.activeSessions.set("otter-1:invoke-1", { abort: async () => {}, toolCallCount: 0 });
     let tokens = { input: 100, output: 20, cacheRead: 40, cacheWrite: 2 };
     const session = {

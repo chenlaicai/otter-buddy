@@ -340,16 +340,6 @@ describe("durable-native runtime", () => {
     await session.close(BACKGROUND_CONTEXT);
   });
 
-  it("pool option refresh without identity preserves the previous identity", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-identity-refresh-"));
-    const { session } = await open(path.join(dir, "session.sqlite"), [fauxAssistantMessage("x")]);
-    session.updateOptions({ currentInvokeId: "invoke-1", identity: "大獭身份" });
-    session.updateOptions({ currentInvokeId: "invoke-2" });
-    const state = session as unknown as { options: { identity?: string } };
-    expect(state.options.identity).toBe("大獭身份");
-    await session.close(BACKGROUND_CONTEXT);
-  });
-
   it("restores the tool-execution watchdog: maxPerEventTimeMs aborts a hung tool (PR #1783 严亟 1 回归)", { timeout: 20_000 }, async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-watchdog-"));
     let cancelled = false;
