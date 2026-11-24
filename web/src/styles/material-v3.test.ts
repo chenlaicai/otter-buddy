@@ -128,7 +128,8 @@ describe('材质 v3.0 契约：小面积一级导航真玻璃例外', () => {
     expect(css).toMatch(/\.glass-nav-content\s*\{[^}]*z-index:\s*10/)
     expect(css).toMatch(/\.glass-nav-item-content\s*\{[^}]*z-index:\s*2/)
     expect(css).not.toMatch(/\.glass-nav-copy|\.glass-nav-tint|\.glass-nav-selection/)
-    expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\)\s*\{\s*\.glass-nav canvas\s*\{\s*display:\s*none;\s*\}/)
+    expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\)\s*\{\s*\.glass-nav,\s*:root\[data-custom-bg='true'\] \.glass-nav\s*\{\s*background:\s*var\(--nav-glass-bg\);\s*border-color:\s*var\(--hairline\);\s*\}/)
+    expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\)[\s\S]*?\.glass-nav canvas\s*\{\s*display:\s*none;\s*\}/)
   })
 })
 

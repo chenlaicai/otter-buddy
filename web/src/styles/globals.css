@@ -298,6 +298,11 @@ body {
 }
 /* 减少透明度时停用 WebGL 透镜，保留不透明的静态选中块。 */
 @media (prefers-reduced-transparency: reduce) {
+  .glass-nav,
+  :root[data-custom-bg='true'] .glass-nav {
+    background: var(--nav-glass-bg);
+    border-color: var(--hairline);
+  }
   .glass-nav canvas { display: none; }
   .glass-nav-highlight {
     background: var(--nav-active-bg);

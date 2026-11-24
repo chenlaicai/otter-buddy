@@ -62,7 +62,7 @@ vendored 文件位于 `web/src/components/liquid-glass/`：
 
 ### 无障碍与降级
 
-`prefers-reduced-motion` 由上游 GlassLens 直接贴合目标，不运行移动弹簧。`prefers-reduced-transparency` 下 TopBar 禁用 WebGL 透镜，保留不透明静态选中块。
+`prefers-reduced-motion` 由上游 GlassLens 直接贴合目标，不运行移动弹簧。`prefers-reduced-transparency` 下 TopBar 禁用 WebGL 透镜，默认及自定义背景的整条导航底座都改用 `var(--nav-glass-bg)` 实色与标准 hairline，保留不透明静态选中块；材质契约同时钉住两条底座背景与 canvas 降级。
 
 无 WebGL2 或 context 丢失时沿用上游 CSS 静态高亮。路由、对话详情激活、对话级执行机能力均不变。
 
@@ -85,7 +85,7 @@ vendored 文件位于 `web/src/components/liquid-glass/`：
 - 完整录像：`bilal-clean-{chromium,webkit}.webm`；交互录像：`bilal-{chromium,webkit}-all.webm`。
 - 快速连点/reduced-motion/resize：`bilal-{chromium,webkit}-clear-{interrupted,reduced}.png`、`bilal-{chromium,webkit}-clear-resized.png`。
 - 机器结果：`bilal-{chromium,webkit}-result.json`，双端 `errors=[]`、`highlights=1`、`copies=0`、`svgFilters=0`。
-- 定向组件/材质测试 20/20、TypeScript 与 Vite 生产构建通过。rebase 最新 `origin/main` 后全量 Web **90 文件、883/883** 通过；视觉相关文件与 rebase 前逐 blob 一致。
+- 定向组件/材质测试 20/20、TypeScript 与 Vite 生产构建通过。rebase 最新 `origin/main` 后全量 Web **90 文件、887/887** 通过；视觉相关文件与 rebase 前逐 blob 一致。
 
 ## Rollback
 
