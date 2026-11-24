@@ -70,6 +70,14 @@ export class SqliteConnectorRegistryRepository implements ConnectorRegistryRepos
     return result.changes > 0;
   }
 
+  async findActivePairingCode(code: string, now: string): Promise<{ code: string; expiresAt: string } | null> {
+    // 只读查询（不动核销状态）：未核销且未过期才返回——引导文件下载前验证码仍可用
+    const row = this.db.prepare(
+      "SELECT code, expires_at FROM pairing_codes WHERE code = ? AND redeemed_at IS NULL AND expires_at > ?",
+    ).get(code, now) as { code: string; expires_at: string } | undefined;
+    return row ? { code: row.code, expiresAt: row.expires_at } : null;
+  }
+
   async redeemAndCreateDevice(code: string, device: Device, now: string): Promise<boolean> {
     // 事务原子化——核销失败不建设备（消除「码已烧但设备未建」窗口）
     const runAll = this.db.transaction((): boolean => {

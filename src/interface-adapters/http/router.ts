@@ -454,5 +454,7 @@ function registerPlumbingRoutes(app: Hono, plumbing?: RouterPlumbingOptions): vo
   if (plumbing?.connectorOnboarding) {
     app.post("/api/connector/pairing-codes", (ctx) => plumbing.connectorOnboarding!.issueCode(ctx));
     app.get("/api/connector/download", (ctx) => plumbing.connectorOnboarding!.download(ctx));
+    app.get("/api/connector/download/app", (ctx) => plumbing.connectorOnboarding!.downloadApp(ctx));
+    app.post("/api/connector/download/bootstrap", (ctx) => plumbing.connectorOnboarding!.downloadBootstrap(ctx));
   }
 }

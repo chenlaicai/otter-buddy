@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Copy, Download, Plus, Terminal } from 'lucide-react'
+import { Check, Copy, Download, MonitorSmartphone, Plus, Terminal } from 'lucide-react'
 
 interface IssuedCode {
   code: string
@@ -19,6 +19,10 @@ export function ConnectorOnboardingPanel() {
   const [issuing, setIssuing] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
+  const [appDownloading, setAppDownloading] = useState(false)
+  const [appDownloaded, setAppDownloaded] = useState(false)
+  const [bootstrapDownloading, setBootstrapDownloading] = useState(false)
+  const [bootstrapDownloaded, setBootstrapDownloaded] = useState(false)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const hubUrl = window.location.origin
@@ -46,6 +50,59 @@ export function ConnectorOnboardingPanel() {
     }
   }
 
+  /** 同源登录态下载 blob 并触发保存（文件名由调用方定——包名带版本、引导文件固定名） */
+  async function saveBlobDownload(res: Response, filename: string): Promise<void> {
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  async function downloadAppPackage() {
+    if (appDownloading) return
+    setAppDownloading(true)
+    setAppDownloaded(false)
+    setError(null)
+    try {
+      const res = await fetch('/api/connector/download/app', { credentials: 'same-origin' })
+      if (!res.ok) throw new Error(await responseError(res, '安装包下载失败'))
+      const version = res.headers.get('X-Otter-Connector-Version')
+      await saveBlobDownload(res, `otter-connector-${version ?? 'unknown'}.zip`)
+      setAppDownloaded(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setAppDownloading(false)
+    }
+  }
+
+  async function downloadBootstrap() {
+    if (!issued || bootstrapDownloading) return
+    setBootstrapDownloading(true)
+    setBootstrapDownloaded(false)
+    setError(null)
+    try {
+      const res = await fetch('/api/connector/download/bootstrap', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ code: issued.code }),
+      })
+      if (!res.ok) throw new Error(await responseError(res, '引导文件下载失败'))
+      await saveBlobDownload(res, 'otter-connector-bootstrap.json')
+      setBootstrapDownloaded(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBootstrapDownloading(false)
+    }
+  }
+
   async function downloadPackage() {
     if (downloading) return
     setDownloading(true)
@@ -55,14 +112,7 @@ export function ConnectorOnboardingPanel() {
       const res = await fetch('/api/connector/download', { credentials: 'same-origin' })
       if (!res.ok) throw new Error(await responseError(res, 'CLI 安装包下载失败'))
       const version = res.headers.get('X-Otter-Connector-Version')
-      const url = URL.createObjectURL(await res.blob())
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = `otter-buddy-connector-${version ?? 'unknown'}.tgz`
-      document.body.appendChild(anchor)
-      anchor.click()
-      anchor.remove()
-      URL.revokeObjectURL(url)
+      await saveBlobDownload(res, `otter-buddy-connector-${version ?? 'unknown'}.tgz`)
       setDownloaded(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -103,23 +153,70 @@ export function ConnectorOnboardingPanel() {
         </button>
       </div>
 
-      <div className="rounded-lg bg-amber-400/10 px-2.5 py-2 text-[10px] leading-relaxed text-amber-700">
-        开发态：下载的是 npm CLI tarball，需要 Node.js 20+、npm 和命令行；不是双击桌面应用。
+      <div data-testid="app-package-section" className="space-y-2">
+        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-stone-700">
+          <MonitorSmartphone size={13} className="text-otter-600" />macOS 安装包（双击启动）
+        </div>
+        <div className="rounded-lg bg-amber-400/10 px-2.5 py-2 text-[10px] leading-relaxed text-amber-700">
+          开发态未签名：首次打开可能被 macOS 拦截，请右键选「打开」或在系统设置放行；内嵌 Node 运行时，目标电脑无需安装 Node/npm。终端向导式交互，不是 .app 图形界面。
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            data-testid="download-connector-app"
+            onClick={() => void downloadAppPackage()}
+            disabled={appDownloading}
+            className="px-2.5 py-1.5 text-[11px] rounded-lg glass-card text-stone-600 hover:bg-white/50 flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <Download size={13} />{appDownloading ? '下载中…' : '下载安装包（zip）'}
+          </button>
+          {appDownloaded && <span className="text-[10px] text-teal-600 flex items-center gap-1"><Check size={12} />已下载</span>}
+        </div>
+        <p className="text-[10px] text-stone-400">
+          步骤：下载 zip 并解压 → 双击 <code>OtterConnector.command</code> → 向导输入中枢地址与配对码（配对码可下载引导文件自动带入）→ 输入设备名完成配对并常驻。之后双击同一启动器即自动重连。
+        </p>
+        {issued && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="download-bootstrap"
+              onClick={() => void downloadBootstrap()}
+              disabled={bootstrapDownloading}
+              className="px-2.5 py-1.5 text-[11px] rounded-lg glass-card text-stone-600 hover:bg-white/50 flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <Download size={13} />{bootstrapDownloading ? '下载中…' : '下载引导文件（自动带入）'}
+            </button>
+            {bootstrapDownloaded && <span className="text-[10px] text-teal-600 flex items-center gap-1"><Check size={12} />已下载</span>}
+          </div>
+        )}
+        {issued && (
+          <p className="text-[10px] text-stone-400">
+            引导文件 <code>otter-connector-bootstrap.json</code> 含当前配对码与中枢地址（与配对码同效、同样一次性）；保存到「下载」文件夹或启动器同目录即可被向导发现。
+          </p>
+        )}
       </div>
 
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          data-testid="download-connector"
-          onClick={() => void downloadPackage()}
-          disabled={downloading}
-          className="px-2.5 py-1.5 text-[11px] rounded-lg glass-card text-stone-600 hover:bg-white/50 flex items-center gap-1.5 disabled:opacity-50"
-        >
-          <Download size={13} />{downloading ? '下载中…' : '下载 CLI 安装包'}
-        </button>
-        {downloaded && <span className="text-[10px] text-teal-600 flex items-center gap-1"><Check size={12} />已下载</span>}
+      <div className="border-t border-white/50 pt-3 space-y-2">
+        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-stone-700">
+          <Terminal size={13} className="text-otter-600" />开发者方式：npm CLI tarball
+        </div>
+        <div className="rounded-lg bg-amber-400/10 px-2.5 py-2 text-[10px] leading-relaxed text-amber-700">
+          开发态：需要 Node.js 22+、npm 和命令行；不是双击桌面应用。
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            data-testid="download-connector"
+            onClick={() => void downloadPackage()}
+            disabled={downloading}
+            className="px-2.5 py-1.5 text-[11px] rounded-lg glass-card text-stone-600 hover:bg-white/50 flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <Download size={13} />{downloading ? '下载中…' : '下载 CLI 安装包'}
+          </button>
+          {downloaded && <span className="text-[10px] text-teal-600 flex items-center gap-1"><Check size={12} />已下载</span>}
+        </div>
+        <p className="text-[10px] text-stone-400">安装：在下载目录执行 <code>npm install -g &lt;下载的.tgz&gt;</code></p>
       </div>
-      <p className="text-[10px] text-stone-400">安装：在下载目录执行 <code>npm install -g &lt;下载的.tgz&gt;</code></p>
 
       {issued && (
         <div className="space-y-2 border-t border-white/50 pt-3" data-testid="pairing-details">

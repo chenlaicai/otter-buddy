@@ -11,7 +11,7 @@ import type { IncomingMessage } from "node:http";
 import type { Hono } from "hono";
 import { createRouter, type Controllers } from "@interface-adapters/http/router";
 import { ConnectorPairController } from "@interface-adapters/http/controllers/connector-pair-controller";
-import { ConnectorOnboardingController, type ConnectorCliArtifact } from "@interface-adapters/http/controllers/connector-onboarding-controller";
+import { ConnectorOnboardingController, type ConnectorArtifact } from "@interface-adapters/http/controllers/connector-onboarding-controller";
 import { IssueConnectorPairingCode, CONNECTOR_PAIRING_CODE_TTL_MS } from "@usecases/execution/issue-connector-pairing-code";
 import { SqliteConnectorRegistryRepository } from "@frameworks/db/execution/sqlite-connector-registry-repository";
 import { ConnectorWsGateway } from "@frameworks/execution/connector-ws-gateway";
@@ -28,37 +28,65 @@ function testLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() };
 }
 
+/** 装配被测路由（控制器构造参数较长，抽出 beforeEach 降复杂度） */
+function buildTestApp(
+  repo: SqliteConnectorRegistryRepository,
+  artifact: ConnectorArtifact,
+  appArtifact: ConnectorArtifact,
+  logger: ReturnType<typeof testLogger>,
+  now: () => number,
+): Hono {
+  const controllers = { inbound: {} } as unknown as Controllers;
+  return createRouter(controllers, logger as never, {
+    connectorPair: new ConnectorPairController(repo, logger as never),
+    connectorOnboarding: new ConnectorOnboardingController(
+      new IssueConnectorPairingCode(repo, now),
+      artifact,
+      logger as never,
+      repo,
+      appArtifact,
+    ),
+  });
+}
+
+const packageBytes = new TextEncoder().encode("connector-cli-package-fixture");
+const appPackageBytes = new TextEncoder().encode("connector-app-package-fixture");
+
+/** fixture：CLI tarball 与 app zip 产物文件落临时目录（版本固定 0.1.0） */
+async function writeFixtureArtifacts(tempDir: string): Promise<{ artifact: ConnectorArtifact; appArtifact: ConnectorArtifact }> {
+  const artifact: ConnectorArtifact = {
+    filePath: path.join(tempDir, "otter-buddy-connector-0.1.0.tgz"),
+    fileName: "otter-buddy-connector-0.1.0.tgz",
+    version: "0.1.0",
+  };
+  await writeFile(artifact.filePath, packageBytes);
+  const appArtifact: ConnectorArtifact = {
+    filePath: path.join(tempDir, "otter-connector-macos-universal-0.1.0.zip"),
+    fileName: "otter-connector-macos-universal-0.1.0.zip",
+    version: "0.1.0",
+  };
+  await writeFile(appArtifact.filePath, appPackageBytes);
+  return { artifact, appArtifact };
+}
+
 describe("connector Web 接入：签发、核销与 CLI 下载", () => {
   let db: Database.Database;
   let repo: SqliteConnectorRegistryRepository;
   let app: Hono;
   let logger: ReturnType<typeof testLogger>;
   let tempDir: string;
-  let artifact: ConnectorCliArtifact;
+  let artifact: ConnectorArtifact;
+  let appArtifact: ConnectorArtifact;
   let issuedAtMs: number;
-  const packageBytes = new TextEncoder().encode("connector-cli-package-fixture");
 
   beforeEach(async () => {
     db = createTestDb();
     repo = new SqliteConnectorRegistryRepository(db);
     logger = testLogger();
     tempDir = await mkdtemp(path.join(tmpdir(), "connector-onboarding-"));
-    artifact = {
-      filePath: path.join(tempDir, "otter-buddy-connector-0.1.0.tgz"),
-      fileName: "otter-buddy-connector-0.1.0.tgz",
-      version: "0.1.0",
-    };
-    await writeFile(artifact.filePath, packageBytes);
+    ({ artifact, appArtifact } = await writeFixtureArtifacts(tempDir));
     issuedAtMs = Date.now();
-    const controllers = { inbound: {} } as unknown as Controllers;
-    app = createRouter(controllers, logger as never, {
-      connectorPair: new ConnectorPairController(repo, logger as never),
-      connectorOnboarding: new ConnectorOnboardingController(
-        new IssueConnectorPairingCode(repo, () => issuedAtMs),
-        artifact,
-        logger as never,
-      ),
-    });
+    app = buildTestApp(repo, artifact, appArtifact, logger, () => issuedAtMs);
   });
 
   afterEach(async () => {
@@ -131,6 +159,100 @@ describe("connector Web 接入：签发、核销与 CLI 下载", () => {
     const res = await app.request("/api/connector/download", { headers: USER });
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ code: "connector_package_missing" });
+  });
+
+  it("app 安装包收登录 user：匿名/guest 拒绝，字节、版本、hash 可核；缺包 503", async () => {
+    expect((await app.request("/api/connector/download/app")).status).toBe(401);
+    expect((await app.request("/api/connector/download/app", { headers: GUEST })).status).toBe(403);
+
+    const res = await app.request("/api/connector/download/app", { headers: USER });
+    expect(res.status).toBe(200);
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(appPackageBytes);
+    expect(res.headers.get("X-Otter-Connector-Version")).toBe("0.1.0");
+    expect(res.headers.get("Content-Type")).toBe("application/zip");
+    expect(res.headers.get("Content-Disposition")).toContain("otter-connector-macos-universal-0.1.0.zip");
+    const digest = createHash("sha256").update(appPackageBytes).digest();
+    expect(res.headers.get("X-Otter-Connector-SHA256")).toBe(digest.toString("hex"));
+    expect(res.headers.get("Digest")).toBe(`sha-256=${digest.toString("base64")}`);
+
+    appArtifact.filePath = path.join(tempDir, "missing.zip");
+    const missing = await app.request("/api/connector/download/app", { headers: USER });
+    expect(missing.status).toBe(503);
+    expect(await missing.json()).toMatchObject({ code: "connector_app_package_missing" });
+  });
+
+  it("引导文件收 admin：匿名/guest/user 拒绝；admin 得内嵌活跃码与请求 origin 的 hub", async () => {
+    const issued = await issueCode();
+    const post = (payload: unknown, headers: Record<string, string> = ADMIN) => app.request("/api/connector/download/bootstrap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: typeof payload === "string" ? payload : JSON.stringify(payload),
+    });
+
+    expect((await post({ code: issued.code }, {})).status).toBe(401);
+    expect((await post({ code: issued.code }, GUEST)).status).toBe(403);
+    expect((await post({ code: issued.code }, USER)).status).toBe(403);
+
+    const res = await app.request(new Request("http://hub.example.com/api/connector/download/bootstrap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...ADMIN },
+      body: JSON.stringify({ code: issued.code }),
+    }));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Disposition")).toContain("otter-connector-bootstrap.json");
+    const body = await res.json() as { hub: string; code: string; expiresAt: string };
+    expect(body.hub).toBe("http://hub.example.com");
+    expect(body.code).toBe(issued.code);
+    expect(body.expiresAt).toBe(issued.expiresAt);
+    // 码即秘密：不进结构化日志
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain(issued.code);
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(issued.code);
+    expect(JSON.stringify(logger.error.mock.calls)).not.toContain(issued.code);
+  });
+
+  it("引导文件 fail-closed：形态非法 400；未知/已核销/过期一律 404 不区分原因；重放后不可再取", async () => {
+    const issued = await issueCode();
+    const post = (payload: unknown, headers: Record<string, string> = ADMIN) => app.request("/api/connector/download/bootstrap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: typeof payload === "string" ? payload : JSON.stringify(payload),
+    });
+
+    expect((await post("not-json")).status).toBe(400);
+    expect((await post({ code: "AB2" })).status).toBe(400);
+    expect((await post({ code: "ABCD0123" })).status).toBe(400); // 字母表不含 0/1
+    expect((await post({ code: "aaaaaaaa" })).status).toBe(404); // 小写规范化后合法形态、未知码
+    expect((await post({ code: "ZZZZZZZZ" })).status).toBe(404);
+
+    // 核销后即不可取（一次性语义贯穿引导文件）
+    await app.request("/api/connector/pair", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: issued.code, name: "引导核销机" }),
+    });
+    expect((await post({ code: issued.code })).status).toBe(404);
+
+    // 过期码同样 404（不区分原因）
+    issuedAtMs = Date.now() - CONNECTOR_PAIRING_CODE_TTL_MS - 1000;
+    const expired = await issueCode();
+    expect((await post({ code: expired.code })).status).toBe(404);
+    // 调用方指定的 hub 不可信：body 带 hub 也不被采纳（服务端只认请求 origin）
+    issuedAtMs = Date.now();
+    const fresh = await issueCode();
+    const res = await app.request("/api/connector/download/bootstrap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...ADMIN },
+      body: JSON.stringify({ code: fresh.code, hub: "https://evil.example.com" }),
+    });
+    expect((await res.json() as { hub: string }).hub).not.toBe("https://evil.example.com");
+  });
+
+  it("repo.findActivePairingCode：未核销未过期才命中，只读不改变核销状态", async () => {
+    const issued = await issueCode();
+    expect(await repo.findActivePairingCode(issued.code, new Date().toISOString())).toMatchObject({ code: issued.code });
+    expect(await repo.findActivePairingCode("ZZZZZZZZ", new Date().toISOString())).toBeNull();
+    await repo.redeemPairingCode(issued.code, new Date().toISOString());
+    expect(await repo.findActivePairingCode(issued.code, new Date().toISOString())).toBeNull();
   });
 
   it("Web 签发码可换 token 并经真 WSS 上线", async () => {
