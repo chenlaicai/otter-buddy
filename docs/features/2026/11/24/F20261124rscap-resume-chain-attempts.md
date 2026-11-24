@@ -86,7 +86,10 @@ invoke_id，注释所称「钳住链长 ≤5」不成立。
 - 修复后定向：`planc4/04-after-fix-tests.log`，33 passed；最终扩展定向 3 文件 **46 passed**。
 - 链级单测：覆盖普通首闯、父行继承、第 5 轮认领与第 6 轮拒绝。
 - `npx tsc --noEmit`、变更文件 eslint、`npm run build` PASS；`lint:intent` 1101 docs OK、0 error。
-- 真实 hub 链式复跑、B1/B2 回归与 CI 结果将在 PR 前补记。
+- **真实 hub 第 6 轮终验**：`planc4/05e-attempt-limit-driver.log` 五轮 attempts=1→2→3→4→5，随后 `deed6ba9-c3a2-4ac3-976a-ac1ec46829fb` 不再产生恢复 invoke；queue=exhausted。`05e-healing.json` 含 high 事件 `03a7e29c-6ff1-4626-ab75-dd5f1ef4042b`、attempts=5；设备追加文件仍一行。
+- **B1 回归**：`06-b1-regression-analysis.json` 设备 succeeded / hub unknown，同 actionId 请求=1，追加文件一行，零盲重放。
+- **B2 正向回归**：`07-positive-recovery-analysis.json` claim token/boot epoch 轮换，R2 完成后 `recovery_invoke_id=e7767ba5-f8b5-45be-82ff-d5bfa04d8c16`，设备文件一行。
+- pre-commit 全量 check PASS（build、eslint、schema、双形态 smoke、脚本探针）；CI 结果见 PR。
 
 ## 负向验收与最简检查
 
