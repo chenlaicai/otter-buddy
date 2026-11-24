@@ -8,7 +8,7 @@ import type { Otter } from "@entities/otter/otter";
 import type { OtterSession } from "@entities/otter/otter-session";
 import type { LinkedResource } from "@entities/conversation/conversation";
 import type { DetailLevel, MemoryContentType } from "@entities/memory/memory-entry";
-import type { VecCoverage } from "@usecases/memory/search-memory";
+import type { RetrievalResult } from "@usecases/memory/search-memory";
 import type { EdgeType, RelatedEntryItem } from "@entities/memory/memory-edge";
 
 /** 记忆条目（search_memory 返回结构，渐进式披露） */
@@ -118,7 +118,7 @@ export interface OtterToolClient {
   };
   memory: {
     getById(id: string): Promise<MemorySearchEntry | null>;
-    search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean, currentConversationId?: string): Promise<{ entries: MemorySearchEntry[]; total: number; contextEntries?: MemorySearchEntry[]; vecCoverage?: VecCoverage }>;
+    search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean, currentConversationId?: string, debug?: boolean): Promise<RetrievalResult>;
     /**
      * 检索埋点（fire-and-forget）。
      * search_memory 工具 execute 后调用——记录查询 + top 命中 + 对话上下文，供评估基线标注。

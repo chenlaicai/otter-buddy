@@ -9,6 +9,7 @@ import type {
   SearchFilters,
   VecHit,
   DarkEntry,
+  EmbeddingQueueHealth,
 } from "@usecases/memory/memory-types";
 import type { MemoryRepository } from "@usecases/memory/memory-repository";
 import type { MemoryReader } from "@usecases/memory/memory-reader";
@@ -832,6 +833,13 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
       // vec0 IN 查询异常：保守返回全 false
     }
     return result;
+  }
+
+  /** 队列健康与单次检索的 topK 覆盖率分开读取，互不充当对方真值。 */
+  async getEmbeddingQueueHealth(): Promise<EmbeddingQueueHealth> {
+    const stats = await this.pendingTaskStats();
+    const dead = this.db.prepare("SELECT COUNT(*) AS n FROM embedding_tasks WHERE status = 'dead'").get() as { n: number };
+    return { pending: stats.pending, dead: dead.n, oldestAgeSeconds: stats.oldestAgeSeconds };
   }
 
   /** embedding 失败入队重试（拆至 embedding-task-queue） */

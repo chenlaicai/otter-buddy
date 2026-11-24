@@ -22,6 +22,7 @@ import type {
   SnippetHit,
   VecHit,
   DarkEntry,
+  EmbeddingQueueHealth,
 } from "./memory-types";
 
 export interface MemoryReader {
@@ -83,6 +84,8 @@ export interface MemoryReader {
    * 返回 Map<entryId, hasVec>。vec 表不可用时所有 entry 返回 false。
    */
   hasEmbeddings(entryIds: string[]): Promise<Map<string, boolean>>;
+  /** 可选队列健康读口；未实现的旧 Reader 不伪造零值，结果中省略该字段。 */
+  getEmbeddingQueueHealth?(): Promise<EmbeddingQueueHealth>;
   /**
    * 按 conversationId 获取消息条目（provenance 读路径用）。
    * 不做预筛选，返回全部（按 limit 截断），附带 role/turn 等元数据。
