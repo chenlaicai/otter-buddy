@@ -113,7 +113,7 @@ describe("postInitDatabase 重启 reconcile 入队（F20260916b1ea）", () => {
     // 父行幂等不被子行入队改写。
     expect(queueRows().find(row => row.invoke_id === "invoke-parent")?.attempts).toBe(4);
 
-    // 第 5 轮可认领；其再崩溃产生第 6 轮时继承 5，认领闸明确拒绝。
+    // 上限内最后一次可认领；其再崩溃后继承上限值，认领闸明确拒绝。
     expect(await repos.resumePending.claimPendingResume("recovery-child", { token: "chain-5", bootEpoch: 100, pid: 100 })).toBe(true);
     expect((await repos.resumePending.getByInvokeId("recovery-child"))?.attempts).toBe(5);
     insertRunningInvoke("recovery-grandchild", "recovery-child");

@@ -53,7 +53,7 @@ export class SqliteResumePendingRepository implements ResumePendingRepository {
    *  上限值 5：每次重启恢复消耗 1 attempts（认领只在恢复入口一次，进程内 429 退避
    *  不重认领），允许 5 次重启窗口（旧实现 MAX=1 太激进——crash-recovery 只给一次
    *  机会不够）。
-   *  #2016 链级语义由 bootstrap 入队继承保证：子恢复行从父行 attempts 起步，
+   *  链级语义由 bootstrap 入队继承保证：子恢复行从父行 attempts 起步，
    *  因此本 SQL 的逐行 attempts<5 同时约束整条恢复链；普通首闯仍从 0 开始。 */
   private static readonly MAX_RESUME_ATTEMPTS = 5;
 
