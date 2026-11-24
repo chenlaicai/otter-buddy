@@ -236,9 +236,7 @@ export function TopBar() {
             }}
             style={{ position: 'absolute', left: -LENS_PAD, top: -LENS_PAD, width: fullWidth, height: 40 + LENS_PAD * 2 }}
             refract={<div className="glass-nav-copy">{staticSurface}</div>}
-          >
-            <div className="glass-nav-copy">{staticSurface}</div>
-          </Glass>
+          />
         )}
         {visible && reducedTransparency && (
           <span aria-hidden="true" className="glass-nav-selection" style={selectionBox} />
