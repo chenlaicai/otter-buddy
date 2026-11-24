@@ -22,7 +22,7 @@ import * as nodeFs from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 
-/** 设备身份（~/.otter/connector/device.json）。hubUrl 为 PR-B 新增可选字段——
+/** 设备身份（~/.otter/connector/device.json）。hubUrl 为新增可选字段——
  *  首启/显式 --hub 连接成功路径回写，后续无参启动自动重连用；旧文件无此字段照常加载。 */
 export interface DeviceIdentity {
   deviceId: string;
@@ -38,8 +38,8 @@ export interface BootstrapPrefill {
   source?: string;
 }
 
-/** 配对码字母表（与 hub 侧签发一致：无易混淆字符的 8 位大写） */
-const PAIRING_CODE_PATTERN = /^[A-Z2-9]{8}$/;
+/** 配对码字母表（与 hub 侧签发完全一致：8 位、无易混淆字符 0/1/I/O） */
+const PAIRING_CODE_PATTERN = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/;
 
 /** 规范化 hub URL：trim → 解析 → 仅 http(s) → 去尾斜杠；非法返回 null */
 export function normalizeHubUrl(input: string): string | null {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * connector 可执行安装包打包器——免 CLI 首启分发（PR-B，#1981）。
+ * connector 可执行安装包打包器——免 CLI 首启分发。
  *
  * 产出：packages/connector/release/otter-connector-<os>-<version>.zip
  *   OtterConnector.command   双击启动器（Finder 双击 → Terminal 打开，向导式首启）

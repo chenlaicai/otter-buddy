@@ -46,7 +46,7 @@ test('Web 添加设备：登录签发、公开核销、CLI 下载与可见几何
   await expect(page.getByRole('button', { name: '生成新码' })).toBeVisible()
   await expect(onboarding.getByText('此前已生成但未核销的码在各自到期前仍可使用；每码只能核销一次。')).toBeVisible()
 
-  // PR-B：可执行安装包下载（登录态；字节/hash/版本头可核）
+  // 可执行安装包下载（登录态；字节/hash/版本头可核）
   const appDownloadEvent = page.waitForEvent('download')
   await page.getByTestId('download-connector-app').click()
   const appDownload = await appDownloadEvent
@@ -63,7 +63,7 @@ test('Web 添加设备：登录签发、公开核销、CLI 下载与可见几何
   expect(appActualHash).toBe(appExpectedHash)
   expect(appPackageResponse.headers()['x-otter-connector-version']).toBeTruthy()
 
-  // PR-B：引导文件（签发后出现；内嵌活跃码与请求 origin；一次性语义贯穿）
+  // 引导文件（签发后出现；内嵌活跃码与请求 origin；一次性语义贯穿）
   await expect(page.getByTestId('download-bootstrap')).toBeVisible()
   const bootstrapResponse = await page.request.post('/api/connector/download/bootstrap', {
     data: { code },

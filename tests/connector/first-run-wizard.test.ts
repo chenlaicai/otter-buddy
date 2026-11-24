@@ -32,6 +32,8 @@ describe("normalizePairingCode", () => {
     expect(normalizePairingCode("  ab2cd3ef  ")).toBe("AB2CD3EF");
     expect(normalizePairingCode("AB2CD3E0")).toBeNull(); // 0 不在字母表
     expect(normalizePairingCode("AB2CD3E1")).toBeNull(); // 1 不在字母表
+    expect(normalizePairingCode("AB2CD3EI")).toBeNull(); // I 不在字母表
+    expect(normalizePairingCode("AB2CD3EO")).toBeNull(); // O 不在字母表
     expect(normalizePairingCode("AB2CD3E")).toBeNull(); // 7 位
     expect(normalizePairingCode("")).toBeNull();
   });

@@ -221,6 +221,8 @@ describe("connector Web 接入：签发、核销与 CLI 下载", () => {
     expect((await post("not-json")).status).toBe(400);
     expect((await post({ code: "AB2" })).status).toBe(400);
     expect((await post({ code: "ABCD0123" })).status).toBe(400); // 字母表不含 0/1
+    expect((await post({ code: "AB2CD3EI" })).status).toBe(400); // 字母表不含 I
+    expect((await post({ code: "AB2CD3EO" })).status).toBe(400); // 字母表不含 O
     expect((await post({ code: "aaaaaaaa" })).status).toBe(404); // 小写规范化后合法形态、未知码
     expect((await post({ code: "ZZZZZZZZ" })).status).toBe(404);
 

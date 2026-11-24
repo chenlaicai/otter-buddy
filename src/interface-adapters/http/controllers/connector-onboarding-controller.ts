@@ -11,11 +11,11 @@ export interface ConnectorArtifact {
   version: string;
 }
 
-/** 配对码形态校验（与签发字母表同规；服务端形态不过的直接 400，不进 repo 查询） */
-const PAIRING_CODE_SHAPE = /^[A-Z2-9]{8}$/;
+/** 配对码形态校验（与签发字母表完全同规，不含 0/1/I/O；形态不过的直接 400，不进 repo 查询） */
+const PAIRING_CODE_SHAPE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/;
 
 /**
- * 登录态设备接入口：签发 + CLI tarball（PR-A）+ 可执行安装包/引导文件（PR-B）。
+ * 登录态设备接入口：签发配对码 + CLI tarball + 可执行安装包/引导文件。
  * 公开核销仍由 ConnectorPairController 独立承担。
  */
 export class ConnectorOnboardingController {
@@ -74,7 +74,7 @@ export class ConnectorOnboardingController {
     );
   }
 
-  /** 可执行安装包（PR-B）：双击启动器 + 内嵌 Node 运行时 + connector 产物。
+  /** 可执行安装包：双击启动器 + 内嵌 Node 运行时 + connector 产物。
    *  不含设备秘密（配对码走独立 bootstrap 端点）；构建机=hub 机，产物平台随部署机。 */
   async downloadApp(ctx: Context): Promise<Response> {
     if (this.appArtifact === undefined) {
@@ -89,7 +89,7 @@ export class ConnectorOnboardingController {
     );
   }
 
-  /** 引导文件（PR-B）：把签发的活跃码与当前中枢地址打包成向导可自动带入的 JSON。
+  /** 引导文件：把签发的活跃码与当前中枢地址打包成向导可自动带入的 JSON。
    *  admin 档（码=注册设备的秘密，与签发同轨）；码不存在/已核销/已过期一律 404
    *  不区分原因（与核销口防探测同口径）；hub 取请求自身 origin——不接受调用方指定。 */
   async downloadBootstrap(ctx: Context): Promise<Response> {

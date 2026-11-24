@@ -781,8 +781,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const connectorPackageRoot = getRepoRoot();
   const connectorCliVersion = (JSON.parse(fs.readFileSync(path.join(connectorPackageRoot, "package.json"), "utf8")) as { version: string }).version;
   const connectorCliFileName = `otter-buddy-connector-${connectorCliVersion}.tgz`;
-  // 可执行安装包（PR-B）：文件名规则与 scripts/package-connector-app.mjs 保持一致
-  // （构建机=hub 机；平台段跟随部署机 process.platform——双源常量同 PR-A 签发口径，
+  // 可执行安装包：文件名规则与 scripts/package-connector-app.mjs 保持一致
+  // （构建机=hub 机；平台段跟随部署机 process.platform——双源常量与 CLI tarball 口径同构，
   // 末端一致性由下载端点缺包 503 兑底，由 e2e 断言头/字节核对）
   const connectorAppPlatform = process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : process.platform;
   const connectorAppArchLabel = process.platform === "darwin" ? "universal" : process.arch;
