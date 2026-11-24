@@ -1,12 +1,12 @@
 ---
 id: F20261124tbnav
-title: "顶栏收敛为独立系统图标与居中悬浮玻璃一级菜单"
-summary: "顶栏保留独立系统图标和七个一级路由，中央菜单采用 frost-only 宽底座与单个开源 Liquid Glass 选中透镜；静止和运动均折射清晰静止画布，使用位置信号与速度 wobble 驱动弹性切换，无双端蓝黑细线。执行机系统级 badge/请求移除，对话级能力不变。"
+title: "顶栏收敛为系统图标与名称及居中悬浮玻璃一级菜单"
+summary: "顶栏保留系统图标、Otter Buddy 系统名称和七个一级路由，中央菜单采用 frost-only 宽底座与单个开源 Liquid Glass 选中透镜；静止和运动均折射清晰静止画布，使用位置信号与速度 wobble 驱动弹性切换，无双端蓝黑细线。执行机系统级 badge/请求移除，对话级能力不变。"
 change_type: feature
 capability_test: "n/a: Web UI 与材质变更，以 TopBar 行为测试、material-v3 CSS 契约、生产构建及 3184 Chromium/WebKit 真实静止/运动验收为载体"
 intent:
   problem: "旧 TopBar 通长玻璃底板混淆品牌、导航和系统级执行机；后续手写灰块与 turbulence 方案只像薄纱，静止没有真实折射，逐项玻璃和连接起终点的长药丸也不符合钉钉录屏。"
-  solution: "透明 header 仅保留左侧系统图标与居中一级菜单；宽底座只画透明 veil，唯一选中透镜使用 @samasante/liquid-glass 的 SDF displacement、motion values 和 useLensWobble，折射同一静止画布副本。静止保留折射，运动时灰色 tint 退出并由实时速度驱动 squash/stretch。"
+  solution: "透明 header 保留左侧系统图标、Otter Buddy 系统名称与居中一级菜单；宽底座只画透明 veil，唯一选中透镜使用 @samasante/liquid-glass 的 SDF displacement、motion values 和 useLensWobble，折射同一静止画布副本。静止保留折射，运动时灰色 tint 退出并由实时速度驱动 squash/stretch。"
   expected_effect: "清晰背景下静止与运动都能看到小透镜折射和连续轮廓，无蓝绿点线或黑色断线；未选中项无胶囊，底座不变形，快速连点可中断，Chrome 与 WebKit 一致。"
   verify_by:
     type: behavior_check
@@ -24,11 +24,11 @@ causal_links:
   - {type: "references", id: "F20261113uaccs", note: "仅移除 TopBar 系统级执行机展示，保留投影端点和对话级消费方"}
 ---
 
-# 顶栏收敛为独立系统图标与居中悬浮玻璃一级菜单
+# 顶栏收敛为系统图标与名称及居中悬浮玻璃一级菜单
 
 ## 最终目标
 
-以搭档提供的钉钉录屏为权威视觉参照，同时保留 Otter Buddy 的桌面信息架构：左侧独立系统图标、中央横向七个一级路由、透明 header。中央菜单是清晰背景上的悬浮玻璃，不是通长顶栏，也不是逐项玻璃胶囊。
+以搭档提供的钉钉录屏为权威视觉参照，同时保留 Otter Buddy 的桌面信息架构：左侧系统图标与 Otter Buddy 系统名称、中央横向七个一级路由、透明 header。中央菜单是清晰背景上的悬浮玻璃，不是通长顶栏，也不是逐项玻璃胶囊。
 
 最终视觉契约：
 

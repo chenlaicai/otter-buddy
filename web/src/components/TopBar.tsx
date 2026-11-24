@@ -31,7 +31,7 @@ const SETTLE_EASE = cubicBezier(0.36, 0, 0.18, 1)
 type SelectionBox = { left: number; width: number }
 type LensTarget = { center: number; width: number; route: string }
 
-/** SPA TopBar —— 独立系统图标 + 居中 Liquid Glass 主导航，由 AppLayout 渲染一次。 */
+/** SPA TopBar —— 系统图标与名称 + 居中 Liquid Glass 主导航，由 AppLayout 渲染一次。 */
 export function TopBar() {
   const location = useLocation()
   const contentRef = useRef<HTMLDivElement>(null)
@@ -197,13 +197,16 @@ export function TopBar() {
 
   return (
     <header className="relative z-20 mx-3 mt-3 flex h-12 flex-shrink-0 items-center justify-center">
-      <img
-        src="/otter-icon.png"
-        alt="Otter Buddy"
-        className="absolute left-2 top-1/2 h-8 w-8 -translate-y-1/2 rounded-full shadow-otter"
-      />
+      <div className="absolute left-2 top-1/2 flex -translate-y-1/2 items-center gap-2" data-testid="system-brand">
+        <img
+          src="/otter-icon.png"
+          alt="Otter Buddy"
+          className="h-8 w-8 rounded-full shadow-otter"
+        />
+        <span className="topbar-brand-name">Otter Buddy</span>
+      </div>
 
-      <nav ref={navRef} aria-label="主导航" data-testid="primary-nav" className="glass-nav max-w-[calc(100vw-6rem)] rounded-full">
+      <nav ref={navRef} aria-label="主导航" data-testid="primary-nav" className="glass-nav max-w-[calc(100vw-11rem)] rounded-full">
         {visible && !reducedTransparency && (
           <Glass
             className="glass-nav-lens"

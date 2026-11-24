@@ -222,6 +222,18 @@ body {
   box-shadow: var(--card-shadow), var(--edge-hi), inset 0 -1px 0 var(--contact-line);
 }
 
+.topbar-brand-name {
+  color: #2c2520;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+:root[data-custom-bg='true'] .topbar-brand-name {
+  color: rgba(255,255,255,0.94);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.72);
+}
+
 /* 一级主导航：宽底座仅透明 veil，小面积选中透镜由 @samasante/liquid-glass
    折射静止画布。真实菜单链接独立在上层，不参与 SVG displacement。 */
 .glass-nav {

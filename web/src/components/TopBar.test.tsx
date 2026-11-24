@@ -85,12 +85,13 @@ describe('TopBar 悬浮主导航', () => {
     })
   }
 
-  it('左侧仅保留系统图标，中央菜单只有一枚静止也折射的开源玻璃透镜', () => {
+  it('左侧保留系统图标与系统名称，中央菜单只有一枚静止也折射的开源玻璃透镜', () => {
     mockNavGeometry()
     const { container } = render(<MemoryRouter><TopBar /></MemoryRouter>)
 
     expect(screen.getByRole('img', { name: 'Otter Buddy' })).toBeTruthy()
-    expect(screen.queryByText('Otter Buddy')).toBeNull()
+    expect(screen.getByTestId('system-brand').textContent).toBe('Otter Buddy')
+    expect(screen.getByText('Otter Buddy')).toBeTruthy()
     expect(container.querySelector('header')?.classList.contains('glass-strong')).toBe(false)
     expect(screen.getByRole('navigation', { name: '主导航' }).classList.contains('glass-nav')).toBe(true)
     expect(screen.getAllByTestId('liquid-glass-lens')).toHaveLength(1)
