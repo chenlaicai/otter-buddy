@@ -95,14 +95,16 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
     .split("\n")
     .some((l) => {
       if (!/⚠️\s*无法判定/.test(l)) return false;
-      // v10 二轮复核收紧（v11 补强）：历史引用行必须把「⚠️ 无法判定」整段放在
-      // 配对引文「…」内（仅存在任意引文不算——「判定 ⚠️ 无法判定——本轮继续按此
-      // 处理「原文备查」」的诱饵引文曾在 v10 放行），且该引文闭合后的尾部只允许纯
-      // 标点/空白；引文之外的全文（含引文前）不得出现复判词——堵「闭合符之前夹
-      // 本轮继续按此处理」这一 v10 未检查区。无引文/未配对的历史行一律不豁免
+      // v10 二轮复核收紧（v11 补强，含检视三探针）：历史引用行必须把「⚠️ 无法判定」
+      // 整段放在配对引文「…」内，且**引文之外不得再出现任何「⚠️ 无法判定」**（去掉全部
+      // 配对引文后仍有残留 = 当前轮裸警告在借历史引文洗白——「判定 ⚠️ 无法判定；原文
+      // 「⚠️ 无法判定」」曾在 v10/v11 放行）；引文之外全文（含引文前）不得出现复判词；
+      // 该引文闭合后的尾部只允许纯标点/空白；无引文/未配对的历史行一律不豁免
       // （协议书写规范是历史警告入引文；「此后照此空转」类裸文本变体枚举不完，
       // fail-closed）。引文内容先挖空再测复判词，避免复判词本身被历史引用误伤。
       const outsideQuote = l.replace(/「[^」\n]*」/g, "「」");
+      const withoutQuotes = l.replace(/「[^」\n]*」/g, "");
+      const hasBareWarning = /⚠️\s*无法判定/.test(withoutQuotes);
       const warnQuote = l.match(/「[^「」\n]*⚠️\s*无法判定[^「」\n]*」/);
       const warnQuoteEnd = warnQuote ? (warnQuote.index ?? 0) + warnQuote[0].length : -1;
       const trailingAfterWarnQuote = warnQuote ? l.slice(warnQuoteEnd) : l;
@@ -114,6 +116,7 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
         /^\s*[-*]?\s*(?:历史(?:评论)?|回查评论|原评论)(?:引用)?[：:]/.test(l) &&
         /首轮|2026-11-18|上轮|此前|曾因|已因/.test(l) &&
         warnQuote !== null &&
+        !hasBareWarning &&
         !hasCurrentAdjudication &&
         /^[\s。，,；;、）)——\-·「」]*$/.test(trailingAfterWarnQuote);
       return !explicitHistoricalQuote;
@@ -232,6 +235,19 @@ const BAD_HISTORY_DECOY_QUOTE = GOOD_RECHECK.replace(
   "- 历史评论：2026-11-18 首轮曾因同一原因判定 ⚠️ 无法判定——本轮继续按此处理「原文备查」",
 );
 
+// 退化形态 11（v11 补强·检视三探针 1）：当前轮裸警告 + 尾部诱饵历史引文——
+// 去掉全部配对引文后仍有「⚠️ 无法判定」残留，即当前轮裸警告不得借引文豁免
+const BAD_HISTORY_BARE_WARNING = GOOD_RECHECK.replace(
+  "- 历史评论：2026-11-18 首轮曾因同一原因判定为「⚠️ 无法判定」",
+  "- 历史评论：2026-11-18 首轮曾因同一原因判定为 ⚠️ 无法判定；原文「⚠️ 无法判定」",
+);
+
+// 退化形态 12（v11 补强·检视三探针 2）：同构变体（「仍 ⚠️ 无法判定」）
+const BAD_HISTORY_BARE_WARNING_V2 = GOOD_RECHECK.replace(
+  "- 历史评论：2026-11-18 首轮曾因同一原因判定为「⚠️ 无法判定」",
+  "- 历史评论：2026-11-18 首轮曾因同一原因判定为 仍 ⚠️ 无法判定；原文「⚠️ 无法判定」",
+);
+
 export const selftest: GoldenModule["selftest"] = {
   good: {
     messages: [
@@ -321,6 +337,22 @@ export const selftest: GoldenModule["selftest"] = {
       messages: [
         msg("st-u11", 1, FIXTURE_INPUT, "user"),
         msg("st-o11", 2, BAD_HISTORY_DECOY_QUOTE),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 11（v11 补强）：当前轮裸警告 + 尾部诱饵引文（检视三探针 1）
+      messages: [
+        msg("st-u12", 1, FIXTURE_INPUT, "user"),
+        msg("st-o12", 2, BAD_HISTORY_BARE_WARNING),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 12（v11 补强）：「仍 ⚠️ 无法判定」+ 诱饵引文（检视三探针 2）
+      messages: [
+        msg("st-u13", 1, FIXTURE_INPUT, "user"),
+        msg("st-o13", 2, BAD_HISTORY_BARE_WARNING_V2),
       ],
       expectedOk: false,
     },
