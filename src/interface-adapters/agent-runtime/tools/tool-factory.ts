@@ -492,7 +492,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
-    description: `检索记忆：跨会话的历史决策、讨论、F/R 文档与事实都在这里，是了解一件事来龙去脉的第一入口。收到新问题时第一把工具先想记忆（grep/bash 翻目录是落空后的第二步；边界见 SYSTEM.md R4）. When: 搭档提到'上次'/问某决策为什么/跨会话续接/术语不明；实质问题先自问'这事有历史脉络吗'，有则先搜再答. 纯新话题/闲聊不必搜. Not for: 当前上下文存取 → get_context/set_context；取全文 → get_memory_detail. Output: 条目列表（detail_level 三级：summary 默认/snippet 看上下文/full 全文）+ vecCoverage 健康度（vecDisabled=true 时降级 FTS-only，语义近邻召回缺失，重要检索提示用户排查）+ contextEntries（expand_context 时）. TIP: 默认 summary → get_memory_detail 两步；结果含 drillDown 按其下钻；输入 F/R 文档 ID 自动短路定位；命中后用 get_related 拼链；发现关联用 link_memory 声明. 主动记忆（belief）条目带 beliefStatus 标注——recorded=[未核实]/verified=[已核实]/disputed=[存疑]（superseded 被降权到后），被取代条目带 supersededBy=新条目 ID，引用前先看状态与取代标记. 命中并实质影响回答时发言开头展示一行记忆溯源（格式见 SYSTEM.md R7）——查了要说. BOUNDARY: 记忆与当前上下文冲突以当前为准；library 路由 / created_after 过滤可用；debug=true 返回中间分值诊断排序.`,
+    description: `检索记忆：跨会话的历史决策、讨论、F/R 文档与事实都在这里，是了解一件事来龙去脉的第一入口。收到新问题时第一把工具先想记忆（grep/bash 翻目录是落空后的第二步；边界见 SYSTEM.md R4）. When: 搭档提到'上次'/问某决策为什么/跨会话续接/术语不明；实质问题先自问'这事有历史脉络吗'，有则先搜再答. 纯新话题/闲聊不必搜. Not for: 当前上下文存取 → get_context/set_context；取全文 → get_memory_detail. Output: 共享 RetrievalResult（detail_level 三级：summary 默认/snippet 看上下文/full 全文）+ vecCoverage topK 覆盖率 + vecState 四态（ok/embed_failed/query_failed/disabled）+ queueHealth（pending/dead/oldestAgeSeconds，与 topK 分开）+ contextEntries（expand_context 时）. TIP: 默认 summary → get_memory_detail 两步；结果含 drillDown 按其下钻；输入 F/R 文档 ID 自动短路定位；命中后用 get_related 拼链；发现关联用 link_memory 声明. 主动记忆（belief）条目带 beliefStatus 标注——recorded=[未核实]/verified=[已核实]/disputed=[存疑]（superseded 被降权到后），被取代条目带 supersededBy=新条目 ID，引用前先看状态与取代标记. 命中并实质影响回答时发言开头展示一行记忆溯源（格式见 SYSTEM.md R7）——查了要说. BOUNDARY: 记忆与当前上下文冲突以当前为准；library 路由 / created_after 过滤可用；debug=true 返回中间分值诊断排序.`,
     parameters: {
       type: "object",
       properties: {
@@ -523,13 +523,17 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
           type: "boolean",
           description: "开启邻域扩展：命中 chunk 时返回前后 chunk（chunk_index ±1），命中 message 时返回前后消息。结果在 contextEntries 字段（不混入 entries）。适用于需要理解命中条目上下文的场景。",
         },
+        debug: {
+          type: "boolean",
+          description: "在命中条目中附带 rrfScore/finalScore/timeDecay 等排序诊断；默认关闭。",
+        },
       },
       required: ["query"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       const detailLevel = (params.detail_level as "summary" | "snippet" | "full") ?? "summary";
       const contentType = params.content_type as MemoryContentType[] | undefined;
-      const { entries, contextEntries, vecCoverage, total } = await ctx.client.memory.search(
+      const result = await ctx.client.memory.search(
         params.query as string,
         (params.limit as number) ?? 10,
         detailLevel,
@@ -539,6 +543,7 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
         params.expand_context as boolean | undefined,
         // 自动注入当前对话 ID——本对话来源记忆排序加成（搭档「本对话历史权重更高」）
         ctx.conversationId,
+        params.debug as boolean | undefined,
       );
       // 检索埋点（fire-and-forget，失败不影响工具返回）。
       // 挂在 tool 层而非 client 层：此处才有 per-request 的 conversationId/otterId。
@@ -554,19 +559,14 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
           detailLevel,
           library: params.library as string | undefined,
           limitCount: (params.limit as number) ?? 10,
-          topEntryIds: entries.map((e) => e.id),
-          total,
+          topEntryIds: result.entries.map((e) => e.id),
+          total: result.total,
         });
       } catch {
         // 埋点任何形态的失败（含同步抛错）都不影响检索可用性
       }
-      // 透传 contextEntries 给 agent（不混入 entries，避免评分断层）
-      // 二轮审视: 透传 vecCoverage——兑现 description 承诺，agent 感知降级/暗化
-      return textResponse(JSON.stringify({
-        entries,
-        ...(contextEntries && contextEntries.length > 0 ? { contextEntries } : {}),
-        ...(vecCoverage ? { vecCoverage } : {}),
-      }));
+      // 共享结果直接序列化，字段不经过工具层二次窄化。
+      return textResponse(JSON.stringify(result));
     },
   };
 }

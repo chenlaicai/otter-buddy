@@ -7,11 +7,14 @@ import type {
   DetailLevel,
 } from "@entities/memory/memory-entry";
 import { DomainError } from "@entities/errors";
-import type { BeliefStatus } from "@entities/memory/belief";
+import type { BeliefMetadata, BeliefStatus } from "@entities/memory/belief";
+import { parseBeliefMetadata } from "@entities/memory/belief";
 import type {
   SearchFilters,
   RetrievalSource,
   VecHit,
+  VecState,
+  EmbeddingQueueHealth,
 } from "./memory-types";
 import type { MemoryReader } from "./memory-reader";
 import type { MemoryWriter } from "./memory-writer";
@@ -107,6 +110,8 @@ export interface RetrievalResultEntry extends MemoryEntry {
   supersededBy?: string;
   /** belief 生命周期状态（recorded=[未核实]、verified=[已核实]、disputed=[存疑]、superseded=[已取代]）。 */
   beliefStatus?: BeliefStatus;
+  /** 合法 belief 的完整领域元数据，不从 metadata 二次窄化。 */
+  belief?: BeliefMetadata;
   /** debug=true 时注入的中间分值 */
   debug?: RetrievalDebugInfo;
   /**
@@ -136,6 +141,10 @@ export interface RetrievalResult {
   total: number;
   /** 默认返回（不加 debug 参数也有） */
   vecCoverage: VecCoverage;
+  /** 本次 vec 调用的执行结果，不能用 topK ratio 反推。 */
+  vecState: VecState;
+  /** 持久队列独立健康快照；旧 Reader 未提供读口时省略。 */
+  queueHealth?: EmbeddingQueueHealth;
   /**
    * 邻域扩展条目（仅 expandContext=true 时存在）。
    * 独立于 entries，不参与 RRF 排序，source='context-expand'。
@@ -245,7 +254,10 @@ export class SearchMemory {
         ? await this.searchConversation(remainingQuery)
         : await this.searchAllLibraries(remainingQuery);
     } else {
-      rrfResult = { entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) };
+      rrfResult = await this.finalizeResult(
+        { entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) },
+        !this.reader.hasVecTable() || !this.reader.isVecEnabled() ? "disabled" : "ok",
+      );
     }
 
     // 组装 anchor entry 为 RetrievalResultEntry
@@ -258,9 +270,9 @@ export class SearchMemory {
     );
 
     return {
+      ...rrfResult,
       entries: [anchorResultEntry, ...filteredEntries],
       total: rrfResult.total + 1,
-      vecCoverage: rrfResult.vecCoverage,
     };
   }
 
@@ -337,7 +349,7 @@ export class SearchMemory {
   /** 术语库检索 */
   private async searchTerminologyLibrary(query: SearchQuery): Promise<RetrievalResult> {
     if (!this.terminologyRepo) {
-      return { entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) };
+      return this.finalizeResult({ entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) }, "disabled");
     }
     const results = await this.terminologyRepo.search(query.query, query.limit);
     const detailLevel = query.detailLevel ?? "summary";
@@ -378,7 +390,7 @@ export class SearchMemory {
     // 术语库不索引 vec。
     // 三轮审视：total 报 0（而非 entries.length）——术语条目恒无 vec，
     // 报实际数量会把 ratio 算成 0.0，误导消费方"全部暗化"。total=0 约定 = 本路由不参与 vec 统计。
-    return { entries, total: entries.length, vecCoverage: this.buildVecCoverage(0, 0) };
+    return this.finalizeResult({ entries, total: entries.length, vecCoverage: this.buildVecCoverage(0, 0) }, "disabled");
   }
 
   /** 全库搜索：排名位置归一化混排 */
@@ -425,7 +437,7 @@ export class SearchMemory {
     // 三轮审视修正：原用混排后 entries.length（含术语条目）作分母、
     // 对话库混排前 withVec 作分子，口径错位会把 ratio 系统性稀释甚至算成 0.0。
     // 直接透传对话库自身口径（分子分母同源），术语库不参与统计。
-    return { entries, total: entries.length, vecCoverage: convResult.vecCoverage };
+    return { ...convResult, entries, total: entries.length };
   }
 
   /** 术语库搜索辅助方法（用于全库搜索混排） */
@@ -494,54 +506,74 @@ export class SearchMemory {
       const aggregatedFts = this.preAggregateFtsBySource(ftsHits);
       snippetMap = new Map(aggregatedFts.map((h) => [h.entryId, h.snippet]));
       // PR审视 vec 预聚合同样限制每 source top-3，防长文档 chunk 霸占 RRF
-      const vecHits = this.preAggregateVecBySource(await this.searchVec(query.query, filters, query.limit));
+      const vecSearch = await this.searchVec(query.query, filters, query.limit);
+      const vecHits = this.preAggregateVecBySource(vecSearch.hits);
       rrfHits = this.searchEngine.rrfFusion(
         aggregatedFts.map((h) => ({ entryId: h.entryId, ftsRank: h.ftsRank, entry: h.entry })),
         vecHits,
       );
+      return this.rerankAndReturn(rrfHits, query.limit, detailLevel, snippetMap, true, query.debug ?? false, query.currentConversationId, vecSearch.state);
     } else {
       const ftsHits = await this.reader.searchFTS(query.query, filters);
       const aggregatedFts = this.preAggregateFtsBySource(ftsHits);
-      const vecHits = this.preAggregateVecBySource(await this.searchVec(query.query, filters, query.limit));
+      const vecSearch = await this.searchVec(query.query, filters, query.limit);
+      const vecHits = this.preAggregateVecBySource(vecSearch.hits);
       rrfHits = this.searchEngine.rrfFusion(aggregatedFts, vecHits);
+      return this.rerankAndReturn(rrfHits, query.limit, detailLevel, snippetMap, true, query.debug ?? false, query.currentConversationId, vecSearch.state);
     }
-
-    /** 2. 重排 + 返回（传递 snippet 信息用于降级） */
-    return this.rerankAndReturn(rrfHits, query.limit, detailLevel, snippetMap, true, query.debug ?? false, query.currentConversationId);
   }
 
   async searchSimilar(
     memoryEntryId: string,
     limit: number,
   ): Promise<RetrievalResult> {
-    /** 1. 获取 embedding */
-    const embedding = await this.reader.getEmbedding(memoryEntryId);
+    if (!this.reader.hasVecTable() || !this.reader.isVecEnabled()) {
+      return this.finalizeResult({ entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) }, "disabled");
+    }
+    let embedding: Float32Array | null;
+    try {
+      embedding = await this.reader.getEmbedding(memoryEntryId);
+    } catch (err) {
+      this.logger.warn(`Similarity source vector read failed: ${err}`);
+      return this.finalizeResult({ entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) }, "query_failed");
+    }
     if (!embedding) {
-      return { entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) };
+      return this.finalizeResult({ entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) }, "ok");
     }
 
-    /** 2. vec 搜索（limit+1 补偿自身匹配过滤） */
-    const vecHits = await this.reader.searchVec(embedding, limit + 1, {});
+    let vecHits: VecHit[];
+    try {
+      vecHits = await this.reader.searchVec(embedding, limit + 1, {});
+    } catch (err) {
+      this.logger.warn(`Similarity vector query failed: ${err}`);
+      return this.finalizeResult({ entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) }, "query_failed");
+    }
     const filtered = vecHits.filter((h) => h.entryId !== memoryEntryId);
 
-    /** 3. 单源 RRF + 重排（searchSimilar 不去重：语义是"找相似条目"，同源多 entry 合法） */
+    /** 单源 RRF + 重排（searchSimilar 不去重：语义是"找相似条目"，同源多 entry 合法） */
     const rrfHits = this.searchEngine.buildSingleSourceRrfHits(filtered);
-    return this.rerankAndReturn(rrfHits, limit, undefined, undefined, false);
+    return this.rerankAndReturn(rrfHits, limit, undefined, undefined, false, false, undefined, "ok");
   }
 
-  /** vec0 搜索（含降级逻辑） */
+  /** vec0 搜索：分开记录文本嵌入失败与底层查询失败，FTS 主流程继续。 */
   private async searchVec(
     query: string,
     filters: SearchFilters,
     limit: number,
-  ): Promise<VecHit[]> {
-    if (!this.reader.hasVecTable()) return [];
+  ): Promise<{ hits: VecHit[]; state: VecState }> {
+    if (!this.reader.hasVecTable() || !this.reader.isVecEnabled()) return { hits: [], state: "disabled" };
+    let queryEmbedding: Float32Array;
     try {
-      const queryEmbedding = await this.embeddingGateway.embed(query);
-      return this.reader.searchVec(queryEmbedding, limit, filters);
+      queryEmbedding = await this.embeddingGateway.embed(query);
     } catch (err) {
-      this.logger.warn(`Embedding search failed, falling back to FTS5 only: ${err}`);
-      return [];
+      this.logger.warn(`Embedding generation failed, falling back to FTS5 only: ${err}`);
+      return { hits: [], state: "embed_failed" };
+    }
+    try {
+      return { hits: await this.reader.searchVec(queryEmbedding, limit, filters), state: "ok" };
+    } catch (err) {
+      this.logger.warn(`Vector query failed, falling back to FTS5 only: ${err}`);
+      return { hits: [], state: "query_failed" };
     }
   }
 
@@ -561,10 +593,11 @@ export class SearchMemory {
     debug = false,
     /** 当前对话 ID（本对话加权），searchSimilar 路径不传 */
     currentConversationId?: string,
+    vecState: VecState = "ok",
   ): Promise<RetrievalResult> {
     const hitIds = Array.from(rrfHits.keys());
     if (hitIds.length === 0) {
-      return { entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) };
+      return this.finalizeResult({ entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) }, vecState);
     }
 
     const weights = await this.reader.getWeights(hitIds);
@@ -593,7 +626,7 @@ export class SearchMemory {
     const withVecCount = Array.from(hasVecMap.values()).filter(Boolean).length;
     const vecCoverage: VecCoverage = this.buildVecCoverage(top.length, withVecCount);
 
-    return {
+    return this.finalizeResult({
       // eslint-disable-next-line complexity -- debug/drillDown 注入增加分支
       entries: top.map((h) => {
         // multi_hit_count 仅 >1 时注入 metadata（searchSimilar 路径无此字段不变）
@@ -633,6 +666,7 @@ export class SearchMemory {
             bias_conv: h.biasConv,
           } : {}),
         } : undefined;
+        const belief = parseBeliefMetadata(h.entry);
         return {
           ...base,
           metadata: meta,
@@ -641,6 +675,7 @@ export class SearchMemory {
           userFlagged: weightMap.get(h.entryId)?.userFlagged ?? false,
           ...(h.supersededBy ? { supersededBy: h.supersededBy } : {}),
           ...(h.beliefStatus ? { beliefStatus: h.beliefStatus } : {}),
+          ...(belief ? { belief } : {}),
           ...(debugInfo ? { debug: debugInfo } : {}),
           ...(drillDown ? { drillDown } : {}),
           ...this.buildSnippet(h.entry, detailLevel, snippetMap),
@@ -648,7 +683,7 @@ export class SearchMemory {
       }),
       total: top.length,
       vecCoverage,
-    };
+    }, vecState);
   }
 
   /**
@@ -776,6 +811,20 @@ export class SearchMemory {
       result.push(...group.slice(0, 3));
     }
     return result;
+  }
+
+  /** 统一附加执行状态与独立队列健康；队列读失败不拖垮检索主流程。 */
+  private async finalizeResult(
+    result: Omit<RetrievalResult, "vecState" | "queueHealth">,
+    vecState: VecState,
+  ): Promise<RetrievalResult> {
+    if (!this.reader.getEmbeddingQueueHealth) return { ...result, vecState };
+    try {
+      return { ...result, vecState, queueHealth: await this.reader.getEmbeddingQueueHealth() };
+    } catch (err) {
+      this.logger.warn(`Embedding queue health read failed: ${err}`);
+      return { ...result, vecState };
+    }
   }
 
   /**

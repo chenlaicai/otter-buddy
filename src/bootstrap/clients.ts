@@ -28,22 +28,8 @@ export function buildMemoryClient(uc: UseCases) {
       }
     },
     // eslint-disable-next-line max-params -- 合并 main 分支 contentType + recruiting createdAfter + expandContext 参数
-    search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full", library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean, currentConversationId?: string) => {
-      const result = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library, createdAfter, contentType, expandContext, currentConversationId });
-      const mapEntry = (e: { id: string; content: string; score: number; layer: string; snippet?: string; contentType: string; metadata: Record<string, unknown> | null; createdAt: string }) => ({
-        id: e.id, content: e.content, score: e.score, layer: e.layer, snippet: e.snippet,
-        contentType: e.contentType, metadata: e.metadata ?? undefined, createdAt: e.createdAt,
-      });
-      return {
-        entries: result.entries.map(mapEntry),
-        // 审视修正：透传检索真值 total——埋点/失败分类用（区分「只找到 N 条」vs「命中多返回 top-k」）
-        total: result.total,
-        // 审视二轮 agent 路径透传 contextEntries
-        ...(result.contextEntries ? { contextEntries: result.contextEntries.map(mapEntry) } : {}),
-        // 二轮审视: agent 路径透传 vecCoverage——移除 otter_context 降级告警后，
-        // 这是 agent 感知 FTS-only 降级/暗化条目的唯一通道（此前只到 HTTP 端点，工具 description 却已承诺）
-        vecCoverage: result.vecCoverage,
-      };
+    search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full", library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean, currentConversationId?: string, debug?: boolean) => {
+      return uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library, createdAfter, contentType, expandContext, currentConversationId, debug });
     },
     getDetails: async (ids: string[]) => {
       const entries = await uc.manageMemory.getDetails(ids);
