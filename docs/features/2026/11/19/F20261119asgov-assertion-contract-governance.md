@@ -118,7 +118,9 @@ open 且挂龄 ≥3 天且无 open PR 引用，满足其一：① 认领后超 4
 
 采样协议：n=10 ≥8（README 行为改动 PR 层）；校准模型 k3.1-pro（mimo/glm 配额双 429 顶班，见下）。构造妥协声明：真实流程獭自跑 gh/sqlite 取数，演练环境无后端，扫描数据/检查结果由调度器角色内联注入（与 {{REGRESSION_DATA}} 占位符注入同构）——测的是组版/判定协议遵循，非取数能力。
 
-**采样结果**（2026-11-19 至 2026-11-23 多轮实跑，model=k3.1-pro——mimo 套餐与 glm 周/月配额均耗尽 429 实测，kimi 端点顶班；顶班适配两处：config 补 cacheLongRetention:false 对齐生产（prompt_cache_retention 被拒）+ thinkingLevel:max（reasoning.effort=none 被拒））：
+**采样结果**（2026-11-19 至 2026-11-24 多轮实跑，model=k3.1-pro——mimo 套餐与 glm 周/月配额均耗尽 429 实测，kimi 端点顶班；顶班适配两处：config 补 cacheLongRetention:false 对齐生产（prompt_cache_retention 被拒）+ thinkingLevel:max（reasoning.effort=none 被拒））：
+- 【v8 终态·五轮终核处置后，2026-11-24】daily-issue-orphan-detection：**8/10 ✓**（JSONL 2026-11-24T07:03:51.700Z，第 2 轮端点超时、第 3 轮漏拍板搁置计数——curl 复放 3 轮核实模型搁置骨架 100% 合规产出，判为模型真实抖动非仪器误拒）；regression-verify-direction-repair：**8/10 ✓**（JSONL 03:59:39.347Z，#1/#2 端点超时，#3-#10 断言信号全绿）。达到 ≥8 闸，不宣称全样本通过。
+- 【v7 仪器校准留痕，2026-11-24】review 五条处置 commit 1694a61a 后重跑：daily 首轮 0/10（10 轮全 300s 首跳超时——kimi 端点当日变慢，实测 daily 量级 prompt 完整链路 254s 贴 300s 线，环境故障非判据问题）；重试 5/10，4 个失败轮经同 payload curl 复放诊断：模型在计数行尾部产出**拒绝性声明**（「不处理」「不重复开工」「不进孤儿段及清单正文」）被词根黑名单按「处理/开工」词根误拒——词根黑名单无法区分「建议做 X」与「声明不做 X」。修复（131be817）：hasNonCounterAction 增否定语境剥离（不/未/勿/禁止…前缀 + 12 字窗口）与时序状语剥离（开工/处理/执行…+前/时/中），剥离后残留正向建议词仍拒（「不进清单，但建议直接开工」拦截，selftest 补退化形态 9）；探针 14 例：review 原例仍拒、误拒真实全文放行、否定嵌套仍拒。
 - 【v6 终态·三轮终核处置后，2026-11-23】daily-issue-orphan-detection：**9/10 ✓**（第 9 轮 `noShelved=false / shelvedCount=false`，漏拍板搁置计数；达到 ≥8 闸，不宣称全样本通过）；regression-verify-direction-repair：**10/10 ✓**。断言终态：daily 只豁免完整独立计数行，允许真实合规变体「在途 N 条（忽略：编号←PR）」「拍板搁置 N 条（编号，原话）」，任何开工/actionable 建议仍拦截；regression 仅豁免以「历史/回查评论/原评论：」开头且含时间锚的完整引用行，相邻当前轮裸 ⚠️ 不再被历史词合法化。
 - 【v6 仪器校准留痕】首轮 daily 0/10 + 单轮诊断 0/1：真实输出均为合法独立计数，但初版整行正则只接受冒号后纯编号，误拒括号内编号/PR/原话变体；据真实 transcript 扩展计数行结构，未改 prompt，全部 bad selftest 保持拦截后重跑得到上述 9/10。失败记录与 transcript 均保留，不以复跑覆盖。
 - 【v5·二轮终核处置后】daily-issue-orphan-detection：**10/10 + 复跑 9/10，双过闸**（二轮终核 2 严重处置：逐出现行判据修无管道绕过 + #1806 段位判 + deferral 空转拦截；v4 7/10 暴露拍板搁置计数/在途尾行弱遵循 → prompt 加「输出骨架」硬化；最后一次复跑第 3 轮 `noInflight=false`，不得写成全样本通过）；regression-verify-direction-repair：**10/10 ✓**（v4，deferral 拦截与历史引用区分生效）
