@@ -211,15 +211,16 @@ export function TopBar() {
           <Glass
             className="glass-nav-lens"
             optics={{
-              mapSize: 512, depth: 0.5, dispersion: 0, strength: 0.3,
-              clipToShape: true, softEdge: true, curvature: 0.5, splay: 0.42,
-              bend: 0.34, bendWidth: 0.11, frost: 0, brightness: 0,
-              specular: 0.86, sheenAngle: 40, sheenDark: false,
-              glow: 0.08, glowSpread: 0.52, glowFalloff: 1.6,
-              sheen: 0.46, sheenWidth: 1.6, sheenFalloff: 1.3,
+              mapSize: 512, depth: 0.72, dispersion: 0, strength: 0.3,
+              clipToShape: true, softEdge: true, curvature: 0.62, splay: 0.42,
+              bend: 0.42, bendWidth: 0.11, frost: 0, brightness: 0,
+              specular: 1.05, sheenAngle: 40, sheenDark: false,
+              glow: 0.12, glowSpread: 0.52, glowFalloff: 1.6,
+              sheen: 0.62, sheenWidth: 1.6, sheenFalloff: 1.3,
               edgeShadow: '0 3px 8px rgba(45,42,38,.13)',
               edgeInsetShadow: '0 -3px 8px rgba(45,42,38,.08)',
-              restEdgeShadow: '0 1px 2px rgba(45,42,38,.12), 0 3px 8px rgba(45,42,38,.06)',
+              restEdgeShadow: '0 4px 12px rgba(45,42,38,.14)',
+              restEdgeInsetShadow: '0 2px 3px rgba(255,255,255,.90), inset 0 -6px 12px rgba(45,42,38,.10)',
             }}
             center={{ x: mv.lensX, y: 0.5 }}
             scale={mv.opticScale}
