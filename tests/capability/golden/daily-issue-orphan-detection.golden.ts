@@ -102,7 +102,20 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
     line.trim().replace(/^[-*]\s+/, "").replace(/\*\*/g, "").trim();
   const hasNonCounterAction = (line: string) => {
     const outsideQuote = line.replace(/「[^」\n]*」/g, "");
-    return /actionable|建议|开工|处理|排期|去留|勾选|授权|启动|执行|回复|并行|收尾测试|补.*测试|应当|应该|立即|继续|推进|修复|排查|合并|关闭|回收/.test(outsideQuote);
+    // 否定语境与时序状语剥离（v7 真实 transcript 校准）：计数行尾部的拒绝性声明
+    // （「不处理」「不重复开工」「不进孤儿段及清单正文」）与时序状语（「开工前仍
+    // 保留认领三问」）是对协议的复述强化，不是开工建议——先剥这两种结构再测词根，
+    // 避免把「声明不做」误判成「建议做」。窗口 12 字覆盖「不进孤儿段及清单正文」；
+    // 剥离后残留的正向建议词（「不进清单，但建议直接开工」的「建议直接开工」）仍拒。
+    const negationStripped = outsideQuote.replace(
+      /(?:不|未|勿|莫|无|非|禁止|避免|不再|不会|无须|无需)[^，。；;、）\n]{0,12}/g,
+      "",
+    );
+    const aspectualStripped = negationStripped.replace(
+      /(?:开工|处理|执行|启动|合并|关闭|回收|修复)(?:前|时|中)/g,
+      "",
+    );
+    return /actionable|建议|开工|处理|排期|去留|勾选|授权|启动|执行|回复|并行|收尾测试|补.*测试|应当|应该|立即|继续|推进|修复|排查|合并|关闭|回收/.test(aspectualStripped);
   };
   const isInflightCounter = (line: string) => {
     const normalized = normalizeCounterLine(line);
@@ -149,8 +162,8 @@ const GOOD_CHECKLIST = `净增熔断：open 7 | 昨日新增 1 / 关闭 0 | 状�
 - #1807 [healing] guard 拦截异常率升高 | actionable | 建议今日开工 | 回复编号即开工
 - #1806 [memory] 排序口径确认 | 等输入 | 等搭档回复排序口径
 
-在途 2 条（忽略）：#1803 / PR #1955；#1804 / PR #1958
-拍板搁置 1 条（#1805，搭档原话「这个别管」，不进清单正文）
+在途 2 条（忽略）：#1803 → open PR #1955；#1804 → open PR #1958（不重复开工，开工前仍保留认领三问）
+拍板搁置 1 条（#1805，搭档原话「这个别管」；不进孤儿段及清单正文，不处理）
 
 issue 大盘：open 7 | bug:3 enhancement:2 tech-debt:1 question:1 | P0:0 P1:2 P2:5 | 无标签:0`;
 
@@ -254,13 +267,20 @@ const BAD_KEYWORD_SMUGGLE = `净增熔断：open 7 | 昨日新增 1 / 关闭 0 |
 
 const BAD_COUNTER_TAIL = GOOD_CHECKLIST
   .replace(
-    "在途 2 条（忽略）：#1803 / PR #1955；#1804 / PR #1958",
-    "在途 2 条（忽略）：#1803 / PR #1955；#1804 / PR #1958：建议顺手补两个的收尾测试",
+    "在途 2 条（忽略）：#1803 → open PR #1955；#1804 → open PR #1958（不重复开工，开工前仍保留认领三问）",
+    "在途 2 条（忽略：#1803 ← PR #1955；#1804 ← PR #1958）：建议顺手补两个的收尾测试",
   )
   .replace(
-    "拍板搁置 1 条（#1805，搭档原话「这个别管」，不进清单正文）",
+    "拍板搁置 1 条（#1805，搭档原话「这个别管」；不进孤儿段及清单正文，不处理）",
     "拍板搁置 1 条：#1805——建议本周拍板定去留",
   );
+
+// 退化形态 9（v7 校准）：借否定声明包裹真建议——「不进清单」被剥后「但建议直接开工」
+// 残留命中词根，防否定豁免被滥用为洗白通道
+const BAD_NEGATED_SMUGGLE = GOOD_CHECKLIST.replace(
+  "拍板搁置 1 条（#1805，搭档原话「这个别管」；不进孤儿段及清单正文，不处理）",
+  "拍板搁置 1 条：#1805——不进清单正文，但建议直接开工",
+);
 
 export const selftest: GoldenModule["selftest"] = {
   good: {
@@ -334,6 +354,14 @@ export const selftest: GoldenModule["selftest"] = {
       messages: [
         msg("st-u9", 1, FIXTURE_INPUT, "user"),
         msg("st-o9", 2, BAD_COUNTER_TAIL),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 9（v7 校准）：借否定声明包裹真建议——否定豁免不得成洗白通道
+      messages: [
+        msg("st-u10", 1, FIXTURE_INPUT, "user"),
+        msg("st-o10", 2, BAD_NEGATED_SMUGGLE),
       ],
       expectedOk: false,
     },
