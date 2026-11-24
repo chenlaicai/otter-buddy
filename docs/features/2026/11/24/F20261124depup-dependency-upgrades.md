@@ -1,5 +1,5 @@
 ---
-id: F20261119depup
+id: F20261124depup
 title: 统一升级依赖版本（2026-11-19 批次）
 doc_type: feature
 
@@ -28,7 +28,7 @@ intent:
     type: behavior_check
 ---
 
-# F20261119depup: 统一升级依赖版本（2026-11-19 批次）
+# F20261124depup: 统一升级依赖版本（2026-11-19 批次）
 
 ## 背景与需求
 
@@ -97,3 +97,14 @@ Dependabot 开了 3 条依赖升级 PR：
 #1922、#1923、#1924 已全部关闭（关闭评论注明「将合并到统一的依赖升级 PR」）；
 Dependabot 分支已删除（`git push origin --delete`）。
 #1922/#1923 对应包暂缓，Dependabot 将按自身调度重新提 PR 信号。
+
+## 2026-11-24 定稿复验
+
+- 编号按合入日顺延：`F20261119depup` → `F20261124depup`；分支与历史 commit 保留旧号，
+  文档 ID／路径／H1／PR 标题与最终 commit 使用新号。
+- 已 rebase 到最新 main `cdbb786788d6bf20984d2307dd0d95e2eddef6e8`，无冲突；diff 仍仅为
+  better-sqlite3 版本与 lockfile 元数据、本文档。
+- `npm ci`：PASS（560 packages）；better-sqlite3 13.2.0 native 模块加载及内存 DB 建表／写入／读取
+  CRUD 复验通过。`npm run build`、`npm run lint`：PASS。
+- `npm test`：**526 文件 / 6812 测试全部通过**。
+- 11-18 旧 `check` 失败仅为 PR body 缺少 Rollback 与证据分层声明，非依赖或测试失败；定稿 body 已补齐。
