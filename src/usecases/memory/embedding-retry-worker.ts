@@ -471,8 +471,8 @@ export class EmbeddingRetryWorker {
             const task = slice[startIndex + offset];
             if (!task) return;
             try {
-              await this.writer.storeEmbedding(task.entryId, embedding);
-              await this.queue.markTaskDone(task.entryId);
+              await this.writer.storeEmbedding(task.entryId, task.generation, task.contentHash, embedding);
+              await this.queue.markTaskDone(task.entryId, task.generation, task.contentHash);
             } catch (err) {
               this.logger.warn(`Embedding retry partial salvage failed for ${task.entryId}: ${err}`);
             }
@@ -481,8 +481,9 @@ export class EmbeddingRetryWorker {
       });
       for (let i = 0; i < slice.length; i++) {
         try {
-          await this.writer.storeEmbedding(slice[i].entryId, embeddings[i]);
-          await this.queue.markTaskDone(slice[i].entryId);
+          const task = slice[i];
+          await this.writer.storeEmbedding(task.entryId, task.generation, task.contentHash, embeddings[i]);
+          await this.queue.markTaskDone(task.entryId, task.generation, task.contentHash);
           successCount++;
         } catch (err) {
           // 检视处置追修（CI 慢机暴露）：写库失败**不走 enqueueRetry**。
@@ -516,7 +517,7 @@ export class EmbeddingRetryWorker {
   ): Promise<{ successCount: number; timeoutCount: number; hardFailureCount: number; laneBusy: boolean }> {
     let hardFailureCount = 0;
     for (const task of slice) {
-      await this.queue.markTaskAttemptFailed(task.entryId, err, this.maxAttempts);
+      await this.queue.markTaskAttemptFailed(task.entryId, task.generation, task.contentHash, err, this.maxAttempts);
       hardFailureCount++;
       this.logger.warn(`Embedding retry attempt ${task.attempts}/${this.maxAttempts} failed for ${task.entryId}: ${err}`);
     }
@@ -533,8 +534,8 @@ export class EmbeddingRetryWorker {
     for (const task of slice) {
       try {
         const emb = await this.embedWithSalvage(task);
-        await this.writer.storeEmbedding(task.entryId, emb);
-        await this.queue.markTaskDone(task.entryId);
+        await this.writer.storeEmbedding(task.entryId, task.generation, task.contentHash, emb);
+        await this.queue.markTaskDone(task.entryId, task.generation, task.contentHash);
         successCount++;
       } catch (err) {
         const kind = await this.classifyTaskError(task, err);
@@ -588,8 +589,8 @@ export class EmbeddingRetryWorker {
       salvage: (lateEmb) => {
         void (async () => {
           try {
-            await this.writer.storeEmbedding(task.entryId, lateEmb);
-            await this.queue.markTaskDone(task.entryId);
+            await this.writer.storeEmbedding(task.entryId, task.generation, task.contentHash, lateEmb);
+            await this.queue.markTaskDone(task.entryId, task.generation, task.contentHash);
           } catch (err) {
             this.logger.warn(
               `Embedding retry salvage failed for ${task.entryId} (task stays pending): ${err}`,
@@ -638,7 +639,7 @@ export class EmbeddingRetryWorker {
       );
       return "transient";
     }
-    await this.queue.markTaskAttemptFailed(task.entryId, err, this.maxAttempts);
+    await this.queue.markTaskAttemptFailed(task.entryId, task.generation, task.contentHash, err, this.maxAttempts);
     if (task.attempts >= this.maxAttempts) {
       this.logger.error(
         `Embedding retry dead-lettered for ${task.entryId} after ${task.attempts} attempts: ${err}`,

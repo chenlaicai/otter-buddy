@@ -3,6 +3,8 @@
  * ——本文件（frameworks）从 port 导入，依赖方向 frameworks→usecases。
  */
 import { EMBED_TASK_PRIORITY } from "../../../usecases/memory/memory-queue";
+import { hashEntryProjectionContent } from "../../../usecases/memory/entry-projection-policy";
+import type { EmbeddingGeneration } from "../../../usecases/memory/memory-types";
 import { estimateTokens } from "../../embedding/embed-batch-sharding";
 import { percentile } from "../../embedding/embedding-lane-stats";
 
@@ -37,20 +39,37 @@ export function enqueueRetry(
   priority: number = EMBED_TASK_PRIORITY.normal,
 ): void {
   const row = db.prepare(
-    "SELECT length(trim(content)) AS len FROM memory_entries WHERE id = ?",
-  ).get(entryId) as { len: number | null } | undefined;
+    "SELECT length(trim(content)) AS len, generation, content_hash FROM memory_entries WHERE id = ?",
+  ).get(entryId) as { len: number | null; generation: number; content_hash: string } | undefined;
   if (!row || row.len === 0) return; // entry 不存在或 content 空：不入队，杜幽灵任务源头
+  const contentHash = row.content_hash || hashEntryProjectionContent(
+    (db.prepare("SELECT content FROM memory_entries WHERE id = ?").get(entryId) as { content: string }).content,
+  );
+  if (!row.content_hash) {
+    db.prepare("UPDATE memory_entries SET content_hash = ? WHERE id = ?").run(contentHash, entryId);
+  }
   const errMsg = error instanceof Error ? error.message : String(error);
   db.prepare(`
-    INSERT INTO embedding_tasks (entry_id, next_retry_at, status, created_at, last_error, priority)
-    VALUES (?, datetime('now'), 'pending', datetime('now'), ?, ?)
+    INSERT INTO embedding_tasks (entry_id, next_retry_at, status, created_at, last_error, priority, generation, content_hash)
+    VALUES (?, datetime('now'), 'pending', datetime('now'), ?, ?, ?, ?)
     ON CONFLICT(entry_id) DO UPDATE SET
       next_retry_at = excluded.next_retry_at,
       last_error = excluded.last_error,
-      status = 'pending'
+      status = 'pending',
+      attempts = CASE
+        WHEN embedding_tasks.generation = excluded.generation AND embedding_tasks.content_hash = excluded.content_hash
+        THEN embedding_tasks.attempts ELSE 0 END,
+      last_attempt_at = CASE
+        WHEN embedding_tasks.generation = excluded.generation AND embedding_tasks.content_hash = excluded.content_hash
+        THEN embedding_tasks.last_attempt_at ELSE NULL END,
+      created_at = CASE
+        WHEN embedding_tasks.generation = excluded.generation AND embedding_tasks.content_hash = excluded.content_hash
+        THEN embedding_tasks.created_at ELSE excluded.created_at END,
+      generation = excluded.generation,
+      content_hash = excluded.content_hash
       -- F20261105embqg：不更新 priority——保留首次入队优先级，
       -- 防低优先级生产者（bulk 重算）后到覆盖已在队的高优先级任务（live 消息）
-  `).run(entryId, errMsg, priority);
+  `).run(entryId, errMsg, priority, row.generation, contentHash);
 }
 
 /**
@@ -60,16 +79,18 @@ export function enqueueRetry(
  * JOIN memory_entries 获取 content（content 不冗余存储）。
  * 若 entry 已被删除（JOIN 不到），claim 返回 content=''，tick 会跳过转 dead。
  */
-export function claimPendingTasks(
-  db: Database.Database,
-  limit: number,
-  tokenBudget?: number,
-): Array<{ entryId: string; content: string; attempts: number; lastAttemptAt: string | null; createdAt: string; priority: number }> {
-  const effectiveLimit = tokenBudget === undefined
-    ? limit
-    : countTasksWithinTokenBudget(db, limit, tokenBudget);
-  if (effectiveLimit === 0) return [];
-  const rows = db.prepare(`
+interface ClaimedTaskRow {
+  entry_id: string;
+  attempts: number;
+  last_attempt_at: string | null;
+  created_at: string;
+  priority: number;
+  generation: number;
+  content_hash: string;
+}
+
+function claimTaskRows(db: Database.Database, limit: number): ClaimedTaskRow[] {
+  return db.prepare(`
     UPDATE embedding_tasks
     SET last_attempt_at = datetime('now'),
         next_retry_at = datetime('now', '+' ||
@@ -85,17 +106,42 @@ export function claimPendingTasks(
       SELECT entry_id FROM embedding_tasks
       WHERE status = 'pending'
         AND next_retry_at <= datetime('now')
-      -- F20261105embqg：优先级序消费——live 消息（0）先于 bulk 重算（2）出队，
-      -- 同级内保持 next_retry_at 时间序（退避语义不变）。无 priority 列的旧库
-      -- 由 initSchema 幂等补列后此 SQL 才可达，不存在 NULL priority 行。
+        AND (
+          NOT EXISTS (SELECT 1 FROM memory_entries me WHERE me.id = embedding_tasks.entry_id)
+          OR EXISTS (
+            SELECT 1 FROM memory_entries me
+            WHERE me.id = embedding_tasks.entry_id
+              AND me.generation = embedding_tasks.generation
+              AND me.content_hash = embedding_tasks.content_hash
+          )
+        )
       ORDER BY priority ASC, next_retry_at ASC, entry_id ASC
       LIMIT ?
     )
-    RETURNING entry_id, attempts, last_attempt_at, created_at, priority
-  `).all(effectiveLimit) as Array<{ entry_id: string; attempts: number; last_attempt_at: string | null; created_at: string; priority: number }>;
+    RETURNING entry_id, attempts, last_attempt_at, created_at, priority, generation, content_hash
+  `).all(limit) as ClaimedTaskRow[];
+}
 
+export function claimPendingTasks(
+  db: Database.Database,
+  limit: number,
+  tokenBudget?: number,
+): Array<{
+  entryId: string;
+  content: string;
+  attempts: number;
+  lastAttemptAt: string | null;
+  createdAt: string;
+  priority: number;
+  generation: number;
+  contentHash: string;
+}> {
+  const effectiveLimit = tokenBudget === undefined
+    ? limit
+    : countTasksWithinTokenBudget(db, limit, tokenBudget);
+  if (effectiveLimit === 0) return [];
+  const rows = claimTaskRows(db, effectiveLimit);
   if (rows.length === 0) return [];
-  // 二次查询 JOIN memory_entries 拿 content
   const placeholders = rows.map(() => "?").join(",");
   const entryRows = db.prepare(`
     SELECT id, content FROM memory_entries WHERE id IN (${placeholders})
@@ -108,6 +154,8 @@ export function claimPendingTasks(
     lastAttemptAt: r.last_attempt_at,
     createdAt: r.created_at,
     priority: r.priority,
+    generation: r.generation,
+    contentHash: r.content_hash,
   }));
 }
 
@@ -118,6 +166,10 @@ function countTasksWithinTokenBudget(db: Database.Database, limit: number, budge
     FROM embedding_tasks et
     LEFT JOIN memory_entries me ON me.id = et.entry_id
     WHERE et.status = 'pending' AND et.next_retry_at <= datetime('now')
+      AND (
+        me.id IS NULL
+        OR (me.generation = et.generation AND me.content_hash = et.content_hash)
+      )
     ORDER BY et.priority ASC, et.next_retry_at ASC, et.entry_id ASC
     LIMIT ?
   `).all(limit) as Array<{ entry_id: string; content: string | null }>;
@@ -190,22 +242,29 @@ export function pendingTaskStats(db: Database.Database): {
 }
 
 /** task 成功，删除 task 行 */
-export function markTaskDone(db: Database.Database, entryId: string): void {
-  db.prepare(`DELETE FROM embedding_tasks WHERE entry_id = ?`).run(entryId);
+export function markTaskDone(db: Database.Database, entryId: string, generation: number, contentHash: string): void {
+  db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ? AND generation = ? AND content_hash = ?")
+    .run(entryId, generation, contentHash);
 }
 
 /**
  * task 失败，更新 last_error。
  * 若 attempts >= maxAttempts，status 转 'dead'（不再被 claimPendingTasks 选取）。
  */
-export function markTaskAttemptFailed(db: Database.Database, entryId: string, error: unknown, maxAttempts: number): void {
+export function markTaskAttemptFailed(
+  db: Database.Database,
+  entryId: string,
+  version: EmbeddingGeneration,
+  error: unknown,
+  maxAttempts: number,
+): void {
   const errMsg = error instanceof Error ? error.message : String(error);
   db.prepare(`
     UPDATE embedding_tasks
     SET last_error = ?,
         status = CASE WHEN attempts >= ? THEN 'dead' ELSE status END
-    WHERE entry_id = ?
-  `).run(errMsg, maxAttempts, entryId);
+    WHERE entry_id = ? AND generation = ? AND content_hash = ?
+  `).run(errMsg, maxAttempts, entryId, version.generation, version.contentHash);
 }
 
 /**

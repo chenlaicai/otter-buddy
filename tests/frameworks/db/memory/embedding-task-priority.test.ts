@@ -22,6 +22,7 @@ import {
   pendingTaskCount,
 } from "@frameworks/db/memory/embedding-task-queue";
 import { EMBED_TASK_PRIORITY } from "@usecases/memory/memory-queue";
+import { hashEntryProjectionContent } from "@usecases/memory/entry-projection-policy";
 import type DatabaseType from "better-sqlite3";
 
 let db: DatabaseType.Database;
@@ -111,17 +112,17 @@ describe("F20261105embqg S3：pendingTaskCount（水位闸门判据）", () => {
     const before = pendingTaskCount(db);
     expect(before).toBeGreaterThanOrEqual(3);
 
-    markTaskDone(db, "w-1");
+    markTaskDone(db, "w-1", 1, hashEntryProjectionContent("content-w-1"));
     expect(pendingTaskCount(db)).toBe(before - 1);
 
     // w-2 拉满 attempts 转 dead
     const row = db.prepare("SELECT attempts FROM embedding_tasks WHERE entry_id = 'w-2'").get() as { attempts: number };
     for (let i = row.attempts; i < 3; i++) {
-      markTaskAttemptFailed(db, "w-2", new Error("boom"), 3);
+      markTaskAttemptFailed(db, "w-2", { generation: 1, contentHash: hashEntryProjectionContent("content-w-2") }, new Error("boom"), 3);
       // attempts 递增需要经 claim；直接 UPDATE 模拟第 3 次失败
       db.prepare("UPDATE embedding_tasks SET attempts = ? WHERE entry_id = 'w-2'").run(i + 1);
     }
-    markTaskAttemptFailed(db, "w-2", new Error("final"), 3);
+    markTaskAttemptFailed(db, "w-2", { generation: 1, contentHash: hashEntryProjectionContent("content-w-2") }, new Error("final"), 3);
     const status = db.prepare("SELECT status FROM embedding_tasks WHERE entry_id = 'w-2'").get() as { status: string };
     expect(status.status).toBe("dead");
     expect(pendingTaskCount(db)).toBe(before - 2); // dead 不计

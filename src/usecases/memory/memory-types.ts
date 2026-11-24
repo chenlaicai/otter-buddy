@@ -16,6 +16,12 @@ import type {
 /** vec 本次调用的真实执行状态，与 topK 覆盖率分开报告。 */
 export type VecState = "ok" | "embed_failed" | "query_failed" | "disabled";
 
+/** 一次 embedding 计算必须绑定的内容代际；数据库只接受仍与 entry 当前代际相符的结果。 */
+export interface EmbeddingGeneration {
+  generation: number;
+  contentHash: string;
+}
+
 /** embedding 持久队列健康，与一次检索命中的 topK 覆盖率无关。 */
 export interface EmbeddingQueueHealth {
   pending: number;

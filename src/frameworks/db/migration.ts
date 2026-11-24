@@ -401,6 +401,7 @@ function normalizeDuplicateSources(db: Database.Database, logger: Logger): void 
           if (vecExists) db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
           db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
           db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(row.id);
+          db.prepare("DELETE FROM memory_vec_generations WHERE entry_id = ?").run(row.id);
           db.prepare("DELETE FROM memory_entries WHERE id = ?").run(row.id);
         }
       }
@@ -449,14 +450,30 @@ function rebuildEntriesAndEdges(db: Database.Database, remap: (id: string) => st
   ).get() as { sql: string }).sql.replace("memory_entries", "memory_entries_new");
   db.exec(entriesDdl);
   const insertEntry = db.prepare(
-    `INSERT INTO memory_entries_new (id, layer, content_type, source_id, source_table, conversation_id, granularity, content, metadata, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO memory_entries_new (id, layer, content_type, source_id, source_table, conversation_id, granularity, content, metadata, created_at, generation, content_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const allEntries = db.prepare(
-    "SELECT id, layer, content_type, source_id, source_table, conversation_id, granularity, content, metadata, created_at FROM memory_entries",
-  ).all() as Array<{ id: string; layer: string; content_type: string; source_id: string; source_table: string; conversation_id: string | null; granularity: string; content: string; metadata: string | null; created_at: string }>;
+    "SELECT id, layer, content_type, source_id, source_table, conversation_id, granularity, content, metadata, created_at, generation, content_hash FROM memory_entries",
+  ).all() as Array<{
+    id: string;
+    layer: string;
+    content_type: string;
+    source_id: string;
+    source_table: string;
+    conversation_id: string | null;
+    granularity: string;
+    content: string;
+    metadata: string | null;
+    created_at: string;
+    generation: number;
+    content_hash: string;
+  }>;
   for (const e of allEntries) {
-    insertEntry.run(remap(e.id), e.layer, e.content_type, e.source_id, e.source_table, e.conversation_id, e.granularity, e.content, e.metadata, e.created_at);
+    insertEntry.run(
+      remap(e.id), e.layer, e.content_type, e.source_id, e.source_table, e.conversation_id,
+      e.granularity, e.content, e.metadata, e.created_at, e.generation, e.content_hash,
+    );
   }
 
   // memory_edges：from/to 换键复制（无需去重——UNIQUE 索引使存量无同键边，
@@ -542,7 +559,8 @@ function rebuildMemoryEntriesUnifyIds(db: Database.Database, logger: Logger): vo
       remapKeyedTable(db, idMap, "memory_weights", "memory_entry_id", ["retrieval_count", "last_retrieved_at", "user_flagged"]);
       remapKeyedTable(db, idMap, "memory_fts_jieba", "memory_entry_id", ["content"]);
       remapKeyedTable(db, idMap, "memory_vec", "memory_entry_id", ["embedding"]);
-      remapKeyedTable(db, idMap, "embedding_tasks", "entry_id", ["attempts", "last_error", "last_attempt_at", "next_retry_at", "status", "created_at"]);
+      remapKeyedTable(db, idMap, "embedding_tasks", "entry_id", ["attempts", "last_error", "last_attempt_at", "next_retry_at", "status", "created_at", "generation", "content_hash"]);
+      remapKeyedTable(db, idMap, "memory_vec_generations", "entry_id", ["generation", "content_hash", "updated_at"]);
       swapRebuiltTables(db);
     })();
 
@@ -1345,6 +1363,7 @@ export function migrateFeatureBodyToChunks(db: Database.Database, logger: Logger
           logger.warn(`migrateFeatureBodyToChunks: memory_vec delete failed for ${row.id}: ${e}`);
         }
         db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+        db.prepare("DELETE FROM memory_vec_generations WHERE entry_id = ?").run(row.id);
       }
       db.prepare("DELETE FROM memory_entries WHERE content_type = ?").run(ct);
     }

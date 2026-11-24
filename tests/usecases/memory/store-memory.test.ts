@@ -28,12 +28,13 @@ function statefulRepo(): MemoryWriter & MemoryQueue & {
     get lastReplaceOpts() { return lastReplaceOpts; },
     storeEntry: async (entry: MemoryEntry) => {
       storedEntries.push(entry);
+      return { generation: 1, contentHash: "test-content-hash" };
     },
-    storeEmbedding: async (id: string, embedding: Float32Array) => {
+    storeEmbedding: async (id: string, _generation: number, _contentHash: string, embedding: Float32Array) => {
       storedEmbeddings.push({ id, embedding });
     },
     deleteBySource: async () => {},
-    replaceEntryBySource: async () => ({ embeddingKept: false }),
+    replaceEntryBySource: async () => ({ embeddingKept: false, generation: 1, contentHash: "test-content-hash" }),
     replaceEntriesBySource: async (entries: MemoryEntry[], opts?: { reuseEntryIds?: ReadonlySet<string> }) => {
       lastReplaceOpts = opts;
       const { sourceTable, sourceId, contentType } = entries[0];
@@ -346,7 +347,7 @@ describe("StoreMemory - F20260821scrt secrets 脱敏", () => {
     const replaceCalls: MemoryEntry[] = [];
     repo.replaceEntryBySource = async (entry: MemoryEntry) => {
       replaceCalls.push(entry);
-      return { embeddingKept: false };
+      return { embeddingKept: false, generation: 1, contentHash: "test-content-hash" };
     };
 
     await store.replaceBySource({

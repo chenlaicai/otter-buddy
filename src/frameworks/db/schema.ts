@@ -1,6 +1,7 @@
 /* eslint-disable max-lines -- 合并 main 分支 healing events 表定义后行数增加 */
 import type Database from "better-sqlite3";
 import type { Logger } from "@usecases/ports/logger";
+import { hashEntryProjectionContent } from "@usecases/memory/entry-projection-policy";
 
 /**
  * 初始化全部 Schema（幂等，可重复调用）。
@@ -91,7 +92,7 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
       // +3 work ledger 表 = 52 total
       logger.info('Schema initialized', {
         duration,
-        tables: 52,
+        tables: 53,
       });
       /** 补建差集——新库差集=全部表（与现状等价）；老库无缺表时差集为空不打扰 */
       const created = listTableNames(db).filter(t => !tablesBefore.includes(t));
@@ -202,6 +203,8 @@ function createMemoryTables(db: Database.Database): void {
       content TEXT NOT NULL,
       metadata TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      generation INTEGER NOT NULL DEFAULT 1,
+      content_hash TEXT NOT NULL DEFAULT '',
       FOREIGN KEY (conversation_id) REFERENCES conversations(id)
     );
 
@@ -293,11 +296,24 @@ function createMemoryTables(db: Database.Database): void {
       created_at TEXT NOT NULL,
       -- F20261105embqg：优先级（0=活消息 1=默认 2=全量重算）——claim 按此序消费，
       -- 积压泄洪期间活消息不被存量重算堵死（当日实锤：7300+ 条积压期间活消息入库延迟达 tick 周期）
-      priority INTEGER NOT NULL DEFAULT 1
+      priority INTEGER NOT NULL DEFAULT 1,
+      generation INTEGER NOT NULL DEFAULT 1,
+      content_hash TEXT NOT NULL DEFAULT ''
     );
     CREATE INDEX IF NOT EXISTS idx_embedding_tasks_status_retry
       ON embedding_tasks (status, next_retry_at);
   `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memory_vec_generations (
+      entry_id TEXT PRIMARY KEY,
+      generation INTEGER NOT NULL,
+      content_hash TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  ensureMemoryEmbeddingGenerations(db);
 
   // 记忆关系层——memory_entries 之间的有向关系边。
   // 把 flat 数据变成可声明、可遍历的记忆图，让 LLM 拼证据链/因果链/发展链。
@@ -323,6 +339,52 @@ function createMemoryTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_memory_edges_from ON memory_edges(from_entry_id, edge_type);
     CREATE INDEX IF NOT EXISTS idx_memory_edges_to ON memory_edges(to_entry_id, edge_type);
   `);
+}
+
+/** 加法升级并绑定既有任务与向量；已带代际的任务不得在重启时被重绑到另一代。 */
+function ensureMemoryEmbeddingGenerations(db: Database.Database): void {
+  try {
+    db.exec("ALTER TABLE memory_entries ADD COLUMN generation INTEGER NOT NULL DEFAULT 1");
+  } catch {
+    // 列已存在。
+  }
+  try {
+    db.exec("ALTER TABLE memory_entries ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''");
+  } catch {
+    // 列已存在。
+  }
+  try {
+    db.exec("ALTER TABLE embedding_tasks ADD COLUMN generation INTEGER NOT NULL DEFAULT 1");
+  } catch {
+    // 列已存在。
+  }
+  try {
+    db.exec("ALTER TABLE embedding_tasks ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''");
+  } catch {
+    // 列已存在。
+  }
+
+  const entries = db.prepare("SELECT id, content FROM memory_entries WHERE content_hash = ''")
+    .all() as Array<{ id: string; content: string }>;
+  const updateEntry = db.prepare("UPDATE memory_entries SET generation = 1, content_hash = ? WHERE id = ? AND content_hash = ''");
+  for (const entry of entries) {
+    updateEntry.run(hashEntryProjectionContent(entry.content), entry.id);
+  }
+  db.exec(`
+    UPDATE embedding_tasks
+    SET generation = (SELECT generation FROM memory_entries WHERE memory_entries.id = embedding_tasks.entry_id),
+        content_hash = (SELECT content_hash FROM memory_entries WHERE memory_entries.id = embedding_tasks.entry_id)
+    WHERE content_hash = ''
+      AND EXISTS (SELECT 1 FROM memory_entries WHERE memory_entries.id = embedding_tasks.entry_id)
+  `);
+  const hasVec = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'memory_vec'").get();
+  if (hasVec) {
+    db.exec(`
+      INSERT OR IGNORE INTO memory_vec_generations (entry_id, generation, content_hash, updated_at)
+      SELECT memory_entries.id, memory_entries.generation, memory_entries.content_hash, datetime('now')
+      FROM memory_vec JOIN memory_entries ON memory_entries.id = memory_vec.memory_entry_id
+    `);
+  }
 }
 
 /** 夜间审视治量结构（otter-memory-design v4）。

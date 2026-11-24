@@ -37,7 +37,7 @@ export class MemoryIndexAdapter implements MemoryIndexGateway {
   async indexEntry(input: EntryProjectionInput): Promise<void> {
     const result = this.entryProjector.apply(decideEntryProjection(input), input.entry.createdAt);
     if (result.kind === "projected") {
-      this.storeMemory.embedEntryProjection(result.entryId, result.content);
+      this.storeMemory.embedEntryProjection(result.entryId, result.content, result);
     }
   }
 

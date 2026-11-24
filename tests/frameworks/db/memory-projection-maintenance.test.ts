@@ -3,6 +3,7 @@ import { createTestDb } from "../../helpers/db";
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
 import { auditMemoryProjection, cleanupMemoryProjection } from "@frameworks/db/memory/memory-projection-maintenance";
 import type { MemoryEntry } from "@entities/memory/memory-entry";
+import { hashEntryProjectionContent } from "@usecases/memory/entry-projection-policy";
 
 const NOW = "2026-11-24T00:00:00.000Z";
 const SECRET = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz123456";
@@ -33,8 +34,8 @@ describe("C2 memory projection audit/cleanup（真实 SQLite + vec0）", () => {
       await repo.storeEntry(legacyMemory("external-1", "external private body"));
       await repo.storeEntry(legacyMemory("normal-1", `token=${SECRET}`));
       await repo.storeEntry(legacyMemory("edge-target", "relation target"));
-      await repo.storeEmbedding("external-1", new Float32Array(1024).fill(0.5));
-      await repo.storeEmbedding("normal-1", new Float32Array(1024).fill(0.25));
+      await repo.storeEmbedding("external-1", 1, hashEntryProjectionContent("external private body"), new Float32Array(1024).fill(0.5));
+      await repo.storeEmbedding("normal-1", 1, hashEntryProjectionContent(`token=${SECRET}`), new Float32Array(1024).fill(0.25));
       await repo.enqueueRetry("external-1", new Error("pending"));
       await repo.enqueueRetry("normal-1", new Error("pending"));
       await repo.createEdge({ fromEntryId: "external-1", toEntryId: "edge-target", edgeType: "relates-to" });

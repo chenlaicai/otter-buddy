@@ -2,6 +2,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
 import { initSchema } from "@frameworks/db/schema";
+import { load as loadSqliteVec } from "sqlite-vec";
+import { hashEntryProjectionContent } from "@usecases/memory/entry-projection-policy";
 
 /** 创建内存 SQLite 数据库（不初始化 schema，用于测试 initSchema 本身） */
 function createRawDb(): Database.Database {
@@ -182,4 +184,68 @@ describe("initSchema", () => {
     ).all() as { name: string }[];
     expect(indexes.map((i) => i.name)).toContain("idx_healing_events_bound_issue");
   });
+  it("memory 代际加法迁移回填 entry、任务与既有向量并保留 vec0 功能", () => {
+    loadSqliteVec(db);
+    db.exec(`
+      CREATE TABLE memory_entries (
+        id TEXT PRIMARY KEY,
+        layer TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        source_table TEXT NOT NULL,
+        conversation_id TEXT,
+        granularity TEXT NOT NULL DEFAULT 'fine',
+        content TEXT NOT NULL,
+        metadata TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE VIRTUAL TABLE memory_vec USING vec0(
+        memory_entry_id TEXT PRIMARY KEY,
+        embedding FLOAT[1024]
+      );
+      CREATE TABLE embedding_tasks (
+        entry_id TEXT PRIMARY KEY,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        last_attempt_at TEXT,
+        next_retry_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'dead')),
+        created_at TEXT NOT NULL,
+        priority INTEGER NOT NULL DEFAULT 1
+      );
+    `);
+    db.prepare(`
+      INSERT INTO memory_entries (id, layer, content_type, source_id, source_table, content, created_at)
+      VALUES ('legacy', 'working', 'message', 'legacy', 'entries', 'legacy content', datetime('now'))
+    `).run();
+    db.prepare(`
+      INSERT INTO embedding_tasks (entry_id, attempts, next_retry_at, status, created_at, last_error)
+      VALUES ('legacy', 2, datetime('now'), 'pending', datetime('now'), 'keep attempts')
+    `).run();
+    const original = new Float32Array(1024).fill(0.75);
+    db.prepare("INSERT INTO memory_vec (memory_entry_id, embedding) VALUES ('legacy', ?)")
+      .run(Buffer.from(original.buffer));
+
+    expect(() => initSchema(db)).not.toThrow();
+    expect(() => initSchema(db)).not.toThrow();
+
+    const entry = db.prepare("SELECT generation, content_hash FROM memory_entries WHERE id = 'legacy'").get() as {
+      generation: number;
+      content_hash: string;
+    };
+    expect(entry).toEqual({ generation: 1, content_hash: hashEntryProjectionContent("legacy content") });
+    expect(db.prepare("SELECT generation, content_hash, attempts, last_error FROM embedding_tasks WHERE entry_id = 'legacy'").get())
+      .toEqual({ generation: 1, content_hash: entry.content_hash, attempts: 2, last_error: "keep attempts" });
+    expect(db.prepare("SELECT generation, content_hash FROM memory_vec_generations WHERE entry_id = 'legacy'").get())
+      .toEqual({ generation: 1, content_hash: entry.content_hash });
+    const stored = db.prepare("SELECT embedding FROM memory_vec WHERE memory_entry_id = 'legacy'").get() as { embedding: Buffer };
+    expect(Array.from(new Float32Array(stored.embedding.buffer, stored.embedding.byteOffset, 1024))).toEqual(Array.from(original));
+    expect(db.prepare("SELECT sql FROM sqlite_master WHERE name = 'memory_vec'").get()).toMatchObject({
+      sql: expect.stringContaining("vec0"),
+    });
+    const nearest = db.prepare("SELECT memory_entry_id FROM memory_vec WHERE embedding MATCH ? AND k = 1")
+      .get(Buffer.from(original.buffer));
+    expect(nearest).toEqual({ memory_entry_id: "legacy" });
+  });
+
 });

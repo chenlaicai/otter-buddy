@@ -6,6 +6,7 @@ import type {
 } from "@entities/memory/memory-entry";
 import type { MemoryWriter } from "./memory-writer";
 import type { MemoryQueue } from "./memory-queue";
+import type { EmbeddingGeneration } from "./memory-types";
 import { EMBED_TASK_PRIORITY } from "./memory-queue";
 import type { EmbeddingGateway } from "./embedding-gateway";
 import type { Logger } from "@usecases/ports/logger";
@@ -81,7 +82,7 @@ export class StoreMemory {
     };
 
     /** 同步事务：entries + fts + weights */
-    await this.writer.storeEntry(entry);
+    const generation = await this.writer.storeEntry(entry);
 
     /** 异步 fire-and-forget embedding（不阻塞返回）
      * 降级：嵌入失败时该条目仅可通过 FTS5 检索，不阻塞
@@ -89,7 +90,7 @@ export class StoreMemory {
      * 失败入 embedding_tasks 队列，retry worker 兜底
      * live 优先级（0）——消息投影是用户在场等检索的路径，
      *  积压泄洪期间插队（槽位与队列两层） */
-    this.fireAndForgetEmbed(id, input.content, EMBED_TASK_PRIORITY.live);
+    this.fireAndForgetEmbed(id, input.content, EMBED_TASK_PRIORITY.live, generation);
 
     return id;
   }
@@ -131,11 +132,16 @@ export class StoreMemory {
    * 合法的批量等待入口，每次最多挂 1 条文本（实时消息粒度）。
    */
   /** EntryMemoryProjector 已持久化后调度实时 embedding；content 已由统一政策脱敏。 */
-  embedEntryProjection(entryId: string, content: string): void {
-    this.fireAndForgetEmbed(entryId, content, EMBED_TASK_PRIORITY.live);
+  embedEntryProjection(entryId: string, content: string, generation: EmbeddingGeneration): void {
+    this.fireAndForgetEmbed(entryId, content, EMBED_TASK_PRIORITY.live, generation);
   }
 
-  private fireAndForgetEmbed(entryId: string, content: string, priority: number = EMBED_TASK_PRIORITY.normal): void {
+  private fireAndForgetEmbed(
+    entryId: string,
+    content: string,
+    priority: number,
+    version: EmbeddingGeneration,
+  ): void {
     // 显式禁用：off 时无 worker 可等——条目照存（FTS 可检索）不入队，
     // 避免每条写入积一条永不消费的 retry 任务。注意判据是显式 env 而非
     // gateway.available——后者是 worker ready 的时序快照（启动窗口恒 false），
@@ -146,15 +152,15 @@ export class StoreMemory {
         waitSlot: true,
         priority,
         salvage: (emb) => {
-          void this.writer.storeEmbedding(entryId, emb)
-            .then(() => this.queue.markTaskDone(entryId))
+          void this.writer.storeEmbedding(entryId, version.generation, version.contentHash, emb)
+            .then(() => this.queue.markTaskDone(entryId, version.generation, version.contentHash))
             .catch(err =>
               this.logger.warn(`Embedding salvage failed for ${entryId} (task stays in retry queue): ${err}`),
             );
         },
       })
       .then((emb) => {
-        this.writer.storeEmbedding(entryId, emb).catch((err) => {
+        this.writer.storeEmbedding(entryId, version.generation, version.contentHash, emb).catch((err) => {
           this.logger.warn(`Failed to store embedding for ${entryId}: ${err}`);
           this.queue.enqueueRetry(entryId, err, priority).catch(e =>
             this.logger.error(`enqueueRetry failed for ${entryId}: ${e}`),
@@ -190,13 +196,13 @@ export class StoreMemory {
       createdAt: new Date().toISOString(),
     };
 
-    const { embeddingKept } = await this.writer.replaceEntryBySource(entry);
+    const { embeddingKept, generation, contentHash } = await this.writer.replaceEntryBySource(entry);
 
     // + 截断防超长 body OOM worker；失败入队。
     // fact 类走 normal（1）——量小价值密度高，不与 bulk 重算同档
     // 复活轮 summary content 未变且 vec 已存在时保留向量，零重算。
     if (!embeddingKept) {
-      this.fireAndForgetEmbed(id, input.content, EMBED_TASK_PRIORITY.normal);
+      this.fireAndForgetEmbed(id, input.content, EMBED_TASK_PRIORITY.normal, { generation, contentHash });
     }
 
     return id;

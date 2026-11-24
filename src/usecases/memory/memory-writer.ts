@@ -17,18 +17,19 @@ import type {
 } from "@entities/memory/memory-entry";
 import type { EdgeType } from "@entities/memory/memory-edge";
 import type { EmbedModelMeta } from "./embedding-gateway";
+import type { EmbeddingGeneration } from "./memory-types";
 
 export interface MemoryWriter {
   // 写入
-  storeEntry(entry: MemoryEntry): Promise<void>;
-  storeEmbedding(memoryEntryId: string, embedding: Float32Array): Promise<void>;
+  storeEntry(entry: MemoryEntry): Promise<EmbeddingGeneration>;
+  storeEmbedding(memoryEntryId: string, generation: number, contentHash: string, embedding: Float32Array): Promise<void>;
   /** 按 source 删除记忆条目（upsert reindex 时清旧 entry，防 FTS 命中陈旧内容） */
   deleteBySource(sourceTable: string, sourceId: string): Promise<void>;
   /** 按 source 原子替换（单事务内删旧+插新，防 upsert 中间失败丢数据，修复）。
    * （检视鬾5）：返回 embeddingKept——同 id 快路径下旧 content 与新 content
    *  一致且 vec 行存在时，vec 不删除（embedding 无需重算，调用方据此跳过 fireAndForgetEmbed）。
    *  动机：归档-复活振荡恢复轮 ~1100 篇 summary 若全部重 embed 会挤占 live 通道。 */
-  replaceEntryBySource(entry: MemoryEntry): Promise<{ embeddingKept: boolean }>;
+  replaceEntryBySource(entry: MemoryEntry): Promise<{ embeddingKept: boolean } & EmbeddingGeneration>;
   /** 按 source 原子替换多条 entry（1:N，单事务删旧全部+插新 N 条），chunk 索引用。
    * ：opts.reuseEntryIds——内容未变复用旧 entry id 的集合：
    *  这些 entry 不删不重建（向量/fts/weights 全保留），仅 UPDATE metadata（chunk_index

@@ -127,6 +127,8 @@ function hasAnyProjectionArtifact(db: Database.Database, entryId: string): boole
   if (hasRow(db, "SELECT 1 FROM memory_fts_jieba WHERE memory_entry_id = ?", entryId)) return true;
   if (hasRow(db, "SELECT 1 FROM memory_weights WHERE memory_entry_id = ?", entryId)) return true;
   if (hasRow(db, "SELECT 1 FROM embedding_tasks WHERE entry_id = ?", entryId)) return true;
+  if (tableExists(db, "memory_vec_generations")
+    && hasRow(db, "SELECT 1 FROM memory_vec_generations WHERE entry_id = ?", entryId)) return true;
   if (db.prepare("SELECT 1 FROM memory_edges WHERE from_entry_id = ? OR to_entry_id = ?").get(entryId, entryId) !== undefined) return true;
   if (tableExists(db, "memory_vec")) {
     try {

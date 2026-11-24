@@ -281,11 +281,11 @@ describe("F20261109epqst P5/P6：失败回队与重启恢复", () => {
     // 第一次：storeEmbedding 对 fail-1/fail-2 抛错
     const origStore = repo.storeEmbedding.bind(repo);
     let failFirst = true;
-    repo.storeEmbedding = async (id: string, emb: Float32Array) => {
+    repo.storeEmbedding = async (id: string, generation: number, contentHash: string, emb: Float32Array) => {
       if (failFirst && (id === "store-fail-1" || id === "store-fail-2")) {
         throw new Error("simulated store failure");
       }
-      return origStore(id, emb);
+      return origStore(id, generation, contentHash, emb);
     };
     const worker = trackedWorker(gateway);
     await worker.tickNow();
@@ -392,11 +392,11 @@ describe("F20261109epqst 检视处置：drain 无界续跑（原 MAX_DRAIN_ROUND
     }
     const origStore = repo.storeEmbedding.bind(repo);
     let failStore = true;
-    repo.storeEmbedding = async (id: string, emb: Float32Array) => {
+    repo.storeEmbedding = async (id: string, generation: number, contentHash: string, emb: Float32Array) => {
       if (failStore && id.endsWith("-0")) {
         throw new Error("simulated store failure");
       }
-      return origStore(id, emb);
+      return origStore(id, generation, contentHash, emb);
     };
     // retrigger 周期压缩到 1.5s（测试钩子——本用例同时覆盖钩子的真实使用）
     EmbeddingRetryWorker.setTestRetriggerCapMs?.(1_500);
