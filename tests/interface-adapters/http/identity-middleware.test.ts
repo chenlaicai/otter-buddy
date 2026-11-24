@@ -34,6 +34,10 @@ describe("resolvePolicy：路由策略表矩阵", () => {
       ["GET", "/api/inbound/status", "public"],
       ["POST", "/api/mahjong/rooms", "public"], // 新增面：暂置（见表内翻转锚点）
       ["GET", "/api/mahjong/rooms/r1/view", "public"],
+      ["POST", "/api/connector/pair", "public"],
+      // connector Web 接入：签发是 owner 授权，CLI 包只要求登录 user
+      ["POST", "/api/connector/pairing-codes", "admin"],
+      ["GET", "/api/connector/download", "write"],
       // admin 族
       ["PUT", "/api/settings", "admin"],
       ["GET", "/api/settings", "admin"], // 处置 1：读面显式收档，不留隐式兜底

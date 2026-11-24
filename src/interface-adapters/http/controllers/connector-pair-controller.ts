@@ -38,7 +38,7 @@ export class ConnectorPairController {
     };
     const redeemed = await this.repo.redeemAndCreateDevice(code, device, now).catch(() => false);
     if (!redeemed) {
-      this.logger.warn("connector pairing rejected", { codePrefix: code.slice(0, 2) });
+      this.logger.warn("connector pairing rejected");
       return ctx.json({ error: "pairing code invalid, expired, or already redeemed" }, 403);
     }
     this.logger.info("connector device paired", { deviceId: device.id, name });
