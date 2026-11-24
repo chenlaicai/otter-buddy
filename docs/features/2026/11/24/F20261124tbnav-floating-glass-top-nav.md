@@ -1,5 +1,5 @@
 ---
-id: F20261119tbnav
+id: F20261124tbnav
 title: "顶栏收敛为独立系统图标与居中悬浮玻璃一级菜单"
 summary: "顶栏保留独立系统图标和七个一级路由，中央菜单采用 frost-only 宽底座与单个开源 Liquid Glass 选中透镜；静止和运动均折射清晰静止画布，使用位置信号与速度 wobble 驱动弹性切换，无双端蓝黑细线。执行机系统级 badge/请求移除，对话级能力不变。"
 change_type: feature
