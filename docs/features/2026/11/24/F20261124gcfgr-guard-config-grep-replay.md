@@ -31,6 +31,15 @@ healing `d536ca28-692a-41eb-83bd-d68181a90e60` 的完整 toolcall 在读取部�
 
 各候选 verdict 与本文件 `expect` 逐条对应；candidates JSON 仅是 gitignored 过程产物，不作为 PR 验收依据。55e01e59、5c5e88d8、79cd0623、2a658702 四条在独立检视后已还原为原始 invoke toolcall，只有 7f8305e6 按安全纪律对密码与实体 ID 做等价占位。
 
+四条原始命令可按下列锚点在 `invoke_events` 中回读（`event_type=assistant_toolcall`，时间均为 UTC）：
+
+| healing | invoke_id | sequence_num | created_at |
+|---|---|---:|---|
+| 55e01e59-ebb6-4513-aa6a-c1c0a9eba629 | 359a8ad7-3093-4694-8ad4-f896b63addff | 100 | 2026-11-24T01:00:52.200Z |
+| 5c5e88d8-c3ae-4df9-aa66-24132e7876f6 | 066683f7-d4dd-46e1-ab80-c824cf0f5f1c | 354 | 2026-11-24T04:20:02.003Z |
+| 79cd0623-d401-40ef-b961-1fd8faa305ea | 53b315ba-e53c-4e1b-a840-6ced0e6e0820 | 135 | 2026-11-24T08:59:46.726Z |
+| 2a658702-cc88-40d0-aae4-8d1d4c69b59c | bec0da17-134e-4300-b86f-c71183427c80 | 76 | 2026-11-24T10:33:30.762Z |
+
 ## Rollback
 
 Revert 本切片即删除该新增回放，不影响守卫实现。
