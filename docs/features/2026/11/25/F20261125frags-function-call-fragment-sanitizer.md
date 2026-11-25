@@ -59,14 +59,17 @@ dev-connector-onboarding（kimi，otterId 553a03b7）两世连挂：系统睡眠
 
 `src/frameworks/agent/assistant-message-sanitizer.ts` 新增 `aggregateFragmentedToolCalls`：
 
-- **碎片判定**：toolCall block 的 id call_id 段为空（`id.split("|")[0] === ""`）或
-  name 为空——Responses 协议合法 function_call 两者必非空，空即碎片，无合法形态误伤。
-- **聚合恢复**：碎片原始串（argumentsError 提取）按序并入同消息内最近真 toolCall
-  的原始串；拼接后 parse 成功 → arguments 回填、argumentsError 清除；失败 → 真
-  block 保持原状（保守退化，死循环切断优先于参数完美恢复）。碎片与真调用之间的
-  空 text/thinking 块不打断归属链（kimi 空 message item 穿插形态，curl 实证）。
-- **孤儿剔除**：toolCallId call_id 段为空的 toolResult 全是碎片执行 error，零信息
-  损失剔除——保住 fc/output 紧邻配对（F20261113etsan 教训：kimi 校验邻接）。
+- **碎片判定（两型）**：Responses 协议合法 function_call 的 call_id/name 两者必非空，
+  空即异常——**双空碎片**（call_id 段与 name 均空，服务端拆碎的实测形态）与**单空
+  畸形**（恰一空，防御性形态未实证）。
+- **聚合恢复**：仅双空碎片参与聚合——原始串（argumentsError 提取）按序并入同消息内
+  最近真 toolCall 的原始串；拼接后 parse 成功 → arguments 回填、argumentsError 清除；
+  失败 → 真 block 保持原状（保守退化，死循环切断优先于参数完美恢复）。碎片与真调用
+  之间的空 text/thinking 块不打断归属链（kimi 空 message item 穿插形态，curl 实证）。
+  单空畸形**剔除但不聚合**——它有独立 call_id，并入最近真调用有错归属风险。
+- **孤儿剔除（与剔除对称）**：toolCallId call_id 段为空或 toolName 为空的 toolResult
+  一律剔除（无论 isError——对应的 toolCall 已被剔除，保留即破坏配对；实测形态全是
+  Tool-not-found error）——保住 fc/output 紧邻配对（既有教训：kimi 校验邻接）。
 - **收敛域** `api === "openai-responses"`：与 stripEmptyAssistantText 同收敛逻辑。
 - 落点 `durable-session.ts` GenerationTask beforeRequest 钩子，先聚合再剥空 text，
   每次请求（含熔断恢复轮）前净化——存量中毒 session 无需数据清创即痊愈，历史记录
@@ -83,7 +86,10 @@ dev-connector-onboarding（kimi，otterId 553a03b7）两世连挂：系统睡眠
   新增机制，走①。
 - **聚合 vs 剔除**：argumentsError 保留了无损原始片段（3359 逐 block 实证五段拼接
   = 合法 JSON），聚合恢复完整参数优于仅剔除（模型见完整参数可正常续轮）；parse
-  失败退化剔除，死循环切断是底线。
+  失败退化剔除，死循环切断是底线。单空畸形只剔除不聚合：检视反例实锤（name-only
+  畸形若仅删 toolCall 留其 output，fc/output 配对即破——判定必须对称）。
+- **孤儿判定对称性**：toolResult 的剔除谓词（call_id 段空或 toolName 空）与 toolCall
+  的剔除谓词（双空碎片 + 单空畸形）逐形态对称，无「call 被删而 result 留下」的缝隙。
 - **为什么不在落库层**：pi-durable 的 afterResponse 钩子只观察不可改写；落库前拦截
   需 patch 外部 SDK（pi-ai 是 earendil-works 开源包）。beforeRequest 是 otter-buddy
   可控的最早可写落点，且天然覆盖存量。

@@ -25,7 +25,7 @@ function toolResult(callId: string, name: string): ToolResultMessage {
   return { role: "toolResult", toolCallId: callId, toolName: name, content: [{ type: "text", text: "[]" }], isError: false, timestamp: 0 } as ToolResultMessage;
 }
 
-describe("stripEmptyAssistantText（F20261113etsan：kimi 空 text 块致 fc/output 邻接断裂 400）", () => {
+describe("stripEmptyAssistantText（kimi 空 text 块致 fc/output 邻接断裂 400）", () => {
   it("剥掉 toolCall 后的空 text 尾块，保留 thinking/toolCall 原序", () => {
     const poisoned = poisonedAssistant("");
     const cleaned = stripEmptyAssistantText([poisoned]);
@@ -90,7 +90,7 @@ describe("stripEmptyAssistantText（F20261113etsan：kimi 空 text 块致 fc/out
   });
 });
 
-/** 复刻 #2024 sqlite entry 3359 真实中毒形态：bash 调用被 kimi 流式拆成 1 真 + 4 碎片 */
+/** 复刻 sqlite entry 3359 真实中毒形态：bash 调用被 kimi 流式拆成 1 真 + 4 碎片 */
 function fragmentedAssistant(): AssistantMessage {
   const err = (msg: string) => msg;
   return {
@@ -142,7 +142,7 @@ function fragmentedAssistant(): AssistantMessage {
   } as unknown as AssistantMessage;
 }
 
-/** 复刻 #2024 sqlite entry 3383 形态：多真调用交错碎片（真1+碎4+真2+碎2+真3+碎3 模式的简化版） */
+/** 复刻 sqlite entry 3383 形态：多真调用交错碎片（真1+碎4+真2+碎2+真3+碎3 模式的简化版） */
 function interleavedAssistant(): AssistantMessage {
   const real = (seq: string, name: string, frag: string) => ({
     type: "toolCall",
@@ -181,7 +181,7 @@ function interleavedAssistant(): AssistantMessage {
   } as unknown as AssistantMessage;
 }
 
-describe("aggregateFragmentedToolCalls（F20261125frags：kimi 流式拆碎 function_call 致 duplicated tool call id 400）", () => {
+describe("aggregateFragmentedToolCalls（kimi 流式拆碎 function_call 致 duplicated tool call id 400）", () => {
   it("复刻 3359：真调用 + 4 碎片聚合为完整参数，碎片消失", () => {
     const cleaned = aggregateFragmentedToolCalls([fragmentedAssistant()]);
     expect(cleaned).toBeDefined();
@@ -287,3 +287,49 @@ describe("aggregateFragmentedToolCalls（F20261125frags：kimi 流式拆碎 func
     expect(cleaned![3]).toBe(realResult);
   });
 });
+
+  it("name-only 畸形（call_id 非空 name 空）：toolCall 与其 output 对称剔除，fc/output 配对不破坏", () => {
+    const msg = {
+      role: "assistant",
+      content: [
+        { type: "toolCall", id: "bash_0|fc_real", name: "bash", arguments: {}, argumentsError: "e\n\nReceived arguments:\n{}" },
+        { type: "toolCall", id: "bash_1|fc_nameless", name: "", arguments: {}, argumentsError: "e\n\nReceived arguments:\n{}" },
+      ],
+      api: "openai-responses", provider: "kimi", model: "k3.1-pro",
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: "toolUse", timestamp: 0,
+    } as unknown as AssistantMessage;
+    const realResult = toolResult("bash_0|fc_real", "bash");
+    const namelessResult = toolResult("bash_1|fc_nameless", "");
+    const cleaned = aggregateFragmentedToolCalls([msg, realResult, namelessResult]);
+    const calls = (cleaned![0] as AssistantMessage).content.filter((b) => b.type === "toolCall");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ id: "bash_0|fc_real", name: "bash" });
+    expect(cleaned).toHaveLength(2);
+    expect(cleaned![1]).toBe(realResult);
+  });
+
+  it("name-only 畸形的参数不并入真调用（防错归属）", () => {
+    const msg = {
+      role: "assistant",
+      content: [
+        { type: "toolCall", id: "bash_0|fc_real", name: "bash", arguments: {}, argumentsError: "e\n\nReceived arguments:\n{}" },
+        { type: "toolCall", id: "bash_1|fc_nameless", name: "", arguments: {}, argumentsError: "e\n\nReceived arguments:\n{\"evil\": 1}" },
+      ],
+      api: "openai-responses", provider: "kimi", model: "k3.1-pro",
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: "toolUse", timestamp: 0,
+    } as unknown as AssistantMessage;
+    const cleaned = aggregateFragmentedToolCalls([msg]);
+    const call = (cleaned![0] as AssistantMessage).content.find((b) => b.type === "toolCall") as { arguments: Record<string, unknown> };
+    expect(call.arguments).toEqual({});
+  });
+
+  it("toolName 空的 toolResult（无论 isError）作为孤儿剔除，真结果保留", () => {
+    const okOrphan = { ...toolResult("|fc_x", ""), isError: false } as Message;
+    const errOrphan = toolResult("|fc_y", "");
+    const real = toolResult("bash_0|fc_real", "bash");
+    const cleaned = aggregateFragmentedToolCalls([okOrphan, errOrphan, real]);
+    expect(cleaned).toHaveLength(1);
+    expect(cleaned![0]).toBe(real);
+  });

@@ -45,7 +45,7 @@ export function stripEmptyAssistantText(messages: readonly Message[]): readonly 
 /**
  * 聚合 kimi 流式拆碎的 function_call 碎片，剔除孤儿 error toolResult。
  *
- * Why（2026-11-25 #2024 排查实证，F20261113etsan 同族第三形态）：kimi k3.1-pro
+ * Why（2026-11-25 排查实证，与 2026-11-13 空 text 块修复同族的第三形态）：kimi k3.1-pro
  * 流式模式把一次 function call 拆成多个 output_item——仅首个带 call_id/name，
  * 参数按片段分到各 item（curl 原始流复现：`{` / `"command": "grep -n` / `"` /
  * `, "timeout": 120` / `}`）。pi-ai 逐 item 建独立 toolCall block（openai-
@@ -69,7 +69,7 @@ export function stripEmptyAssistantText(messages: readonly Message[]): readonly 
  *   成功则回填 arguments、清除 argumentsError；失败则保持真 block 原状（退化
  *   为仅剔除碎片，死循环仍被切断）。
  * - 孤儿剔除：toolCallId call_id 段为空的 toolResult 全部是碎片执行 error，
- *   零信息损失剔除，保住 fc/output 紧邻配对（F20261113etsan 教训：kimi 校验
+ *   零信息损失剔除，保住 fc/output 紧邻配对（既有教训：kimi 校验
  *   邻接，不按 call_id 匹配）。
  * - 收敛域 `api === "openai-responses"`：同 stripEmptyAssistantText 的收敛逻辑。
  *
@@ -93,16 +93,25 @@ function rawArguments(block: ToolCall): string | undefined {
   return block.argumentsError.slice(idx + RECEIVED_ARGS_MARKER.length);
 }
 
-/** 碎片判定：call_id 段为空或 name 为空（合法 function_call 两者必非空）。 */
+/** 双空碎片判定：call_id 段与 name 均空——服务端拆碎的实测形态，参数片段归属最近真调用。 */
 function isFragmentBlock(block: ToolCall): boolean {
   const emptyCallId = block.id.includes("|") && block.id.split("|")[0] === "";
-  return emptyCallId || block.name === "";
+  return emptyCallId && block.name === "";
 }
 
-/** toolResult 孤儿判定：toolCallId 的 call_id 段为空（指向被聚合/剔除的碎片）。 */
+/** 单空畸形判定：call_id/name 恰一空（合法 function_call 两者必非空）——防御性形态（未实证），
+ * 参数不聚合直接丢弃（并入最近真调用有错归属风险），只保证剔除后配对完整。 */
+function isMalformedToolCall(block: ToolCall): boolean {
+  const emptyCallId = block.id.includes("|") && block.id.split("|")[0] === "";
+  return emptyCallId !== (block.name === "");
+}
+
+/** toolResult 孤儿判定：与畸形/碎片剔除对称（call_id 段空或 toolName 空）——
+ * 对应的 toolCall 已被剔除，无论 isError 与否保留都会破坏 fc/output 配对。 */
 function isOrphanToolResult(message: Message): boolean {
   if (message.role !== "toolResult") return false;
-  const { toolCallId } = message as { toolCallId: string };
+  const { toolCallId, toolName } = message as { toolCallId: string; toolName: string };
+  if (toolName === "") return true;
   return toolCallId.includes("|") && toolCallId.split("|")[0] === "";
 }
 
@@ -139,9 +148,15 @@ function aggregateAssistantContent(
   for (const block of content) {
     if (block.type === "toolCall") {
       if (isFragmentBlock(block)) {
-        // 碎片：原始串并入最近真调用（无归属目标时只能丢弃该片段）
+        // 双空碎片：原始串并入最近真调用（无归属目标时只能丢弃该片段）
         const raw = rawArguments(block);
         if (pendingFor && raw !== undefined) pendingFor.raw += raw;
+        fragmentsDropped++;
+        continue;
+      }
+      if (isMalformedToolCall(block)) {
+        // 单空畸形：剔除不聚合（并入真调用有错归属风险），其孤儿结果由
+        // isOrphanToolResult 对称剔除，保 fc/output 配对。
         fragmentsDropped++;
         continue;
       }
