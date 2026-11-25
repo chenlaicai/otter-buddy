@@ -1462,6 +1462,7 @@ describe('SchedulerService - onChange', () => {
   // once 任务调度测试已移至独立 describe 块
 });
 
+// eslint-disable-next-line max-lines-per-function -- once 调度域用例聚合（忙判/过期/重试/长退避#1975），mock 基础设施在块内共享，拆 describe 需重复造样板
 describe('SchedulerService - once 任务调度', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -1471,6 +1472,7 @@ describe('SchedulerService - once 任务调度', () => {
     vi.useRealTimers();
   });
 
+  // eslint-disable-next-line max-lines-per-function -- 内层含#1975两用例后超220行，同域内聚不拆
   describe("once 任务调度", () => {
     it("once 忙时：skip + 系统消息有声删除，不入 pending；闲时正常入 pending 语义不适用", async () => {
       const now = new Date('2025-06-15T08:00:00.000Z');
@@ -1677,16 +1679,115 @@ describe('SchedulerService - once 任务调度', () => {
 
       // 推进到触发时间
       await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
-      // 推进 3 次重试延迟（65s × 3）
-      await vi.advanceTimersByTimeAsync(65_000 * 3);
+      // 推进快速重试（65s × 3）+ 长退避全序列（30m+1h+2h+4h×3 = 15.5h）
+      // #1975：快速耗尽后不再直接 error，进入长退避跨睡眠冻结窗口，全耗尽才 error
+      await vi.advanceTimersByTimeAsync(65_000 * 3 + (30 + 60 + 120 + 240 * 3) * 60_000);
       // flush 微任务
       await Promise.resolve();
       await Promise.resolve();
 
-      // 验证：任务标记 error（而非 disabled）
+      // 验证：两阶段全耗尽后任务标记 error（而非 disabled）
       // 修复后：所有重试均执行，由 triggerOnceWithRetry 标记 error
       expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(true);
       expect(taskRepo._statusUpdates.some(u => u.status === 'disabled')).toBe(false);
+    });
+
+    it("#1975 快速重试耗尽后长退避轮成功 -> 任务删除，不标 error（跨睡眠冻结窗口）", async () => {
+      const now = new Date('2025-06-15T08:00:00.000Z');
+      vi.setSystemTime(now);
+
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
+      const agentInvoke = createMockAgentInvoke();
+
+      taskRepo._store.set('task-1', makeTask({
+        scheduleType: 'once',
+        triggerAt: '2025-06-15T09:00:00.000Z',
+        cron: '',
+      }));
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      // 首发 + 快速重试 3 次全败（第 1~4 次），长退避首轮（30m 后）成功——
+      // 模拟 #1975 现场：触发时系统冻结，快速重试全落冻结窗口，退到 30m 后环境恢复
+      let invokeCount = 0;
+      agentInvoke.invokeConversation = vi.fn(async () => {
+        invokeCount++;
+        if (invokeCount <= 4) throw new Error('agent invoke failed');
+        return { messageId: 'msg-recovered', duration: 0 };
+      });
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+        cronParser: { getNextTime: () => new Date() } as unknown as CronParser,
+        logger: mockLogger,
+      });
+
+      await service.start();
+
+      // 推进到触发时间 + 快速重试 + 长退避首轮（30m）
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000 + 65_000 * 3 + 30 * 60_000);
+
+      // 验证：长退避轮成功后任务被删除，未标 error
+      expect(invokeCount).toBe(5);
+      expect(taskRepo._store.has('task-1')).toBe(false);
+      expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(false);
+    });
+
+    it("#1975 长退避期间任务被禁用 -> 重试链终止，不标 error", async () => {
+      const now = new Date('2025-06-15T08:00:00.000Z');
+      vi.setSystemTime(now);
+
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
+      const agentInvoke = createMockAgentInvoke();
+
+      taskRepo._store.set('task-1', makeTask({
+        scheduleType: 'once',
+        triggerAt: '2025-06-15T09:00:00.000Z',
+        cron: '',
+      }));
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      // 全部失败
+      agentInvoke.invokeConversation = vi.fn(async () => {
+        throw new Error('agent invoke failed');
+      });
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+        cronParser: { getNextTime: () => new Date() } as unknown as CronParser,
+        logger: mockLogger,
+      });
+
+      await service.start();
+
+      // 推进到触发时间 + 快速重试全败
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000 + 65_000 * 3);
+
+      // 用户在长退避等待期间手动禁用任务
+      const stored = taskRepo._store.get('task-1');
+      if (stored) stored.status = 'disabled';
+
+      // 推进全部长退避序列——重试链应在首轮二次检查时终止
+      await vi.advanceTimersByTimeAsync((30 + 60 + 120 + 240 * 3) * 60_000);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // 验证：链终止无 error（用户主动禁用不是任务失败），任务保留 disabled 不被删
+      expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(false);
+      expect(taskRepo._store.get('task-1')?.status).toBe('disabled');
     });
 
     it("#251 resetConsecutiveFailures 失败不覆写已 completed 的 execution", async () => {

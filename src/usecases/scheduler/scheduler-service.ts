@@ -34,6 +34,19 @@ import { haltRegistry } from '@usecases/signal/halt-registry';
 /** once 任务重试参数 */
 const ONCE_MAX_RETRIES = 3;
 const ONCE_RETRY_DELAY_MS = 65_000; // 65 秒（避开 claimTask 60s 窗口）
+/** once 任务长退避序列：快速重试耗尽后进入，跨系统睡眠冻结窗口（#1975）。
+ *  现场：04:00 触发 + 冻结到 08:00，旧实现 3×(65s + 看门狗 15min 无产出放弃) ≈ 2h
+ *  全落在冻结窗口内 → 4 连败即 error 永久停跑——「环境整夜做不了」被当「任务失败」。
+ *  30m→1h→2h→4h(×3 封顶) ≈ 15.5h 追窗，覆盖整夜冻结 + 唤醒后白昼；仍设总上限
+ *  防真故障（任务本身坏掉）无限空转，耗尽全部才标 error。 */
+const ONCE_LONG_RETRY_DELAYS_MS = [
+  30 * 60_000,
+  60 * 60_000,
+  2 * 60 * 60_000,
+  4 * 60 * 60_000,
+  4 * 60 * 60_000,
+  4 * 60 * 60_000,
+] as const;
 
 /** 轮询间隔（5 分钟，2026-09-15 闹钟瘦身：30s→5min——任务最小粒度 1min 且全为日报/周报级，
  *  补触发晚 5 分钟无体感，循环频率降 10 倍；chen 15:09「后台循环太多」裁决）。
@@ -1098,7 +1111,7 @@ export class SchedulerService {
         // fail-closed「scheduled task 不存在」、getById DB 错误），会从本 async
         // setTimeout 回调逃逸成 unhandledRejection → main.ts 全局处理器 process.exit(1)
         // 杀掉整个进程。重试链自身故障仅落日志告警，不杀进程。
-        await this.triggerOnceWithRetry(task, ONCE_MAX_RETRIES).catch(err => {
+        await this.triggerOnceWithRetry(task).catch(err => {
           this.logger.error(`Once task ${task.id} retry chain crashed`, err as Error);
         });
       }
@@ -1191,35 +1204,50 @@ export class SchedulerService {
     }
   }
 
-  /** once 任务专用重试：失败后延迟重试，最多 maxRetries 次 */
-  private async triggerOnceWithRetry(task: ScheduledTask, retriesLeft: number): Promise<void> {
-    if (retriesLeft <= 0) {
-      this.logger.error(`Once task ${task.id} exhausted all retries, marking as error`);
-      await this.taskRepo.updateStatus(task.id, 'error', new Date().toISOString());
-      // once 任务重试耗尽同样落通知，消灭静默死亡
-      await this.notifyTaskErrored(task.id, ONCE_MAX_RETRIES + 1, 'once task exhausted all retries');
-      return;
+  /** once 任务专用重试：两阶段（#1975）——①快速重试 65s×N（治瞬时故障：网络抖动/claim 冲突）；
+ *  ②耗尽后进入指数长退避（30m→1h→2h→4h×3），跨越系统睡眠冻结窗口；
+ *  ③两阶段全耗尽才标 error。原递归实现改为迭代 + 单轮尝试函数，消除递归栈。 */
+  private async triggerOnceWithRetry(task: ScheduledTask): Promise<void> {
+    for (let fast = 0; fast < ONCE_MAX_RETRIES; fast++) {
+      if (await this.tryTriggerOnce(task, ONCE_RETRY_DELAY_MS, `fast ${ONCE_MAX_RETRIES - fast - 1} left`)) return;
     }
+    this.logger.warn(
+      `Once task ${task.id} fast retries exhausted, entering long backoff ` +
+      `(${ONCE_LONG_RETRY_DELAYS_MS.length} rounds, covers sleep-freeze windows)`,
+    );
+    for (let i = 0; i < ONCE_LONG_RETRY_DELAYS_MS.length; i++) {
+      if (await this.tryTriggerOnce(task, ONCE_LONG_RETRY_DELAYS_MS[i]!, `long-backoff round ${i + 1}/${ONCE_LONG_RETRY_DELAYS_MS.length}`)) return;
+    }
+    this.logger.error(`Once task ${task.id} exhausted all retries (fast + long backoff), marking as error`);
+    await this.taskRepo.updateStatus(task.id, 'error', new Date().toISOString());
+    // once 任务重试耗尽同样落通知，消灭静默死亡
+    const totalAttempts = ONCE_MAX_RETRIES + ONCE_LONG_RETRY_DELAYS_MS.length + 1;
+    await this.notifyTaskErrored(task.id, totalAttempts, 'once task exhausted all retries');
+  }
 
+  /** once 重试链的单轮延迟尝试。返回 true = 重试链终止（成功删除 / 任务已不在或被禁用）；
+ *  false = 本轮失败，可继续下一轮。 */
+  private async tryTriggerOnce(task: ScheduledTask, delayMs: number, label: string): Promise<boolean> {
     this.metrics?.recordRetry('once');
-    await new Promise(r => setTimeout(r, ONCE_RETRY_DELAY_MS));
+    await new Promise(r => setTimeout(r, delayMs));
 
-    // 二次检查：任务是否仍为 active（可能已被用户手动禁用）
+    // 二次检查：任务是否仍为 active（可能已被用户手动禁用/删除）
     const current = await this.taskRepo.getById(task.id);
     if (!current || current.status !== 'active') {
       this.logger.info(`Once task ${task.id} no longer active (status=${current?.status}), aborting retry`);
-      return;
+      return true;
     }
 
     try {
       // once 任务重试时跳过 handleExecutionFailure 的 consecutiveFailures 追踪，
-      // 让 triggerOnceWithRetry 独立控制重试/error 语义。
+      // 让重试链独立控制重试/error 语义。
       await this.triggerTask(task, { skipConsecutiveFailureTracking: true });
       // Why: 一次性任务重试成功后直接删除，不保留历史
       await this.taskRepo.delete(task.id);
+      return true;
     } catch (error) {
-      this.logger.error(`Once task ${task.id} retry failed (${retriesLeft - 1} left)`, error as Error);
-      await this.triggerOnceWithRetry(task, retriesLeft - 1);
+      this.logger.error(`Once task ${task.id} retry failed (${label})`, error as Error);
+      return false;
     }
   }
 
