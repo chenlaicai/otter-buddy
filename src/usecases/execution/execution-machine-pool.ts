@@ -17,8 +17,9 @@ export async function machinePoolSnapshot(
 ): Promise<ExecutionMachinePoolSnapshot> {
   const currentId = registry.currentMachineId();
   const local = registry.list().find((m) => m.id === currentId) ?? { id: currentId, name: currentId };
-  // local 恒在线：中枢自身进程在跑，本机执行机即在场（Web 既有投影语义补齐字段）
-  const localEntry = { ...local, online: true, lastSeenAt: null as string | null };
+  // local 恒在线：中枢自身进程在跑，本机执行机即在场（Web 既有投影语义补齐字段）；
+  // local:true 显式信号——isDevice 判别不靠 online 字段缺省推断（检视 S1：字段缺省判别符脆弱）
+  const localEntry = { ...local, online: true, lastSeenAt: null as string | null, local: true };
   const devices =
     (await deviceStatus?.())?.map((d) => ({
       id: d.deviceId,

@@ -26,7 +26,8 @@ describe('ExecutionMachineModal（阶段 5 PR-B）', () => {
     return stubFetch((url, init) => {
       if (url === '/api/execution-machines') {
         return jsonResponse({ machines: overrides?.machines ?? [
-          { id: 'local', name: '本机' },
+          // 真态（F20261125expot PR-1 S1 处置后）：local 带 online+local 显式信号，覆盖徽章判别漂移
+          { id: 'local', name: '本机', online: true, lastSeenAt: null, local: true },
           { id: 'connector-b', name: 'B 机', online: true, lastSeenAt: '2026-11-18T06:00:00Z' },
           { id: 'connector-c', name: 'C 机', online: false, lastSeenAt: '2026-11-17T00:00:00Z' },
         ], currentMachineId: 'local' })
@@ -49,7 +50,8 @@ describe('ExecutionMachineModal（阶段 5 PR-B）', () => {
     vi.stubGlobal('fetch', fetchMock)
     render(<ExecutionMachineModal conversationId="c-1" onClose={() => {}} />)
     await waitFor(() => expect(screen.getByTestId('machine-option-connector-b')).toBeTruthy())
-    expect(screen.getByTestId('machine-option-local').textContent).toContain('本机')
+    expect(screen.getByTestId('machine-option-local').textContent).toContain('本机') // local:true → 本机徽章（非在线徽章——S1 判别符漂移覆盖）
+    expect(screen.getByTestId('machine-option-local').textContent).not.toContain('在线')
     expect(screen.getByTestId('machine-option-local').textContent).toContain('当前') // null → local 选中
     expect(screen.getByTestId('machine-option-connector-b').textContent).toContain('在线')
     expect(screen.getByTestId('machine-option-connector-c').textContent).toContain('离线')
@@ -115,7 +117,7 @@ describe('ExecutionMachineModal（阶段 5 PR-B）', () => {
   it('reload 部分 5xx → 聚合错误条（含状态码），不再静默空态', async () => {
     vi.stubGlobal('fetch', stubFetch((url) => {
       if (url.includes('/remote-actions')) return jsonResponse({ error: 'boom' }, 500)
-      if (url === '/api/execution-machines') return jsonResponse({ machines: [{ id: 'local', name: '本机' }], currentMachineId: 'local' })
+      if (url === '/api/execution-machines') return jsonResponse({ machines: [{ id: 'local', name: '本机', online: true, lastSeenAt: null, local: true }], currentMachineId: 'local' })
       return jsonResponse({ machineId: null })
     }))
     render(<ExecutionMachineModal conversationId="c-1" onClose={() => {}} />)

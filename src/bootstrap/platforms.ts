@@ -12,7 +12,8 @@ import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
 // createManageHealingEventsTool 改为仅 tool-factory 内注册，此处不再 import
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
-import type { ActionRunner } from "@usecases/ports/execution-machine";import type { OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
+import type { ActionRunner } from "@usecases/ports/execution-machine";
+import type { OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
 // 统一交接引擎（bootstrap=组合根，import frameworks 合法）
 import type { HandoffEngineDeps } from "../interface-adapters/agent-runtime/agent-invoker";
 import { buildNarrativeSynthesisPrompt, assembleHandoffArchive, buildMechanicalArchive, NARRATIVE_SYNTHESIS_TIMEOUT_MS, synthesisFullBudgetChars } from "@frameworks/agent/narrative-synthesis-engine";

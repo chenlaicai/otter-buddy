@@ -192,7 +192,18 @@ F20261118crtgr 当时选对话级是**实现轻量取舍**（设计取舍表：�
 - ~~身份注入多机环境说明~~ **拆出待裁决**（见下「身份注入与 ratchet 拼接」节）：核心常驻 prompt 只降 ratchet 拦截，注入句不在本 PR 交付。
 - 测试：快照拼装 5 例 + 工具行为 5 例；auth-controller.test.ts 3 处契约断言同步更新（local 补齐字段后的响应形状）。
 
-### 身份注入与 ratchet 拼接（待裁决项，2026-11-25）
+### 检视回执处置记录（2026-11-25，reviewer COMMENTED 覆盖 head 7da2f927）
+
+- **S1（严重，接受+判别符治本）**：local 补 `online:true` 破坏 Web 选择器 `isDevice` 判别（原实现 `m.online !== undefined` 用字段缺省判别，「本机」徽章被顶成「在线」）——dev 原声称「无破坏」核实流于表层（只查了 `online === false` 用法，漏了判别符用法）。处置（大獭倾向+决策树确认）：**接受字段扩展（agent 平权池语义正确，符合搭档「本机概念消失」方向）+ 判别符治本**——投影 local 行增显式 `local: true`（ExecutionMachinePoolEntry 类型 + machinePoolSnapshot），Web `isDevice` 改 `(m) => m.local !== true`（不再靠字段缺省推断）；前端测试改真态（local 带 online+local）并补徽章判别断言（local 行含「本机」不含「在线」）。教训：消费面核实必须 grep 全部用法形态，不能只验证自己预期的那一种。
+- **D1（接受）**：platforms.ts 两条 import 被并单行（笔误），恢复双行。
+- **D2（接受）**：工具 description 返回形态描述改为实际对象包裹 `{machines: [...], currentMachineId}`（原裸数组描述不符）。
+- 附带：base 落后 main（#2035），update branch 后确认 CI。
+
+### 身份注入与 ratchet 拼接（大獭已裁决 2026-11-25：推迟到 PR-2 一起落）
+
+**裁决**：注入句推迟到 PR-2——届时工具带 machine 必选语义，注入文案一遍写对；按实现者建议方案（删 BIG 黑话表低频词条+宁提预算也不碰「来源核验」安全语义）执行，属 SYSTEM.md 注入面+CI 守卫参数变更（高杠杆），届时单独呈搭档拍板。PR-1 不注入，此项解除阻塞。
+
+以下为原始分析存档：
 
 方案 T1 要求「身份注入补一句多机环境说明」（中性存在性陈述 + 查询方式）。实现时撞 lint-prompt-size.mjs 核心常驻 prompt 只降 ratchet：BIG_OTTER.md 16143B / SMALL_OTTER.md 8442B（= main 现值，任何增长即红，本次注入句 +438B/文件）。闸立法背景是拦「修 bug 顺带加一段」的纯加法膨胀，同时内建「提升预算须单独评审」通道。处置：**注入句拆出本 PR**（工具注册/检索/执行不依赖它，功能主体完整），选项呈大獭裁决：
 

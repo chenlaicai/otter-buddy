@@ -22,13 +22,13 @@ function makeRegistry(options?: { machines?: Array<{ id: string; name: string }>
 describe("machinePoolSnapshot", () => {
   it("local 条目补齐 online=true / lastSeenAt=null（字段形态与设备一致）", async () => {
     const snapshot = await machinePoolSnapshot(makeRegistry());
-    expect(snapshot.machines[0]).toEqual({ id: "local", name: "hub-local", online: true, lastSeenAt: null });
+    expect(snapshot.machines[0]).toEqual({ id: "local", name: "hub-local", online: true, lastSeenAt: null, local: true });
     expect(snapshot.currentMachineId).toBe("local");
   });
 
   it("Registry 无 currentId 匹配项时回退 {id: currentId, name: currentId} 且仍在线", async () => {
     const snapshot = await machinePoolSnapshot(makeRegistry({ machines: [], currentId: "custom-id" }));
-    expect(snapshot.machines[0]).toEqual({ id: "custom-id", name: "custom-id", online: true, lastSeenAt: null });
+    expect(snapshot.machines[0]).toEqual({ id: "custom-id", name: "custom-id", online: true, lastSeenAt: null, local: true });
   });
 
   it("devices 全量透传（含离线）且排在 local 之后", async () => {
