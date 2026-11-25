@@ -4,7 +4,7 @@ title: 执行机语义修正：系统资源池与海獭按动作选用，移除�
 summary: 对话与执行机不是绑定关系——执行机是系统级资源池（多台同在线），海獭感知机器池并按动作选择落点；移除对话级默认机器与绑定 API/UI；设置页新增执行机在线列表与 connector 配对入口；恢复与审计按动作实际落点走。
 doc_type: feature
 change_type: feature
-capability_test: "n/a: 方案文档——实现 PR 时补 capability 用例锚点"
+capability_test: "n/a: 感知层验证走 alpha 实例真实 invoke + 异体锚点重放（证据见 PR-1 实现记录节）；capability 层无对应用例且本地 LLM 端点未配置"
 created_in_conversation: 6af46649-f93f-4c5b-a6d2-245a4ed33e9f
 from:
   - F20261118crtgr
@@ -176,3 +176,66 @@ F20261118crtgr 当时选对话级是**实现轻量取舍**（设计取舍表：�
 | web/src/pages/conversation/ExecutionMachineModal.tsx | 改 | 选择器与配对面板移除，动作状态保留 |
 | web/src/pages/settings/index.tsx | 增 | 执行机区块（在线列表+配对） |
 | src/usecases/conversation/resume-interrupted-service.ts | 改 | 恢复按台账机器路由 |
+
+## PR-1 感知层实现记录（2026-11-25，feat/F20261125expot-execution-pool-pr1）
+
+### 实现清单
+
+- `src/usecases/execution/execution-machine-pool.ts`（新）：machinePoolSnapshot 单一投影——HTTP 与 agent 工具共用，数据源同构（Registry local 恒在 + connectorRegistry 设备全量含离线）。
+- `src/usecases/ports/execution-machine.ts`：新增 ExecutionMachinePoolSnapshot/Entry 类型。
+- `src/usecases/ports/agent-tools.ts`：ToolContext 新增可选 listExecutionMachines 回调（装配层注入，缺省 = 工具不注册）。
+- `src/interface-adapters/agent-runtime/tools/list-execution-machines-tool.ts`（新）：deferred 只读工具，description 为 BM25 检索语料（中性，无 PR-2 预告）。
+- `src/interface-adapters/agent-runtime/tools/tool-factory.ts`：注册条件 = ctx.listExecutionMachines 存在（同 upload_device_file 模式，旧装配零变化）。
+- `src/interface-adapters/http/router.ts`：/api/execution-machines 改用共享投影（原内联拼装迁出，响应字段扩展向后兼容）。
+- `src/bootstrap/platforms.ts` + `src/app.ts`：machinePool 数据源装配（app.ts 传 Registry + connectorRepo）。
+- `config/tool-manifest.json`：toolExposure deferred + capabilityBlocks.system 引用（big=* 自动含、small 经 system 组获得）。
+- ~~身份注入多机环境说明~~ **拆出待裁决**（见下「身份注入与 ratchet 拼接」节）：核心常驻 prompt 只降 ratchet 拦截，注入句不在本 PR 交付。
+- 测试：快照拼装 5 例 + 工具行为 5 例；auth-controller.test.ts 3 处契约断言同步更新（local 补齐字段后的响应形状）。
+
+### 身份注入与 ratchet 拼接（待裁决项，2026-11-25）
+
+方案 T1 要求「身份注入补一句多机环境说明」（中性存在性陈述 + 查询方式）。实现时撞 lint-prompt-size.mjs 核心常驻 prompt 只降 ratchet：BIG_OTTER.md 16143B / SMALL_OTTER.md 8442B（= main 现值，任何增长即红，本次注入句 +438B/文件）。闸立法背景是拦「修 bug 顺带加一段」的纯加法膨胀，同时内建「提升预算须单独评审」通道。处置：**注入句拆出本 PR**（工具注册/检索/执行不依赖它，功能主体完整），选项呈大獭裁决：
+
+- **A 等价压缩**：注入句压至最短（~260B）+ 等量删定调文本——BIG 可从黑话表删低频词条（卡片高度/otterCard.submit/ToolContext，~240B，附录性质低风险）；SMALL 无黑话表，需压「记忆先行」（~100B）或「来源核验」段（~300B，**防注入安全语义，压缩有糊化风险**）。
+- **B 提预算**：CORE_PROMPTS ratchet 值 +440B/文件，特性文档记录理由+审视核对（闸内建通道）；代价：常驻注入面永久增长，且改 CI 守卫参数属高杠杆面。
+- **C 混合**：BIG 走等价删减、SMALL 提预算或压缩。
+- 实现者建议：A 中 BIG 侧删黑话表词条 + SMALL 侧仅压「记忆先行」不动安全语义；若仍不足，宁提预算也不压缩「来源核验」。
+
+### PR-1 增量设计取舍
+
+| 取舍 | 决策 | 理由 |
+|---|---|---|
+| 投影实现 | 单一函数 machinePoolSnapshot 供 HTTP 与 agent 工具共用 | 两处独立拼装必漂移；方案「同源」要求的唯一实现点 |
+| local 条目字段 | 补齐 online=true/lastSeenAt=null（响应向后兼容扩展） | 工具 schema 与设备条目同构；local 恒在线语义显式化；Web 消费已核实无破坏（ExecutionMachineModal 以 online===false 判离线） |
+| 注册条件 | ctx 字段存在性（同 upload_device_file 模式） | 旧装配/测试桩零适配 |
+| 身份文案 | 中性存在性陈述，无 machine 必选预告 | 派工约束：machine 必选是 PR-2 语义，PR-1 不预付 |
+
+### 最简实现检查
+
+已过：更简路径是工具内直接拼装（省共享函数 + router 迁出），但产生两份独立投影（漂移风险，违反方案「同源」）；当前实现无多余层（类型 + 单一函数 + 工具 + 装配透传，各司一职）。
+
+### 验收断言（机械可验证）
+
+| 场景 | 操作 | 预期结果 |
+|---|---|---|
+| 快照拼装单测 | `npx vitest run tests/usecases/execution/execution-machine-pool.test.ts` | 5/5 PASS（local 补齐/设备透传含离线/缺省退化/fail-loud） |
+| 工具行为单测 | `npx vitest run tests/interface-adapters/agent-runtime/tools/list-execution-machines-tool.test.ts` | 5/5 PASS（注册条件/JSON 返回/isError/空参合法） |
+| HTTP 契约 | alpha 实例 GET /api/execution-machines | local 带 online:true、lastSeenAt:null（证据 03-alpha-http-machines.json） |
+| 端到端感知 | alpha 实例真实 invoke：tool_search("execution machines") → 激活 → 调用 | 返回快照 JSON 且 speak 原样贴出（证据 01-alpha-invoke-entries.json、02-alpha-tool-activation.log） |
+| 锚点重放 | 异体模型（kimi）评 8 锚点（坏 5 好 3，覆盖五域） | 8/8 VERDICT: YES（证据 04/05） |
+| manifest 校验 | `node scripts/lint-tool-manifest.mjs` | PASS（deferred + system 块引用，工具名在 tool-factory 存在） |
+| tsc/eslint/lint:intent | 全量 | PASS（lint:intent 1105 docs OK，exit 0） |
+
+### Golden Gate（豁免留痕）
+
+golden.capability 15 用例全 skipped——环境未配置 LLM 端点（config/config.test.local.yaml 与 OTTER_TEST_LLM_API_KEY 均缺）。matter-loop/track-work capability 同因 skip，且 vitest 退出段 native crash（mutex lock failed）——git stash -u 基线复跑（dbb4ea55，纯方案文档 commit）同样崩溃：**pre-existing，非本次引入**（基线对照在案）。软代码改动（身份文件新增节 + 工具 description）的行为回归由锚点重放评审覆盖（8/8 YES，异体 kimi 实跑）。
+
+### 负向验收
+
+- **本次变更破坏的旧契约**：/api/execution-machines 的 local 条目从 {id,name} 扩为 {id,name,online,lastSeenAt}——向后兼容字段扩展，无消费方被破坏（Web 唯一消费点已核实宽松消费）；既有契约测试 3 处断言随契约同步更新。
+- **绕过的既有保护**：无（新工具只读、无副作用、数据源故障 fail-loud 不吞异常）。
+
+### 未覆盖边界（如实）
+
+- 设备侧真实数据（devices 非空场景）端到端未验——alpha 实例无已配对设备，设备透传逻辑由单测覆盖（含离线设备形态）；双 HOME connector 端到端属特性整体验证（方案「验证」节），随 PR-2/PR-4 验收推进。
+- PR-1 不含 U1 spike（pi-durable 路径判定）——那是 PR-2 前置。

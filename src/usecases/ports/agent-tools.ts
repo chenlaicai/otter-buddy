@@ -19,6 +19,7 @@ import type { WorkLedgerBinder } from "@usecases/health/work-ledger-binder";
 import type { ModelPoolLike } from "./model-pool-like";
 import type { OtterConfigProvider } from "./otter-config-provider";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
+import type { ExecutionMachinePoolSnapshot } from "./execution-machine";
 import type { Readable } from "node:stream";
 
 /**
@@ -199,6 +200,9 @@ export interface ToolContext {
   /** 对话执行机 env 解析（与 DurableSession env 工厂同链路——resolveForConversation →
    *  createExecutionEnvironment；upload_device_file 经它读设备字节。缺省 = 工具不注册）。 */
   resolveExecutionEnv?: (conversationId: string) => Promise<ExecutionEnv>;
+  /** 执行机资源池快照（list_execution_machines 感知工具依赖；装配层注入，
+   *  与 /api/execution-machines 同源同投影。缺省 = 工具不注册）。 */
+  listExecutionMachines?: () => Promise<ExecutionMachinePoolSnapshot>;
   /** 当前打开的 speak entry ID（speak/yield 检测本轮已发言用）。
    * 池化合流：getter 化穿透寄存器（invoke 入口重置） */
   lastSpeakMessageId?: string;
