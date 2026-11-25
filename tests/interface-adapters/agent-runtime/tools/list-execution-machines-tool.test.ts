@@ -1,7 +1,7 @@
 /**
  * list_execution_machines 工具单测。
  *
- * F20261125expot PR-1 感知层：注册条件 = ctx.listExecutionMachines 注入；
+ * 感知层：注册条件 = ctx.listExecutionMachines 注入；
  * 返回 ExecutionMachinePoolSnapshot JSON；数据源故障 fail-loud（isError）。
  */
 import { describe, it, expect } from "vitest";

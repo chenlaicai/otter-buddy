@@ -141,7 +141,7 @@ export interface ExecutionMachinePoolEntry {
   local?: boolean;
 }
 
-/** 执行机资源池快照（F20261125expot PR-1：/api/execution-machines 与 list_execution_machines 工具共用同一投影） */
+/** 执行机资源池快照（/api/execution-machines 与 list_execution_machines 工具共用同一投影） */
 export interface ExecutionMachinePoolSnapshot {
   machines: ExecutionMachinePoolEntry[];
   /** 当前默认执行机 id（路由序的最终回退；语义随 PR-2/PR-3 迭代，本字段仅陈述现状） */

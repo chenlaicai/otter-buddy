@@ -329,7 +329,7 @@ function registerExecutionMachineRoutes(app: Hono, plumbing: RouterPlumbingOptio
   if (plumbing?.executionMachines) {
     app.get("/api/execution-machines", async (ctx) => {
       // 单一投影：与 agent list_execution_machines 工具共用 machinePoolSnapshot
-      // （F20261125expot PR-1——两处独立拼装会漂移）。
+      // （两处独立拼装会漂移）。
       const snapshot = await machinePoolSnapshot(
         { list: () => plumbing.executionMachines!.list(), currentMachineId: () => plumbing.executionMachines!.currentId() },
         plumbing.executionMachines!.deviceStatus,

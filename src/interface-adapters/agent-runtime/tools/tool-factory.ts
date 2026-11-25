@@ -2247,7 +2247,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     // upload_device_file：显式上传通道（设备/本地文件 → 中枢附件存储）。
     // 注册条件 = 双依赖齐备（装配层注入）；缺任一则不出现，旧装配零变化。
     ...(ctx.attachmentUpload && ctx.resolveExecutionEnv ? [createUploadDeviceFileTool(ctx)] : []),
-    // list_execution_machines：执行机资源池感知（F20261125expot PR-1，deferred）。
+    // list_execution_machines：执行机资源池感知（deferred）。
     // 注册条件 = 数据源注入（装配层）；缺省不出现，旧装配零变化。
     ...(ctx.listExecutionMachines ? [createListExecutionMachinesTool(ctx)] : []),
   ];

@@ -451,7 +451,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     repos, otterConfigProvider, model, modelPool, db, logger,
     sessionDir: options.sessionDir ?? path.join(dataDir, "sessions"),
     identityPromptDir: options.identityPromptDir,
-    // 执行机池感知数据源（F20261125expot PR-1）：与 /api/execution-machines 同源
+    // 执行机池感知数据源：与 /api/execution-machines 同源
     // （Registry local + connectorRegistry 设备全量含离线），单一投影实现在 usecases 层。
     machinePool: () => machinePoolSnapshot(executionMachines, () => connectorRepo.listDeviceOnlineStatus()),
     executionMachines: toolActionRouter,

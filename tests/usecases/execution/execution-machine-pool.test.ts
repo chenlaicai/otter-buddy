@@ -1,7 +1,7 @@
 /**
  * 执行机资源池快照（machinePoolSnapshot）单测。
  *
- * F20261125expot PR-1：/api/execution-machines 与 list_execution_machines
+ * 感知层：/api/execution-machines 与 list_execution_machines
  * 工具共用同一投影。验证：
  * - local（Registry 恒在）补齐 online=true / lastSeenAt=null
  * - devices 全量透传（含离线设备——Registry 投影下线即注销，离线只有此处可见）

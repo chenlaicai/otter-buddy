@@ -2,7 +2,7 @@ import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 
 /**
- * list_execution_machines：执行机资源池感知工具（F20261125expot PR-1）。
+ * list_execution_machines：执行机资源池感知工具。
  *
  * deferred 工具（tool_search 检索面，不占常驻上下文）——description 是 BM25 索引语料，
  * 覆盖「执行机/机器/machine/在线/设备」等检索词。数据源与 `/api/execution-machines`
