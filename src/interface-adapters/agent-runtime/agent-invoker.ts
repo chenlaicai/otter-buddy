@@ -44,7 +44,7 @@ import { renderScheduledTaskAlerts } from "@usecases/scheduler/scheduled-task-al
 import type { LinkedResource } from "@entities/conversation/conversation";
 import type { OtterSession } from "@entities/otter/otter-session";
  
-import type { StateInventoryDeps, HandoffEntryReader } from "@frameworks/agent/state-inventory";
+import { collectUnavailabilityReasons, type StateInventoryDeps, type HandoffEntryReader } from "@frameworks/agent/state-inventory";
  
 import type { SynthesisPrefetch } from "@frameworks/agent/synthesis-prompt-builder";
 // 统一交接引擎与 jsonl 切片的 DI 契约（层约束：interface-adapters 不
@@ -1259,7 +1259,7 @@ export class AgentInvoker implements AgentTurnPort {
       // queryOtter.getById 合并进同一 Promise.all（此前 1047/1118 两处
       //  重复查询）；切片返回值扩为 {slice, degradeReason}——切片失败的降级原因
       //  （empty-session / jsonl-read-fail）随原料一起上抛，供合成跳过与档案文案定位。
-      const [lineageInfo, inventoryText, prefetch, sliceOutcome, otter, openMattersText] = await Promise.all([
+      const [lineageInfo, inventoryOutcome, prefetch, sliceOutcome, otter, openMattersOutcome] = await Promise.all([
         this.resolveHandoffLineage(otterId),
         this.collectInventoryText(conversationId, otterId, workspacePath),
         this.buildSynthesisPrefetch(conversationId, otterId),
@@ -1267,9 +1267,23 @@ export class AgentInvoker implements AgentTurnPort {
         this.queryOtter.getById(otterId),
         // 机械供料 handoff_open_matters——本对话未闭环 matters 清单。
         // 确定性字段不进叙事合成（matter 表活在 session 之外，獭生封存 ≠ 事情失传）。
-        // matterRepo 未注入（旧装配）时降级空——机械供料是增强不是交接硬依赖。
+        // matterRepo 未注入（旧装配）时降级空——机械供料是增强不是交接硬依赖；
+        // H3：失败/未装配显式标 incomplete，不静默伪装「无待办」。
         this.collectOpenMatters(conversationId),
       ]);
+      // H3 交接采集可信度：inventory 项不可用 + matters 关键失败 → incomplete，
+      // 标注行随盘点文本进档案与合成原料（保留可降级裸重启语义——不阻塞，只可见）
+      const incompletenessReasons = [
+        ...inventoryOutcome.incompleteReasons,
+        ...(openMattersOutcome.failed ? [openMattersOutcome.reason ?? 'matters 采集失败'] : []),
+      ];
+      const openMattersText = openMattersOutcome.text;
+      const inventoryText = incompletenessReasons.length > 0
+        ? `> ⚠ 交接采集不完整（${incompletenessReasons.join('；')}）——盘点中的「不可用」项非真空，接世后优先复核未闭环事项\n${inventoryOutcome.text}`
+        : inventoryOutcome.text;
+      if (incompletenessReasons.length > 0) {
+        this.logger.warn('[handoff] collection incomplete', { otterId, conversationId, reasons: incompletenessReasons });
+      }
       const { slice, degradeReason: sliceDegradeReason, compactionOnly } = sliceOutcome;
       const otterNameResolved = otter?.name ?? otterId;
       // 换模型换世——目标模型与当前 active session 模型不同则重置熔断计数（此前模型卡死
@@ -1649,18 +1663,23 @@ export class AgentInvoker implements AgentTurnPort {
     }
   }
 
-  /** 状态盘点文本收集（DB 权威源机械快照；依赖未注入/查询失败降级空文本，不阻塞交接） */
-  private async collectInventoryText(conversationId: string, otterId: string, workspacePath?: string): Promise<string> {
+  /**
+   * 状态盘点文本收集（DB 权威源机械快照；失败不阻塞交接——但按 H3 显式标注而非静默空）。
+   * 返回文本 + 不完整原因清单（collector 抛错落「不可用」行，绝不写成「无」）。
+   */
+  private async collectInventoryText(conversationId: string, otterId: string, workspacePath?: string): Promise<{ text: string; incompleteReasons: string[] }> {
     try {
-      if (!this.conversationRepo) return '';
+      if (!this.conversationRepo) return { text: '', incompleteReasons: ['状态盘点依赖未装配'] };
       const deps = this.buildStateInventoryDeps(conversationId, workspacePath);
       const inventory = await this.engine!.collectStateInventory(conversationId, otterId, deps);
-      return this.engine!.renderStateInventory(inventory);
+      const text = this.engine!.renderStateInventory(inventory);
+      // engine mock（旧装配/测试）可能返回不带四态的库存——undefined 字段不判失败
+      const reasons = collectUnavailabilityReasons(inventory);
+      return { text, incompleteReasons: reasons };
     } catch (err) {
-      this.logger.warn('[handoff] state inventory failed, continuing without', {
-        conversationId, error: err instanceof Error ? err.message : String(err),
-      });
-      return '';
+      const error = err instanceof Error ? err.message : String(err);
+      this.logger.warn('[handoff] state inventory failed, continuing without', { conversationId, error });
+      return { text: '', incompleteReasons: [`状态盘点整体失败:${error.slice(0, 120)}`] };
     }
   }
 
@@ -1670,11 +1689,16 @@ export class AgentInvoker implements AgentTurnPort {
    * matter 表活在 session 之外，獭生封存 ≠ 事情失传。
    * matterRepo 未注入（旧装配/mock）或查询失败 → 降级空串（增强不是硬依赖）。
    */
-  private async collectOpenMatters(conversationId: string): Promise<string> {
-    if (!this.matterRepo) return '';
+  /**
+   * H3：matters 是关键采集——失败不再静默空串，返回 failed 标记并入 handoffCompleteness
+   * （新世要知道「本档案没读到未闭环清单」，不能把缺失当「没有待办」）。
+   * 依赖未注入（旧装配/mock）同样标 failed：不能确认「无待办」。
+   */
+  private async collectOpenMatters(conversationId: string): Promise<{ text: string; failed: boolean; reason?: string }> {
+    if (!this.matterRepo) return { text: '', failed: true, reason: 'matterRepo 未装配' };
     try {
       const matters = await this.matterRepo.findByConversation(conversationId, { openOnly: true }, 50);
-      if (matters.length === 0) return '';
+      if (matters.length === 0) return { text: '', failed: false };
       const lines = [
         `本对话未闭环事情（${matters.length} 件）：`,
         ...matters.map((m, i) => {
@@ -1692,12 +1716,11 @@ export class AgentInvoker implements AgentTurnPort {
           return `${i + 1}. [${anchor}] ${m.title} —— ${waitingDesc}${waitedText}`;
         }),
       ];
-      return lines.join('\n');
+      return { text: lines.join('\n'), failed: false };
     } catch (err) {
-      this.logger.warn('[handoff] open matters collect failed, continuing without', {
-        conversationId, error: err instanceof Error ? err.message : String(err),
-      });
-      return '';
+      const error = err instanceof Error ? err.message : String(err);
+      this.logger.warn('[handoff] open matters collect failed, continuing without', { conversationId, error });
+      return { text: '', failed: true, reason: `matters 读取失败:${error.slice(0, 120)}` };
     }
   }
 

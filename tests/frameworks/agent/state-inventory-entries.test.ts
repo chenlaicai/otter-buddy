@@ -35,13 +35,16 @@ describe("state-inventory 切 entries（收尾批1）", () => {
       user: [{ senderId: "user-1", yieldTargets: ["otter-big"], senderType: "user", createdAt: "2026-09-12T00:00:00Z" }],
     });
     const inv = await collectStateInventory("conv-1", "otter-1", deps);
-    expect(inv.talkingStone).toEqual({ holders: ["otter-big"], from: "user-1" });
+    expect(inv.talkingStone.state).toBe("ok");
+    expect(inv.talkingStone.value).toEqual({ holders: ["otter-big"], from: "user-1" });
+    expect(inv.talkingStone.collectedAt).toBeTruthy();
   });
 
   it("无 user entry（或 yieldTargets 空）→ talkingStone null", async () => {
     const deps = makeDeps({ user: [{ senderId: "user-1", yieldTargets: [], senderType: "user", createdAt: "2026-09-12T00:00:00Z" }] });
     const inv = await collectStateInventory("conv-1", "otter-1", deps);
-    expect(inv.talkingStone).toBeNull();
+    expect(inv.talkingStone.state).toBe("empty");
+    expect(inv.talkingStone.value).toBeNull();
   });
 
   it("B6 活动状态降级：读 user entry 的 yieldTargets → awaiting", async () => {
@@ -49,8 +52,10 @@ describe("state-inventory 切 entries（收尾批1）", () => {
       user: [{ senderId: "user-1", yieldTargets: ["otter-a", "otter-b"], senderType: "user", createdAt: "2026-09-12T00:00:00Z" }],
     });
     const inv = await collectStateInventory("conv-1", "otter-1", deps);
-    expect(inv.activity.status).toBe("awaiting");
-    expect(inv.activity.waitingFor).toBe("otter-a, otter-b");
+    expect(inv.activity.state).toBe("stale"); // 主源 mock 拒绝 → entries 降级源
+    expect(inv.activity.value?.status).toBe("awaiting");
+    expect(inv.activity.value?.waitingFor).toBe("otter-a, otter-b");
+    expect(inv.activity.error).toBeTruthy();
   });
 
   it("数据源是 entries——deps 不再有 queryMessage（messages 表退役验证）", () => {
