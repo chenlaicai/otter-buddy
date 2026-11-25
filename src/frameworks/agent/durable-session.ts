@@ -11,7 +11,7 @@ import { createCodingTools } from "@earendil-works/pi-durable/tools";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
 import type { Logger } from "@usecases/ports/logger";
-import { stripEmptyAssistantText } from "./assistant-message-sanitizer";
+import { stripEmptyAssistantText, aggregateFragmentedToolCalls } from "./assistant-message-sanitizer";
 import type { ExecutionMachineResolver } from "@usecases/ports/execution-machine";
 import { bashGuardGate, haltToolCallGuard, loopBlockGuard, otterInvokeStorage } from "./model-runtime-registry";
 import { toDurableTool } from "./durable-tool-registry";
@@ -98,12 +98,19 @@ export class DurableSession {
         beforeTool: (call) => this.beforeTool(call),
         ...(options.afterTool ? { afterTool: options.afterTool } : {}),
       }), hook(GenerationTask, {
-        // kimi 会在 toolCall 响应里附带空 text 块，回放时插在
-        // function_call 与其 output 之间触发 kimi /responses 邻接校验 400（session 每轮必死）。
-        // 请求前剥空空块，存量中毒 session 一并痊愈；历史记录不动、可审计。
+        // kimi 流式缺陷的两层净化（出口恒净，存量中毒 session 一并痊愈；历史记录不动、可审计）：
+        // 1) kimi 会把一次 function call 拆成多个碎片 item（仅首个带 call_id/name），
+        //    碎片以空 call_id 落库，回放时多条 `call_id:""` 被 kimi 判 400 duplicated
+        //    （#2024，F20261125frags）——先聚合恢复参数、剔除碎片与孤儿 error。
+        // 2) kimi 会在 toolCall 响应里附带空 text 块，回放时插在
+        //    function_call 与其 output 之间触发 kimi /responses 邻接校验 400（session 每轮必死）
+        //    （F20261113etsan）——再剥空 text 块。
         beforeRequest: ({ messages }) => {
-          const cleaned = stripEmptyAssistantText(messages);
-          return cleaned === undefined ? undefined : { messages: cleaned };
+          const aggregated = aggregateFragmentedToolCalls(messages);
+          const cleaned = stripEmptyAssistantText(aggregated ?? messages);
+          return cleaned === undefined && aggregated === undefined
+            ? undefined
+            : { messages: cleaned ?? aggregated! };
         },
       })],
     });
