@@ -1283,10 +1283,16 @@ async function checkReviewClosureOnPr(prNumber: number): Promise<{ terminal?: Re
     const e = err as { code?: number | string; stdout?: string; stderr?: string };
     const output = String(e.stderr || e.stdout || "").trim();
     const brief = output.split("\n").slice(0, 6).join("\n");
+    // 事实前置：退出码与子进程原始输出放首行——基础设施错误（如 module not found）
+    // 与检视断环的退出码可能同为 1，靠语义文案猜方向会误导排障，原始输出不猜。
+    const exitCode = typeof e.code === "number" ? String(e.code) : "非数字（可能为 spawn 失败/超时）";
     return {
       terminal: errorResponse(
-        `[错误] 检视闭环闸拒绝合入（fail-closed）：PR #${prNumber} 当前 head 未持有有效独立检视通过回执。` +
-        `请补 delta 复核（检视者覆盖当前 head 的通过回执）或搭档显式豁免后重试。\n${brief}`,
+        `[错误] 检视闭环闸拒绝合入（fail-closed），子进程退出码 ${exitCode}。\n` +
+        `—— 子进程输出（前 6 行）——\n${brief || "（无输出）"}\n—— 语义说明 ——\n` +
+        `若上方输出为检视缺口描述：PR #${prNumber} 当前 head 未持有有效独立检视通过回执，` +
+        `补 delta 复核（检视者覆盖当前 head 的通过回执）或搭档显式豁免后重试；` +
+        `若上方输出为基础设施错误（如 module not found / 超时）：先修复环境后重试，勿按检视断环排障。`,
       ),
     };
   }

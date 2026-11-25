@@ -86,8 +86,9 @@ function stubGh(state: string, prCreatedAt = DEFAULT_PR_CREATED_AT, mergeStdout 
     if (cmd === 'node' && String(args[0]).includes('check-pr-review-closure')) {
       if (reviewClosureExit === 0) cb(null, { stdout: '✅ 检视闭环', stderr: '' });
       else {
-        // 模拟真实 execFile：exit 非零时 error 对象带 stdout/stderr 属性
-        const err = new Error(`Command failed: exit ${reviewClosureExit}`) as Error & { stdout?: string; stderr?: string };
+        // 模拟真实 execFile：exit 非零时 error 对象带数字 code + stdout/stderr 属性
+        const err = new Error(`Command failed: exit ${reviewClosureExit}`) as Error & { code?: number; stdout?: string; stderr?: string };
+        err.code = reviewClosureExit;
         err.stdout = '';
         err.stderr = '❌ 检视断环（status=head_not_covered）：\n   - 当前 head 无检视覆盖';
         cb(err, { stdout: '', stderr: err.stderr });
@@ -177,6 +178,39 @@ describe('F20260922pmgd merge_pr 工具（PR 合入搭档授权闸）', () => {
     const result = await tool.execute('t7', { prNumber: 1095, partnerApproval: '1095合入，你更新下', strategy: 'squash' });
     expect(JSON.stringify(result)).toContain('检视闭环闸拒绝合入');
     expect(JSON.stringify(result)).toContain('head_not_covered');
+    // 事实前置：退出码与子进程输出在语义说明之前
+    expect(JSON.stringify(result)).toContain('子进程退出码 1');
+    expect(JSON.stringify(result)).toContain('—— 子进程输出（前 6 行）——');
+    expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
+  });
+
+  it('检视闭环闸：基础设施错误（module not found）→ 原始 stderr 首行前置展示，不排向检视断环方向（#1976）', async () => {
+    stubGh('OPEN', DEFAULT_PR_CREATED_AT, 'Merged PR #1095', 1);
+    // 覆盖闭环闸调用形态：node check-pr-review-closure.mjs → 模拟 Cannot find module 失败
+    // （mock 为回调风格；条件式包装拦截 node 调用，其余透传 stubGh——Once 会被前置 gh 调用消耗）
+    const prevImpl = execFileMock.getMockImplementation();
+    execFileMock.mockImplementation((cmd: string, args: string[], opts: unknown, cb: (e: Error | null, r?: { stdout: string; stderr: string }) => void) => {
+      if (cmd === 'node' && String(args[0]).includes('check-pr-review-closure')) {
+        const err = Object.assign(new Error("Command failed: node scripts/check-pr-review-closure.mjs"), {
+          code: 1,
+          stderr: "node:internal/modules/cjs/loader:1140\n  Cannot find module '/repo/dist/scripts/check-pr-review-closure.mjs'",
+          stdout: '',
+        }) as Error & { code?: number; stdout?: string; stderr?: string };
+        cb(err, { stdout: '', stderr: err.stderr! });
+        return;
+      }
+      return prevImpl?.(cmd, args, opts, cb);
+    });
+    const linkMock = vi.fn().mockResolvedValue({ id: 'res-2' });
+    const tool = findMergePr(makeCtx(linkMock));
+    const result = await tool.execute('t8', { prNumber: 1095, partnerApproval: '1095合入，你更新下', strategy: 'squash' });
+    const text = JSON.stringify(result);
+    // 原始 stderr 在前：Cannot find module 字样出现位置早于检视缺口文案
+    const moduleIdx = text.indexOf('Cannot find module');
+    const closureIdx = text.indexOf('未持有有效独立检视通过回执');
+    expect(moduleIdx).toBeGreaterThan(-1);
+    expect(closureIdx).toBeGreaterThan(-1);
+    expect(moduleIdx).toBeLessThan(closureIdx);
     expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
   });
 });
