@@ -388,7 +388,14 @@ export function reconcileEntryProjectionOutbox(db: Database.Database, now = new 
   }
   const inputs = readEntryProjectionInputs(db, intents);
   const memoryContent = new Map<string, string>();
-  for (const row of db.prepare("SELECT id, content FROM memory_entries WHERE source_table = 'entries'").all() as Array<{ id: string; content: string }>) {
+  // Why: 投影 upsert 以 memory_entries 主键 id 判身份与同内容；老路径写入的同 id 遗留行
+  // （source_table 标记为 messages 等）内容一致时即已投递。对账读取必须用同一身份口径——
+  // 按 source_table='entries' 过滤会把已投递遗留行永久判 missing，并把 done 重置回 pending
+  // 无限循环（生产副本实测的收敛失败形态）。内容不等时 hash 校验仍会判 different 并重投。
+  for (const row of db.prepare(`
+    SELECT m.id AS id, m.content AS content FROM memory_entries m
+    JOIN entries e ON e.id = m.id
+  `).all() as Array<{ id: string; content: string }>) {
     memoryContent.set(row.id, row.content);
   }
 

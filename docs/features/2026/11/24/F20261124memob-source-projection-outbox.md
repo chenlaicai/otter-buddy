@@ -110,6 +110,7 @@ intent:
 
 - 实现前新增套件在旧基线上失败：outbox repository 不存在，原始输出见对话工作区 `evidence/memob-red.log`。
 - 首轮 capability 的真实用户消息召回锚超时；根因是 capability harness 未像真实 main 一样执行 `postListenInit`，不是放宽检索断言。补齐启动步骤后，单锚和完整 capability 均通过，见 `evidence/memob-capability-memory-recall-fix.log`、`evidence/memob-capability-final.log`。
+- **生产副本第一轮启动暴露对账收敛缺陷**：对账读路径按 `source_table='entries'` 过滤，而投影 upsert 以 memory_entries 主键 id 判身份与同内容——老路径遗留的同 id、同内容、`source_table='messages'` 行（真实副本上 7,910 条）被永久判 missing，done 被反复重置回 pending，对账永不收敛。修复：对账读取改为与 upsert 相同的 id 身份口径（memory_entries JOIN entries），内容不等仍走 different 重投；红绿证据见 `evidence/memob-legacy-row-red.log` / `memob-legacy-row-green.log`，修复后扩大回归 143 文件 / 1577 用例与故障演练均通过（`memob-post-fix-regression.log`、`memob-recovery-post-fix.log`）。
 
 ### 当前证据
 
@@ -120,7 +121,8 @@ intent:
 - `npm run check` 的 build、全仓 eslint、schema、fresh/existing DB boot 与脚本探针通过，见 `evidence/memob-check-final.log`。
 - capability **17 文件通过，17 passed + 48 个无 LLM 配置 skip**，见 `evidence/memob-capability-final.log`。
 - schema、intent、docs、capability 文档、tests lint 与 TypeScript 均通过；无新增依赖、无新增 timer。
-- 生产库在线备份前后均为 **79,484 entries / 69,197 memory entries**，升级前 outbox 表不存在，见 `evidence/memob-production-backup.log`。生产副本真启动尚待其他 worktree 的无锁 alpha 实例由所属任务收尾；当前不把该项记为通过。
+- 生产库在线备份前后均为 **79,484 entries / 69,197 memory entries**，升级前 outbox 表不存在，见 `evidence/memob-production-backup.log`。
+- **生产副本真启动已通过（直拉启动）**：独立数据根 + 4.88GB 备份副本 + 隔离 config（端口 3142，外部通道段剥离）直拉 `node dist/src/main.js`，`OTTER_EMBEDDING=off`。冷启动健康探针 340s（含副本 bootstrap），schema 幂等升级建 outbox 表与索引；第一轮暴露上述对账收敛缺陷并修复后同副本复跑：热启动 10s，对账报告 before→after **missing 1→0、pending 1→0、dead 0、orphaned 0**，终态 outbox = done 26,694 + skipped 5、pending 0；SIGTERM 优雅退出（日志含 graceful shutdown 与 patrol_worker_stop），全程 **SqliteError 计数 0**。注意：直拉启动而非 alpha.sh——全局 preflight 扫到其他 worktree 的在册实例会拒绝启动；另 nohup 包装进程与 node 子进程需分别确认退出，第一轮曾误杀包装壳。证据：`evidence/memob-prod-startup-verify.md`（完整日志副本 /tmp/memob-final-startup.log）。
 
 ### 最简实现检查
 

@@ -318,6 +318,26 @@ describe("source projection outbox", () => {
     expect(memoryRow(database, "different-projection")?.generation).toBe(2);
   });
 
+  it("treats same-id legacy memory rows written by the pre-projection path as matched, not missing", async () => {
+    const database = db();
+    seedConversation(database);
+    const entries = new SqliteEntryRepository(database);
+    await entries.createEntryAtomic(entry("legacy-row"));
+    const { worker } = makeWorker(database);
+    await worker.tickNow();
+    expect(outboxRow(database, "legacy-row")?.status).toBe("done");
+    // 老路径遗留形态：同 id、同内容，source_table 标记为 messages。投影 upsert 以
+    // entry id 为主键判同内容，对账必须采用同一身份口径，否则永远判 missing 并把
+    // done 重置回 pending（真实生产副本上出现过的收敛失败形态）。
+    database.prepare("UPDATE memory_entries SET source_table = 'messages' WHERE id = 'legacy-row'").run();
+
+    const report = reconcileEntryProjectionOutbox(database, new Date(NOW));
+    expect(report).toMatchObject({ missing: 0, different: 0, pending: 0, dead: 0 });
+    expect(outboxRow(database, "legacy-row")?.status).toBe("done");
+  });
+});
+
+describe("source projection outbox: reconciliation and legacy-row identity", () => {
   it("reports missing, different, pending, dead and oldest pending age from the three stores", async () => {
     const database = db();
     seedConversation(database);
