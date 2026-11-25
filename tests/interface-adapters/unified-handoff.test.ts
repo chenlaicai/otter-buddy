@@ -182,6 +182,8 @@ function makeInvokerWithEngine(opts: {
   sendEntry?: { bodies: string[] };
   ctxWindowProvider?: { window?: number; threshold?: number };
   conversationKinds?: Record<string, string>;
+  /** H3：matters 关键采集失败的注入点 */
+  matterRepo?: { findByConversation: (id: string) => Promise<Array<Record<string, unknown>>> };
 }): AgentInvoker {
   const manageSession = {
     getActiveSession: async () => makeSession({ id: "sess-old", summary: "- gen1 sess-0: 初代" }),
@@ -222,6 +224,7 @@ function makeInvokerWithEngine(opts: {
     undefined, // invokeRepo
     undefined, // agentDispatchService
     opts.engine, // engine
+    opts.matterRepo as never, // matterRepo（H3 采集可信度测试注入，测试替身宽型）
   ) as unknown as AgentInvoker;
 }
 
@@ -923,5 +926,82 @@ describe("需求变更（2026-09-20）：交接进度系统消息 + 水位按模
     });
     invoker["handoffState"].setLastCtxTokens("otter-1", 900_000);
     expect(invoker["shouldTriggerWatermarkHandoff"]("otter-1")).toBe(false);
+  });
+});
+
+describe("H3 交接采集可信度（采集失败不写成「无」）", () => {
+  it("matters 读取抛错 → 档案与合成原料带 incomplete 标注，且不阻塞换世", async () => {
+    const synthInputs: string[] = [];
+    const archiveInputs: string[] = [];
+    const engine = makeEngine({
+      buildNarrativeSynthesisPrompt: (input) => {
+        synthInputs.push(JSON.stringify({ state: input.stateInventoryText, matters: input.openMatters }));
+        return "[合成prompt]";
+      },
+      assembleHandoffArchive: (params) => {
+        archiveInputs.push(JSON.stringify({ state: params.stateInventory, matters: params.openMatters }));
+        return "## 前世档案（叙事）";
+      },
+    });
+    const invoker = makeInvokerWithEngine({
+      engine,
+      matterRepo: { findByConversation: () => Promise.reject(new Error("matter table corrupt")) } as never,
+    });
+
+    const session = await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
+
+    expect(session.id).toBe("sess-new"); // 失败不阻塞换世
+    const synth = synthInputs[0];
+    expect(synth).toContain("交接采集不完整");
+    expect(synth).toContain("matters 读取失败:matter table corrupt");
+    const archive = archiveInputs[0];
+    expect(archive).toContain("交接采集不完整");
+    expect(archive).toContain("matters 读取失败");
+  });
+
+  it("matterRepo 未装配（旧装配形态）→ 同样标 incomplete，而非静默「无待办」", async () => {
+    const synthInputs: string[] = [];
+    const engine = makeEngine({
+      buildNarrativeSynthesisPrompt: (input) => {
+        synthInputs.push(String(input.stateInventoryText ?? ""));
+        return "[合成prompt]";
+      },
+    });
+    const invoker = makeInvokerWithEngine({ engine }); // matterRepo 缺省 undefined
+
+    await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
+
+    expect(synthInputs[0]).toContain("交接采集不完整");
+    expect(synthInputs[0]).toContain("matterRepo 未装配");
+  });
+
+  it("matters 正常返回若干条 → 无 incomplete 标注，matters 文本进档案", async () => {
+    const synthInputs: string[] = [];
+    const archiveInputs: string[] = [];
+    const engine = makeEngine({
+      buildNarrativeSynthesisPrompt: (input) => {
+        synthInputs.push(String(input.stateInventoryText ?? ""));
+        return "[合成prompt]";
+      },
+      assembleHandoffArchive: (params) => {
+        archiveInputs.push(String(params.openMatters ?? ""));
+        return "## 前世档案（叙事）";
+      },
+    });
+    const invoker = makeInvokerWithEngine({
+      engine,
+      matterRepo: {
+        findByConversation: async () => [
+          { id: "12345678-1234-1234-1234-123456789012", title: "修登录", status: "open" },
+        ],
+      } as never,
+    });
+
+    await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
+
+    expect(synthInputs[0]).not.toContain("交接采集不完整");
+    expect(archiveInputs[0]).toContain("未闭环事情");
+    expect(archiveInputs[0]).toContain("M-12345678");
+    expect(archiveInputs[0]).toContain("修登录");
   });
 });

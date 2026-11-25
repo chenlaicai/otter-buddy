@@ -198,6 +198,34 @@ function formatRecentUserMessages(prefetch?: SynthesisPrefetch): string {
  * 渲染文本——此前只注入 /结构化摘要，（调度任务/工作区/产物/healing）
  * 对合成 LLM 不可见）；无渲染文本时降级用结构化数据现拼 /
  */
+
+/** H3：单态行渲染——unavailable 不写「无」 */
+function formatTalkingStoneLine(stone: StateInventory["talkingStone"]): string {
+  if (stone.state === 'unavailable') {
+    return `- 在场: 不可用（采集失败：${stone.error ?? 'unknown'}）`;
+  }
+  if (stone.value) {
+    const holders = stone.value.holders.join(', ');
+    const from = stone.value.from ? `（${stone.value.from} yield）` : '';
+    return `- 在场: ${holders} 手中${from}`;
+  }
+  return '- 在场: 无悬置';
+}
+
+/** H3：单态行渲染——stale 值可用标降级源 */
+function formatActivityLine(act: StateInventory["activity"]): string {
+  if (act.state === 'unavailable') {
+    return `- 进行中: 不可用（采集失败：${act.error ?? 'unknown'}）`;
+  }
+  if (act.value && act.value.status !== 'idle' && act.value.status !== 'unknown') {
+    let line = `- 进行中: ${act.value.status}`;
+    if (act.value.waitingFor) line += `，等待 ${act.value.waitingFor}`;
+    if (act.state === 'stale') line += '（降级源）';
+    return line;
+  }
+  return '- 进行中: 无';
+}
+
 function formatStateInventoryForPrompt(
   inventory?: StateInventory,
   fallbackText?: string,
@@ -216,22 +244,10 @@ function formatStateInventoryForPrompt(
     if (body.length > 0) return body.join('\n');
   }
   if (inventory) {
-    const parts: string[] = [];
-    if (inventory.talkingStone) {
-      const holders = inventory.talkingStone.holders.join(', ');
-      const from = inventory.talkingStone.from ? `（${inventory.talkingStone.from} yield）` : '';
-      parts.push(`- 在场: ${holders} 手中${from}`);
-    } else {
-      parts.push('- 在场: 无悬置');
-    }
-    if (inventory.activity.status !== 'idle' && inventory.activity.status !== 'unknown') {
-      let line = `- 进行中: ${inventory.activity.status}`;
-      if (inventory.activity.waitingFor) line += `，等待 ${inventory.activity.waitingFor}`;
-      parts.push(line);
-    } else {
-      parts.push('- 进行中: 无');
-    }
-    return parts.join('\n');
+    return [
+      formatTalkingStoneLine(inventory.talkingStone),
+      formatActivityLine(inventory.activity),
+    ].join('\n');
   }
   return '- 在场: 无数据';
 }

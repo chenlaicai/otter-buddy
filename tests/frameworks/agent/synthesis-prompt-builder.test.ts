@@ -8,14 +8,16 @@ import { describe, it, expect } from "vitest";
 import { buildSynthesisPrompt, buildMechanicalDump } from "@frameworks/agent/synthesis-prompt-builder";
 import type { StateInventory } from "@frameworks/agent/state-inventory";
 
-const mockInventory: StateInventory = {
-  talkingStone: { holders: ["otter-1"], from: "user-1" },
-  scheduledTasks: [{ name: "self-healing-analysis", schedule: "0 9 * * *", nextTrigger: "2026-09-01T02:00:00Z" }],
-  workspaceFiles: ["file1.ts", "file2.md"],
-  artifacts: { active: 3, superseded: 1, flagged: 0, latestTitle: "F20260825hndf" },
-  healingOpen: { count: 1, latestDesc: "test healing event" },
-  activity: { status: "awaiting_review", waitingFor: "kimi" },
-};
+const CI = (state: "ok" | "empty", value: unknown) => ({ state, value, collectedAt: "2026-09-01T00:00:00.000Z" });
+const mockInventory = {
+  talkingStone: CI("ok", { holders: ["otter-1"], from: "user-1" }),
+  scheduledTasks: CI("ok", [{ name: "self-healing-analysis", schedule: "0 9 * * *", nextTrigger: "2026-09-01T02:00:00Z" }]),
+  workspaceFiles: CI("ok", ["file1.ts", "file2.md"]),
+  artifacts: CI("ok", { active: 3, superseded: 1, flagged: 0, latestTitle: "F20260825hndf" }),
+  healingOpen: CI("ok", { count: 1, latestDesc: "test healing event" }),
+  activity: CI("ok", { status: "awaiting_review", waitingFor: "kimi" }),
+  handoffCompleteness: "complete",
+} as unknown as StateInventory;
 
 describe("buildSynthesisPrompt", () => {
   it("生成包含六分区模板的完整 prompt", () => {
