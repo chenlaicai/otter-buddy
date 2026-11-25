@@ -1,7 +1,7 @@
 ---
 id: F20261124gcfgr
 title: 部署公开配置 grep 只读链误拦回放固化
-summary: 将 healing d536ca28 的完整公开配置只读命令固化为 ALLOW 回放，复现其与既有政策不一致的误拦。
+summary: 将 2026-11-23/24 的公开配置只读误拦与五条现行负门命令固化为回放，保留可证伪的守卫政策现场。
 change_type: bugfix
 tags: [guard, replay, regression]
 modules: [tests/guard/replay/cases-2026-10-29.ts]
@@ -24,7 +24,12 @@ healing `d536ca28-692a-41eb-83bd-d68181a90e60` 的完整 toolcall 在读取部�
 
 ## 验证
 
-`npx vitest run tests/guard/replay/replay.test.ts`：样本期望 `allow`。固化时实测 206 例中此例失败（received `block`），其余 205 例通过，作为 #2000 的可证伪复现。
+`npx vitest run tests/guard/replay/replay.test.ts`：
+
+- 首轮固化 d536ca28 时实测 206 例中此例失败（received `block`），其余 205 例通过。
+- 2026-11-25 追加 11-24 的 7 条去重样本（ALLOW 2 / BLOCK 5）后，实测 **213 例中 3 失败、210 通过**。失败全部为 SSH 公开只读 ALLOW 样本（d536ca28、55e01e59、4935d204），作为 #2000 的可证伪复现；5 条 `curl→python` / 按名杀进程负门全部按预期 BLOCK。
+
+候选裁决已回写 `data/guard-replay-candidates-2026-11-24.json`，未把负门误标为 ALLOW。
 
 ## Rollback
 
@@ -36,4 +41,4 @@ Golden Gate: n/a（verify_by=static_only）。
 
 ## 测试改动声明
 
-方向：收紧。新增一条 ALLOW 回归样本，零存量断言删改。
+方向：收紧。新增 8 条 ALLOW 回归样本（含首轮 1 条）与 5 条 BLOCK 负门样本，零存量断言删改。
