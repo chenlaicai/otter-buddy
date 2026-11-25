@@ -188,14 +188,17 @@ export interface SchedulerServiceOptions {
 
 export class SchedulerService {
   private timers = new Map<string, NodeJS.Timeout>();
-  /** once 重试链在飞 timer 登记表：taskId → { timer, resolve, cancelled }。
-   *  长退避单轮可达 4h，timer 必须纳入生命周期管理——
-   *  stop() 与 onChange(updated/deleted) 顺带清链，防 stop/改期后旧链仍触发
-   *  （旧快速重试 65s 窗口同样未登记，本特性把失控窗口放大到小时级后才补齐）。 */
+  /** once 重试链在飞 timer 登记表：taskId → { timer, resolve }（仅等待期持有）。
+   *  等待中取消：clearTimeout + 手动 resolve 让 await 返回。 */
   private onceRetryTimers = new Map<
     string,
-    { timer: NodeJS.Timeout; resolve: () => void; cancelled: boolean }
+    { timer: NodeJS.Timeout; resolve: () => void }
   >();
+  /** once 重试链代际令牌：clearTaskTimer(updated/deleted) 与 stop() 时推进代际，
+   *  使在飞旧链在轮边界（入口/等待返回）失配而终止。timer 到点即从 Map 删除，
+   *  执行期间唯一取消载体是代际——只取消等待中的 timer 不够：执行中 stop/改期后，
+   *  本轮失败旧链还会继续注册后续轮。新链启动时读取当前代际，永远只认自己代的令牌。 */
+  private onceRetryGeneration = new Map<string, number>();
   /** 轮询定时器（唯一，全局扫描所有 active 任务） */
   private pollTimer: NodeJS.Timeout | undefined;
   /** 任务下次预期触发时间缓存（内存，避免每次从 cron 重算） */
@@ -314,11 +317,12 @@ export class SchedulerService {
       clearTimeout(timer);
       this.timers.delete(taskId);
     }
-    // 顺带终止该任务在飞的重试链（updated/deleted 后旧链不得再触发）
+    // 终止该任务在飞的重试链：代际推进使旧链所有轮边界失配（含执行中），
+    // 等待中的 timer 同步清理（clearTimeout + resolve）
+    this.onceRetryGeneration.set(taskId, (this.onceRetryGeneration.get(taskId) ?? 0) + 1);
     const retry = this.onceRetryTimers.get(taskId);
     if (retry) {
       clearTimeout(retry.timer);
-      retry.cancelled = true;
       retry.resolve();
       this.onceRetryTimers.delete(taskId);
     }
@@ -378,10 +382,12 @@ export class SchedulerService {
       clearTimeout(timer);
     }
     this.timers.clear();
-    // 终止全部在飞重试链——stop 后不得再触发（长退避单轮可达 4h，不可遗留）
+    // 终止全部在飞重试链：代际推进（覆盖执行中的链）+ 等待 timer 清理
+    for (const [taskId, gen] of this.onceRetryGeneration) {
+      this.onceRetryGeneration.set(taskId, gen + 1);
+    }
     for (const retry of this.onceRetryTimers.values()) {
       clearTimeout(retry.timer);
-      retry.cancelled = true;
       retry.resolve();
     }
     this.onceRetryTimers.clear();
@@ -1231,15 +1237,18 @@ export class SchedulerService {
  *  ②耗尽后进入指数长退避（30m→1h→2h→4h×3），跨越系统睡眠冻结窗口；
  *  ③两阶段全耗尽才标 error。原递归实现改为迭代 + 单轮尝试函数，消除递归栈。 */
   private async triggerOnceWithRetry(task: ScheduledTask): Promise<void> {
+    // 启动时读取当前代际并显式登记——stop() 的全量代际推进依赖 Map 内有条目
+    const gen = this.onceRetryGeneration.get(task.id) ?? 0;
+    this.onceRetryGeneration.set(task.id, gen);
     for (let fast = 0; fast < ONCE_MAX_RETRIES; fast++) {
-      if (await this.tryTriggerOnce(task, ONCE_RETRY_DELAY_MS, `fast ${ONCE_MAX_RETRIES - fast - 1} left`)) return;
+      if (await this.tryTriggerOnce(task, ONCE_RETRY_DELAY_MS, `fast ${ONCE_MAX_RETRIES - fast - 1} left`, gen)) return;
     }
     this.logger.warn(
       `Once task ${task.id} fast retries exhausted, entering long backoff ` +
       `(${ONCE_LONG_RETRY_DELAYS_MS.length} rounds, covers sleep-freeze windows)`,
     );
     for (let i = 0; i < ONCE_LONG_RETRY_DELAYS_MS.length; i++) {
-      if (await this.tryTriggerOnce(task, ONCE_LONG_RETRY_DELAYS_MS[i]!, `long-backoff round ${i + 1}/${ONCE_LONG_RETRY_DELAYS_MS.length}`)) return;
+      if (await this.tryTriggerOnce(task, ONCE_LONG_RETRY_DELAYS_MS[i]!, `long-backoff round ${i + 1}/${ONCE_LONG_RETRY_DELAYS_MS.length}`, gen)) return;
     }
     this.logger.error(`Once task ${task.id} exhausted all retries (fast + long backoff), marking as error`);
     await this.taskRepo.updateStatus(task.id, 'error', new Date().toISOString());
@@ -1250,11 +1259,15 @@ export class SchedulerService {
 
   /** once 重试链的单轮延迟尝试。返回 true = 重试链终止（成功删除 / 任务已不在或被禁用）；
  *  false = 本轮失败，可继续下一轮。 */
-  private async tryTriggerOnce(task: ScheduledTask, delayMs: number, label: string): Promise<boolean> {
+  private async tryTriggerOnce(task: ScheduledTask, delayMs: number, label: string, gen: number): Promise<boolean> {
+    // 轮边界代际检查：链启动后被 updated/deleted/stop 推现代际 → 本链已作废，终止
+    if ((this.onceRetryGeneration.get(task.id) ?? 0) !== gen) {
+      this.logger.info(`Once task ${task.id} retry chain superseded (stop/reschedule), aborting retry`);
+      return true;
+    }
     this.metrics?.recordRetry('once');
-    // 等待期间句柄登记进 onceRetryTimers——stop/updated(deleted) 可终止本链：
-    // clearTimeout + 手动 resolve + cancelled 旗标（resolve 后轮逻辑短路返回，链终止）
-    const entry = { timer: null as unknown as NodeJS.Timeout, resolve: () => {}, cancelled: false };
+    // 等待期间句柄登记进 onceRetryTimers——取消方 clearTimeout + 手动 resolve 让 await 返回
+    const entry = { timer: null as unknown as NodeJS.Timeout, resolve: () => {} };
     await new Promise<void>(resolve => {
       entry.resolve = resolve;
       entry.timer = setTimeout(() => {
@@ -1263,8 +1276,9 @@ export class SchedulerService {
       }, delayMs);
       this.onceRetryTimers.set(task.id, entry);
     });
-    if (entry.cancelled) {
-      this.logger.info(`Once task ${task.id} retry chain cancelled (stop/reschedule), aborting retry`);
+    // 等待返回后再次检查（等待中被取消：resolve 由取消方触发，此处代际已失配）
+    if ((this.onceRetryGeneration.get(task.id) ?? 0) !== gen) {
+      this.logger.info(`Once task ${task.id} retry chain superseded during wait, aborting retry`);
       return true;
     }
 

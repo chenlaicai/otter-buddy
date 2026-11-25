@@ -1479,8 +1479,7 @@ describe('SchedulerService - once 任务调度', () => {
   // eslint-disable-next-line max-lines-per-function -- 内层含长退避两用例后超220行，同域内聚不拆
   describe("once 任务调度", () => {
     it("once 忙时：skip + 系统消息有声删除，不入 pending；闲时正常入 pending 语义不适用", async () => {
-      const now = new Date('2025-06-15T08:00:00.000Z');
-      vi.setSystemTime(now);
+      vi.setSystemTime(TEST_NOW);
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
       const sendEntry = createMockSendEntry();
@@ -1522,8 +1521,7 @@ describe('SchedulerService - once 任务调度', () => {
     });
 
     it("once 任务 triggerAt 在未来 -> setTimeout 调度", async () => {
-      const now = new Date('2025-06-15T08:00:00.000Z');
-      vi.setSystemTime(now);
+      vi.setSystemTime(TEST_NOW);
 
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
@@ -1601,8 +1599,7 @@ describe('SchedulerService - once 任务调度', () => {
     });
 
     it("once 任务触发失败 -> 重试成功 -> disabled", async () => {
-      const now = new Date('2025-06-15T08:00:00.000Z');
-      vi.setSystemTime(now);
+      vi.setSystemTime(TEST_NOW);
 
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
@@ -1648,8 +1645,7 @@ describe('SchedulerService - once 任务调度', () => {
     });
 
     it("once 任务重试全部失败 -> 标记 error（#246 修复：所有重试均执行）", async () => {
-      const now = new Date('2025-06-15T08:00:00.000Z');
-      vi.setSystemTime(now);
+      vi.setSystemTime(TEST_NOW);
 
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
@@ -1698,11 +1694,15 @@ describe('SchedulerService - once 任务调度', () => {
       expect(taskRepo._statusUpdates.some(u => u.status === 'disabled')).toBe(false);
       // 总尝试数进断言面：首发 1 + 快速 3 + 长退避 6 = 10（防阶段次数/通知计数漂移后用例仍通过）
       expect(invokeCount).toBe(10);
+      // notify 行为进观察面：耗尽时落「连续 10 次」停跑通知（防静默死亡）。
+      // 中间轮失败的通知（每轮失败各落一条系统条目）不在本断言面——只钉住耗尽通知真实发生
+      const notifyBodies = (sendEntry.createSystemEntry as ReturnType<typeof vi.fn>).mock.calls
+        .map(c => (c[0] as { body?: string })?.body ?? '');
+      expect(notifyBodies.some(b => b.includes('连续 10 次执行失败'))).toBe(true);
     });
 
     it("#1975 快速重试耗尽后长退避轮成功 -> 任务删除，不标 error（跨睡眠冻结窗口）", async () => {
-      const now = new Date('2025-06-15T08:00:00.000Z');
-      vi.setSystemTime(now);
+      vi.setSystemTime(TEST_NOW);
 
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
@@ -1748,8 +1748,7 @@ describe('SchedulerService - once 任务调度', () => {
     });
 
     it("#1975 长退避期间任务被禁用 -> 重试链终止，不标 error", async () => {
-      const now = new Date('2025-06-15T08:00:00.000Z');
-      vi.setSystemTime(now);
+      vi.setSystemTime(TEST_NOW);
 
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
@@ -1845,6 +1844,70 @@ describe('SchedulerService - once 任务调度', () => {
       expect(invokeCount).toBe(4);
     });
 
+    it("执行中 stop()：本轮失败后旧链终止，不注册后续轮", async () => {
+      vi.setSystemTime(TEST_NOW);
+
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
+      const agentInvoke = createMockAgentInvoke();
+
+      taskRepo._store.set('task-1', makeTask({
+        scheduleType: 'once',
+        triggerAt: TEST_TRIGGER_AT,
+        cron: '',
+      }));
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      // 第 5 次 invoke（长退避首轮）挂起，由测试控制放行——模拟「执行中 stop」
+      let release5: (() => void) | undefined;
+      let invokeCount = 0;
+      agentInvoke.invokeConversation = vi.fn(async () => {
+        invokeCount++;
+        if (invokeCount <= 4) throw new Error('agent invoke failed');
+        await new Promise<void>((_, reject) => {
+          release5 = () => reject(new Error('agent invoke failed'));
+        });
+        throw new Error('unreachable');
+      });
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+        cronParser: { getNextTime: () => new Date() } as unknown as CronParser,
+        logger: mockLogger,
+      });
+
+      await service.start();
+
+      // 触发 + 快速全败（4 次），进入长退避
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000 + 65_000 * 3);
+      // 推进 30m：第 5 次 invoke 开始（pending）
+      await vi.advanceTimersByTimeAsync(30 * 60_000);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(invokeCount).toBe(5);
+      expect(release5).toBeDefined();
+
+      // 长退避首轮 invoke 执行中 stop()——代际推进，等待中无 timer 可清，取消载体只有代际
+      service.stop();
+      release5!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // 旧链本轮失败后不得注册后续轮（1h 退避到期也不触发第 6 次）
+      await vi.advanceTimersByTimeAsync(60 * 60_000);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(invokeCount).toBe(5);
+    });
+
     it("任务改期到未来：旧重试链终止，按新 triggerAt 重新调度执行", async () => {
       vi.setSystemTime(TEST_NOW);
 
@@ -1904,6 +1967,85 @@ describe('SchedulerService - once 任务调度', () => {
       // 推进到新 triggerAt（~11:05）：新调度链执行第 5 次并成功删除任务
       await vi.advanceTimersByTimeAsync(2 * 60 * 60 * 1000);
       expect(invokeCount).toBe(5);
+      expect(taskRepo._store.has('task-1')).toBe(false);
+      expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(false);
+    });
+
+    it("执行中改期：旧链本轮失败后终止，新 triggerAt 到点由新链执行", async () => {
+      vi.setSystemTime(TEST_NOW);
+
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
+      const agentInvoke = createMockAgentInvoke();
+
+      taskRepo._store.set('task-1', makeTask({
+        scheduleType: 'once',
+        triggerAt: TEST_TRIGGER_AT,
+        cron: '',
+      }));
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      // 第 5 次 invoke 挂起由测试放行；第 6 次（新链）成功
+      let release5: (() => void) | undefined;
+      let invokeCount = 0;
+      agentInvoke.invokeConversation = vi.fn(async () => {
+        invokeCount++;
+        if (invokeCount <= 4) throw new Error('agent invoke failed');
+        if (invokeCount === 5) {
+          await new Promise<void>((_, reject) => {
+            release5 = () => reject(new Error('agent invoke failed'));
+          });
+          throw new Error('unreachable');
+        }
+        return { messageId: 'msg-new-schedule', duration: 0 };
+      });
+
+      let taskChangeCb: ((taskId: string, action: string) => void) | undefined;
+      const manageScheduledTaskStub = {
+        onChange: (cb: (taskId: string, action: string) => void) => { taskChangeCb = cb; },
+      };
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+        cronParser: { getNextTime: () => new Date() } as unknown as CronParser,
+        logger: mockLogger,
+        manageScheduledTask: manageScheduledTaskStub as never,
+      });
+
+      await service.start();
+
+      // 触发 + 快速全败（4 次）+ 长退避 30m：第 5 次 invoke 开始（pending）
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000 + 65_000 * 3 + 30 * 60_000);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(invokeCount).toBe(5);
+      expect(release5).toBeDefined();
+
+      // 长退避首轮 invoke 执行中改期到 11:05（当前虚拟时间 ≈09:33:15）并触发 updated
+      const stored = taskRepo._store.get('task-1');
+      if (stored) stored.triggerAt = TEST_TRIGGER_AT_RESCHEDULED;
+      taskChangeCb?.('task-1', 'updated');
+      release5!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // 推进 1h（旧链下一轮长退避窗口）：旧链已终止，不得发生第 6 次
+      await vi.advanceTimersByTimeAsync(60 * 60_000);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(invokeCount).toBe(5);
+
+      // 推进到新 triggerAt（11:05）：新链执行第 6 次并成功删除任务
+      await vi.advanceTimersByTimeAsync(32 * 60_000);
+      expect(invokeCount).toBe(6);
       expect(taskRepo._store.has('task-1')).toBe(false);
       expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(false);
     });
