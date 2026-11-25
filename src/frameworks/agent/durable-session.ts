@@ -362,6 +362,10 @@ export class DurableSession {
       });
     }
     this._state = "running";
+    // 异常生命周期（同一边界）：submit/wait/waitForIdle/usage 任一阶段抛错，
+    // running 状态与当前工具调用 id 都必须在 finally 清回——残留的 running
+    // 会让 isStreaming 误报、残留的 toolCallId 会把后续非工具期动作误归属到旧调用。
+    try {
     const submission = await this.conversation.submit({ type: "input", content: this.promptInput(text, options) as never, whenBusy: "reject" }, context);
     const settled = await submission.wait(context);
     // A final terminate boundary can place queued inputs and start a successor run.
@@ -386,6 +390,11 @@ export class DurableSession {
       this.totalTokens.cacheWrite += (usage.cacheWrite ?? 0) - (previous?.cacheWrite ?? 0);
     }
     if (settled.status === "unanswered") throw new Error(`Durable turn unanswered: ${settled.reason}${settled.detail ? ` (${JSON.stringify(settled.detail)})` : ""}`);
+    } finally {
+      // 幂等收口：正常路径已在上方清理，异常路径在此兑付；重复清理无副作用。
+      this._state = "idle";
+      if (scope) scope.currentToolCallId = undefined;
+    }
   }
 
   private promptInput(text: string, options?: DurablePromptOptions): string | { content: Array<Record<string, unknown>> } {

@@ -411,7 +411,7 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const sendEntry = mockSendEntry();
     const invoker = makeInvoker(mockAgentInvoke({
-      result: { text: "", tokenUsage: { input: 10, output: 5 } },
+      result: { text: "", tokenUsage: { input: 10, output: 5 }, tokenUsageDelta: { input: 10, output: 5 } },
     }), sendEntry);
 
     const result = await invoker.invokeConversation({
@@ -442,7 +442,7 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
       onGetInvoke: (invoke) => { invoke.status = "completed"; invoke.talkingStonePassedTo = ["user-1"]; },
     });
     const invoker = makeInvoker(mockAgentInvoke({
-      result: { text: "", tokenUsage: { input: 10, output: 5 } },
+      result: { text: "", tokenUsage: { input: 10, output: 5 }, tokenUsageDelta: { input: 10, output: 5 } },
     }), sendEntry);
 
     const result = await invoker.invokeConversation({
@@ -455,13 +455,13 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
 
     expect(result.invokeId).toBeTruthy();
     expect(result.tokenUsage?.input).toBe(10);
-    expect(result.tokenUsageDelta).toBeUndefined();
+    expect(result.tokenUsageDelta).toMatchObject({ input: 10, output: 5 });
     expect(events.map(e => e.event)).toContain("invoke.start");
     expect(events.map(e => e.event)).toContain("invoke.end");
     expect(events.map(e => e.event)).toContain("turn.complete");
     const end = events.find(e => e.event === "invoke.end");
     expect(end?.data.status).toBe("completed");
-    // tokenUsage 落 invoke 行
+    // invokes 四列落整 turn 聚合（此处 delta 即总量）——末次快照不落账
     expect(sendEntry.store.tokenUsageUpdates[0]?.input).toBe(10);
   });
 

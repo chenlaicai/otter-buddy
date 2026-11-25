@@ -10,6 +10,7 @@ import { DurableSession, type DurableSessionOptions } from "../../../src/framewo
 import { DurableMcpBridge } from "../../../src/frameworks/agent/durable-mcp";
 import { DurableEventStream } from "../../../src/frameworks/agent/durable-event-stream";
 import { createInvokeRegister } from "../../../src/frameworks/agent/tool-builder";
+import { otterInvokeStorage } from "../../../src/frameworks/agent/model-runtime-registry";
 import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 import type { Logger } from "../../../src/usecases/ports/logger";
 
@@ -499,4 +500,52 @@ describe("durable-native runtime auto_retry 感知（第二次误判修正的回
     unsub();
     await session.close(BACKGROUND_CONTEXT);
   });
+});
+
+// 异常生命周期：submit/wait/waitForIdle/usage 任一阶段抛错，running 与当前
+// 工具调用 id 必须 finally 清回；否则 isStreaming 误报、后续动作误归属旧调用。
+describe("durable prompt exception lifecycle", () => {
+  const stages = ["submit", "wait", "waitForIdle", "usage"] as const;
+  for (const stage of stages) {
+    it(`${stage} 抛错后 state 回 idle 且当前工具调用 id 清空`, async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-lifecycle-"));
+      const { session } = await open(path.join(dir, "session.sqlite"), [fauxAssistantMessage("done"), fauxAssistantMessage("done")]);
+      const conv = (session as unknown as { conversation: Record<string, unknown> }).conversation;
+      // 方法在原型上：显式保存绑定引用，用完恢复（spread 只拷贝自有属性，恢复不了）
+      // usage 读数走 session.usage（harness.snapshot），不经 conversation——分路 patch
+      const target = stage === "usage"
+        ? (session as unknown as { usage: (...args: unknown[]) => Promise<unknown> })
+        : (conv as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>);
+      const savedSubmit = (conv.submit as (...args: unknown[]) => Promise<unknown>).bind(conv);
+      // wait 是 submission 对象的方法，conversation 上无此键——只需保存/恢复 submit
+      const savedStage = stage === "wait"
+        ? undefined
+        : (target as Record<string, (...args: unknown[]) => Promise<unknown>>)[stage].bind(target);
+      if (stage === "wait") {
+        conv.submit = async () => ({ wait: async () => { throw new Error("wait boom"); }, abort: async () => "settled" } as never);
+      } else if (stage === "usage") {
+        // usage 在 prompt 首尾各读一次：before 阶段 turn 尚未开始（无 running 可清），
+        // 只让收尾的 after 读数抛错——finally 仍须兜住清理
+        let usageCalls = 0;
+        (target as Record<string, unknown>).usage = async () => {
+          if (++usageCalls >= 2) throw new Error("usage boom");
+          return { models: {}, tools: {} };
+        };
+      } else {
+        (target as Record<string, unknown>)[stage] = async () => { throw new Error(`${stage} boom`); };
+      }
+      await otterInvokeStorage.run({ currentToolCallId: "call-stale", currentInvokeId: "invoke-test" } as never, async () => {
+        await expect(session.prompt("work", undefined, new DurableEventStream(), BACKGROUND_CONTEXT)).rejects.toThrow();
+        expect(session.state).toBe("idle");
+        expect(session.isStreaming).toBe(false);
+        expect(otterInvokeStorage.getStore()?.currentToolCallId).toBeUndefined();
+      });
+      // 恢复原方法，验证会话未被异常搞坏（后续 prompt 仍可用）
+      conv.submit = savedSubmit as never;
+      if (savedStage) (target as Record<string, unknown>)[stage] = savedStage as never;
+      await session.prompt("work", undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
+      expect(session.state).toBe("idle");
+      await session.close(BACKGROUND_CONTEXT);
+    });
+  }
 });

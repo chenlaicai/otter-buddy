@@ -273,3 +273,27 @@ describe("guard_abort 冻结痕迹透传（F20261111slfrz，M-a8f8f080 定案）
     }
   });
 });
+
+// 异常终态不误落 no_yield：durable 的 unanswered/failed/error 抛错必须走 err
+// 通道（api_error），不能因 result 为空合成而掉进「未发言」口径。
+describe("durable 异常终态分类（不落 no_yield）", () => {
+  const base = { messageId: "m1", toolCallCount: 1 };
+
+  it("unanswered 抛错 → api_error，不落 no_yield", () => {
+    const reason = classifyExit({
+      ...base,
+      err: new Error("Durable turn unanswered: model_error (\"rate limited\")"),
+    }, new Set(), () => undefined);
+    expect(reason.kind).toBe("api_error");
+  });
+
+  it("failed/error 抛错（任意 Error）→ api_error", () => {
+    const reason = classifyExit({ ...base, err: new Error("boom") }, new Set(), () => undefined);
+    expect(reason.kind).toBe("api_error");
+  });
+
+  it("空 result 无 err（真 no_yield）→ no_yield 不受影响（回归钉）", () => {
+    const reason = classifyExit({ ...base, result: { text: "" } }, new Set(), () => undefined);
+    expect(reason.kind).toBe("no_yield");
+  });
+});
