@@ -34,7 +34,7 @@ import { haltRegistry } from '@usecases/signal/halt-registry';
 /** once 任务重试参数 */
 const ONCE_MAX_RETRIES = 3;
 const ONCE_RETRY_DELAY_MS = 65_000; // 65 秒（避开 claimTask 60s 窗口）
-/** once 任务长退避序列：快速重试耗尽后进入，跨系统睡眠冻结窗口（#1975）。
+/** once 任务长退避序列：快速重试耗尽后进入，跨系统睡眠冻结窗口。
  *  现场：04:00 触发 + 冻结到 08:00，旧实现 3×(65s + 看门狗 15min 无产出放弃) ≈ 2h
  *  全落在冻结窗口内 → 4 连败即 error 永久停跑——「环境整夜做不了」被当「任务失败」。
  *  30m→1h→2h→4h(×3 封顶) ≈ 15.5h 追窗，覆盖整夜冻结 + 唤醒后白昼；仍设总上限
@@ -188,6 +188,14 @@ export interface SchedulerServiceOptions {
 
 export class SchedulerService {
   private timers = new Map<string, NodeJS.Timeout>();
+  /** once 重试链在飞 timer 登记表：taskId → { timer, resolve, cancelled }。
+   *  长退避单轮可达 4h，timer 必须纳入生命周期管理——
+   *  stop() 与 onChange(updated/deleted) 顺带清链，防 stop/改期后旧链仍触发
+   *  （旧快速重试 65s 窗口同样未登记，本特性把失控窗口放大到小时级后才补齐）。 */
+  private onceRetryTimers = new Map<
+    string,
+    { timer: NodeJS.Timeout; resolve: () => void; cancelled: boolean }
+  >();
   /** 轮询定时器（唯一，全局扫描所有 active 任务） */
   private pollTimer: NodeJS.Timeout | undefined;
   /** 任务下次预期触发时间缓存（内存，避免每次从 cron 重算） */
@@ -306,6 +314,14 @@ export class SchedulerService {
       clearTimeout(timer);
       this.timers.delete(taskId);
     }
+    // 顺带终止该任务在飞的重试链（updated/deleted 后旧链不得再触发）
+    const retry = this.onceRetryTimers.get(taskId);
+    if (retry) {
+      clearTimeout(retry.timer);
+      retry.cancelled = true;
+      retry.resolve();
+      this.onceRetryTimers.delete(taskId);
+    }
   }
 
   /** 启动调度器 */
@@ -362,6 +378,13 @@ export class SchedulerService {
       clearTimeout(timer);
     }
     this.timers.clear();
+    // 终止全部在飞重试链——stop 后不得再触发（长退避单轮可达 4h，不可遗留）
+    for (const retry of this.onceRetryTimers.values()) {
+      clearTimeout(retry.timer);
+      retry.cancelled = true;
+      retry.resolve();
+    }
+    this.onceRetryTimers.clear();
     // 停止轮询定时器
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
@@ -1204,7 +1227,7 @@ export class SchedulerService {
     }
   }
 
-  /** once 任务专用重试：两阶段（#1975）——①快速重试 65s×N（治瞬时故障：网络抖动/claim 冲突）；
+  /** once 任务专用重试：两阶段——①快速重试 65s×N（治瞬时故障：网络抖动/claim 冲突）；
  *  ②耗尽后进入指数长退避（30m→1h→2h→4h×3），跨越系统睡眠冻结窗口；
  *  ③两阶段全耗尽才标 error。原递归实现改为迭代 + 单轮尝试函数，消除递归栈。 */
   private async triggerOnceWithRetry(task: ScheduledTask): Promise<void> {
@@ -1229,7 +1252,21 @@ export class SchedulerService {
  *  false = 本轮失败，可继续下一轮。 */
   private async tryTriggerOnce(task: ScheduledTask, delayMs: number, label: string): Promise<boolean> {
     this.metrics?.recordRetry('once');
-    await new Promise(r => setTimeout(r, delayMs));
+    // 等待期间句柄登记进 onceRetryTimers——stop/updated(deleted) 可终止本链：
+    // clearTimeout + 手动 resolve + cancelled 旗标（resolve 后轮逻辑短路返回，链终止）
+    const entry = { timer: null as unknown as NodeJS.Timeout, resolve: () => {}, cancelled: false };
+    await new Promise<void>(resolve => {
+      entry.resolve = resolve;
+      entry.timer = setTimeout(() => {
+        this.onceRetryTimers.delete(task.id);
+        resolve();
+      }, delayMs);
+      this.onceRetryTimers.set(task.id, entry);
+    });
+    if (entry.cancelled) {
+      this.logger.info(`Once task ${task.id} retry chain cancelled (stop/reschedule), aborting retry`);
+      return true;
+    }
 
     // 二次检查：任务是否仍为 active（可能已被用户手动禁用/删除）
     const current = await this.taskRepo.getById(task.id);
@@ -1240,8 +1277,9 @@ export class SchedulerService {
 
     try {
       // once 任务重试时跳过 handleExecutionFailure 的 consecutiveFailures 追踪，
-      // 让重试链独立控制重试/error 语义。
-      await this.triggerTask(task, { skipConsecutiveFailureTracking: true });
+      // 让重试链独立控制重试/error 语义。用二次检查取回的最新任务定义触发——
+      // 改期/改体后重试轮执行最新定义而非链创建时的旧副本。
+      await this.triggerTask(current, { skipConsecutiveFailureTracking: true });
       // Why: 一次性任务重试成功后直接删除，不保留历史
       await this.taskRepo.delete(task.id);
       return true;
