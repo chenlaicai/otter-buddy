@@ -1,3 +1,4 @@
+import type Database from "better-sqlite3";
 import type { Logger } from "@usecases/ports/logger";
 import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gateway";
 import type { MemoryEntryInput } from "@usecases/memory/store-memory";
@@ -15,6 +16,9 @@ import { resolveBatchTokenBudget } from "@frameworks/embedding/embed-batch-shard
 import type { Repositories } from "./types";
 import { EntryMemoryProjector, type EntryProjectionStore } from "@usecases/memory/entry-memory-projector";
 import { decideEntryProjection, type EntryProjectionInput } from "@usecases/memory/entry-projection-policy";
+import { EntryProjectionWorker } from "@usecases/memory/entry-projection-worker";
+import { SqliteProjectionOutboxRepository } from "@frameworks/db/memory/projection-outbox-repository";
+import { readEntryProjectionInput, reconcileEntryProjectionOutbox } from "@frameworks/db/memory/memory-projection-maintenance";
 
 export class MemoryIndexAdapter implements MemoryIndexGateway {
   /**
@@ -179,6 +183,35 @@ export async function syncDocuments(
     logger,
   );
   return syncDocs.execute(cwd, options);
+}
+
+/** 源投影无独立时钟：新 entry 弱触发，启动与 PatrolWorker 调 reconcileNow 兜底。 */
+export function createEntryProjectionWorker(
+  db: Database.Database,
+  repos: Repositories,
+  embeddingService: EmbeddingGateway,
+  logger: Logger,
+) {
+  const storeMemory = new StoreMemory(repos.memoryWriter, repos.memoryQueue, embeddingService, logger);
+  const outbox = new SqliteProjectionOutboxRepository(db);
+  const worker = new EntryProjectionWorker({
+    outbox,
+    readSource: (task) => readEntryProjectionInput(db, task.entryId, task.attachmentIntentIds),
+    projector: new EntryMemoryProjector(repos.entryProjection),
+    onProjected: (result) => storeMemory.embedEntryProjection(result.entryId, result.content, result),
+    logger,
+  });
+  return {
+    tickNow: () => worker.tickNow(),
+    stop: () => worker.stop(),
+    reconcileNow: async () => {
+      const before = reconcileEntryProjectionOutbox(db);
+      await worker.tickNow();
+      const after = reconcileEntryProjectionOutbox(db);
+      logger.info("Entry projection reconciliation completed", { before, after });
+      return after;
+    },
+  };
 }
 
 /**

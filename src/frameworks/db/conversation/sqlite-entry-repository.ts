@@ -10,10 +10,11 @@ import type {
 } from "@entities/conversation/entry";
 import type { AttachmentRef } from "@entities/conversation/attachment";
 import type {
+  CreateEntryOptions,
   EntryRepository,
   GetEntriesOptions,
 } from "@usecases/conversation/entry-repository";
-import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
+import { enqueueProjectionOutbox } from "../memory/projection-outbox-repository";
 import { assertUpdated } from "../assert-updated";
 import { escapeFtsQuery } from "../fts-utils";
 
@@ -84,23 +85,26 @@ async function attachSenderIdentity(db: Database.Database, entries: Entry[]): Pr
 export class SqliteEntryRepository implements EntryRepository {
   constructor(private readonly db: Database.Database) {}
 
-  async createEntry(entry: Entry): Promise<void> {
-    this.db.prepare(`
+  async createEntry(entry: Entry, options?: CreateEntryOptions): Promise<void> {
+    const insert = this.db.prepare(`
       INSERT INTO entries (
         id, conversation_id, sequence_num, entry_type, sender_type, sender_id,
         body, invoke_id, yield_targets, status, source, metadata,
         sender_name, context_tokens, context_tokens_max, created_at, completed_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      entry.id, entry.conversationId, entry.sequenceNum, entry.entryType,
-      entry.senderType, entry.senderId, entry.body, entry.invokeId,
-      entry.yieldTargets ? JSON.stringify(entry.yieldTargets) : null,
-      entry.status, entry.source,
-      entry.metadata ? JSON.stringify(entry.metadata) : null,
-      entry.senderName, entry.contextTokens, entry.contextTokensMax,
-      entry.createdAt, entry.completedAt,
-    );
-    this.upsertEntryFts(entry.id, entry.body ?? "");
+    `);
+    this.db.transaction(() => {
+      insert.run(
+        entry.id, entry.conversationId, entry.sequenceNum, entry.entryType,
+        entry.senderType, entry.senderId, entry.body, entry.invokeId,
+        entry.yieldTargets ? JSON.stringify(entry.yieldTargets) : null,
+        entry.status, entry.source,
+        entry.metadata ? JSON.stringify(entry.metadata) : null,
+        entry.senderName, entry.contextTokens, entry.contextTokensMax,
+        entry.createdAt, entry.completedAt,
+      );
+      this.upsertEntryFts(entry.id, entry.body ?? "", options?.attachmentIntentIds);
+    })();
   }
 
   async createEntries(entries: Entry[]): Promise<void> {
@@ -111,9 +115,6 @@ export class SqliteEntryRepository implements EntryRepository {
         sender_name, context_tokens, context_tokens_max, created_at, completed_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const insertFts = this.db.prepare(
-      "INSERT INTO entries_fts (entry_id, body) VALUES (?, ?)",
-    );
     this.db.transaction(() => {
       for (const entry of entries) {
         insert.run(
@@ -125,13 +126,13 @@ export class SqliteEntryRepository implements EntryRepository {
           entry.senderName, entry.contextTokens, entry.contextTokensMax,
           entry.createdAt, entry.completedAt,
         );
-        insertFts.run(entry.id, stripHtmlCardFences(entry.body ?? ""));
+        this.upsertEntryFts(entry.id, entry.body ?? "");
       }
     })();
   }
 
   /** 彻底切换：原子序号插入（INSERT ... SELECT MAX+1，消灭读后写竞态） */
-  async createEntryAtomic(entry: Entry): Promise<Entry> {
+  async createEntryAtomic(entry: Entry, options?: CreateEntryOptions): Promise<Entry> {
     const insertSql = `
       INSERT INTO entries (
         id, conversation_id, sequence_num, entry_type, sender_type, sender_id,
@@ -153,7 +154,7 @@ export class SqliteEntryRepository implements EntryRepository {
     ];
     this.db.transaction(() => {
       this.db.prepare(insertSql).run(...params);
-      this.upsertEntryFts(entry.id, entry.body ?? "");
+      this.upsertEntryFts(entry.id, entry.body ?? "", options?.attachmentIntentIds);
     })();
     const created = await this.getEntryById(entry.id);
     return created ?? entry;
@@ -212,8 +213,10 @@ export class SqliteEntryRepository implements EntryRepository {
   }
 
   async updateEntryBody(entryId: string, body: string): Promise<void> {
-    this.db.prepare("UPDATE entries SET body = ? WHERE id = ?").run(body, entryId);
-    this.upsertEntryFts(entryId, body);
+    this.db.transaction(() => {
+      this.db.prepare("UPDATE entries SET body = ? WHERE id = ?").run(body, entryId);
+      this.upsertEntryFts(entryId, body);
+    })();
   }
 
   /** 信号销账：consumed 标记写 metadata */
@@ -469,8 +472,9 @@ export class SqliteEntryRepository implements EntryRepository {
     return count;
   }
 
-  private upsertEntryFts(entryId: string, body: string): void {
+  private upsertEntryFts(entryId: string, body: string, attachmentIntentIds?: string[]): void {
     upsertEntryFts(this.db, entryId, body);
+    enqueueProjectionOutbox(this.db, entryId, attachmentIntentIds);
   }
 
 

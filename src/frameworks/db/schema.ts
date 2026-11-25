@@ -65,6 +65,7 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createInvokeTables(db);
     createEntryTables(db);
     createEntryFtsTable(db);
+    createProjectionOutboxTable(db);
     /** 重启自动恢复队列重建（8/28 同名机制被 误删，
      *  invoke 模型重映射——invoke_id 为 PK 锚点）。schema.ts 单点登记
      * （模式：bootstrap 无条件幂等 initSchema，老库自动补建）。 */
@@ -1254,6 +1255,29 @@ function createEntryTables(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_entry_attachments_attachment ON entry_attachments(attachment_id);
+  `);
+}
+
+/** 源侧投递凭据只保存 ID 与附件意图，正文始终由 worker 回读 entries。 */
+function createProjectionOutboxTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memory_projection_outbox (
+      entry_id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      attachment_intent_json TEXT,
+      policy_version TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'done', 'skipped', 'dead')),
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_retry_at TEXT NOT NULL,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_memory_projection_outbox_due
+      ON memory_projection_outbox(status, next_retry_at, created_at);
+    CREATE INDEX IF NOT EXISTS idx_memory_projection_outbox_conversation
+      ON memory_projection_outbox(conversation_id, entry_id);
   `);
 }
 

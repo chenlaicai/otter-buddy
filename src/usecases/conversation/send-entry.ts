@@ -26,12 +26,9 @@ import { markYieldAssignment } from "./yield-assignment";
 import type { InvokeRepository } from "./invoke-repository";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { ConversationRepository } from "./conversation-repository";
-import type { MemoryIndexGateway } from "./memory-index-gateway";
 import type { Logger } from "@usecases/ports/logger";
 import { resolveSpeakerName } from "./speaker-resolver";
 import { resolveTargetsForSend, type ResolveTargetsDeps } from "./resolve-send-targets";
-import type { AttachmentRef } from "@entities/conversation/attachment";
-import { loadAttachmentRefs } from "./send-entry-index-helpers";
 import { triggerUnfurlPrefetch } from "./send-entry-unfurl-scan";
 
 /** 用户发送条目输入 */
@@ -126,37 +123,31 @@ export class SendEntry {
     private readonly conversationRepo: ConversationRepository,
     /** 彻底切换：logger + 目标解析依赖（未注入 resolveDeps 时 sendUserEntry
      *  不解析目标，由入口预解析；logger 独立成字段以保持构造 ≤5 参）
-     * ：memoryIndex —— 删旧 SendMessage 时三处 indexMessage
-     *  调用随消息体消失，9/13 后对话正文不再入记忆（search_memory 失明 15 天）。
-     *  此处接回：user/speak 落库后非阻断索引（语义对齐旧 SendMessage：
-     *  user 侧 buildIndexBody 含附件投影，speak/abort 侧剥 html-card 围栏）
+     * ：onEntryProjectionEnqueued —— 源事务已保存投递凭据后弱触发 worker。
      * unfurlPrefetch（可选）——裸 URL 独占行 → 后台抓取落库。
-     *  非阻断语义：sendUserEntry/createSpeakEntry 落库后同步触发，失败仅 warn。 */
+     *  两个钩子均为非阻断语义：失败仅 warn，持久 pending 由启动与巡检兜底。 */
     private readonly aux: {
       logger: Logger;
       resolveDeps?: ResolveTargetsDeps;
-      memoryIndex?: MemoryIndexGateway;
+      onEntryProjectionEnqueued?: (entryId: string) => void;
       unfurlPrefetch?: (urls: string[]) => void;
     },
   ) {
     this.logger = aux.logger;
-    this.memoryIndex = aux.memoryIndex;
+    this.onEntryProjectionEnqueued = aux.onEntryProjectionEnqueued;
     this.unfurlPrefetch = aux.unfurlPrefetch;
   }
 
   private readonly logger: Logger;
-  private readonly memoryIndex?: MemoryIndexGateway;
+  private readonly onEntryProjectionEnqueued?: (entryId: string) => void;
   private readonly unfurlPrefetch?: (urls: string[]) => void;
 
-  /** entries 统一经投影政策处理（非阻断——失败仅 warn，文字优先送达）。 */
-  private async indexEntry(entry: Entry, externalSpeak: boolean, attachments: AttachmentRef[]): Promise<void> {
-    if (!this.memoryIndex) return;
+  private triggerEntryProjection(entryId: string): void {
     try {
-      const conversation = await this.conversationRepo.getById(entry.conversationId);
-      await this.memoryIndex.indexEntry({ entry, conversationKind: conversation?.kind === "external" ? "external" : "normal", externalSpeak, attachments });
+      this.onEntryProjectionEnqueued?.(entryId);
     } catch (err) {
-      this.logger.warn("Failed to index entry body to memory (non-fatal)", {
-        entryId: entry.id, conversationId: entry.conversationId, error: err instanceof Error ? err.message : String(err),
+      this.logger.warn("Failed to trigger entry projection worker (non-fatal)", {
+        entryId, error: err instanceof Error ? err.message : String(err),
       });
     }
   }
@@ -193,7 +184,9 @@ export class SendEntry {
       completedAt: now,
     };
 
-    const created = await this.entryRepo.createEntryAtomic(entry);
+    const created = await this.entryRepo.createEntryAtomic(entry, {
+      attachmentIntentIds: input.attachmentIds ?? [],
+    });
 
     // 终审修复：附件绑定下沉 usecases（三入口统一——此前仅 Web 路径
     // 由 controller 手动 attach，IM 路径 attachmentIds 传入但从未消费，附件悬空）。
@@ -228,12 +221,7 @@ export class SendEntry {
       talkingStonePassedTo,
     });
 
-    // 索引 user 正文到记忆（旧 SendMessage buildIndexBody 同构：
-    // 剥 html-card 围栏 + 附件占位投影行；非阻断）。投影基于发送意图
-    // （input.attachmentIds）而非 attach 结果——attach 失败仅影响展示，索引面
-    // 与旧口径一致描述用户发送了什么（旧路径 input.attachmentRefs 同语义）
-    const attachmentRefs = input.source === 'external' ? [] : await loadAttachmentRefs(this.entryRepo, this.logger, input.attachmentIds);
-    await this.indexEntry(result, false, attachmentRefs);
+    this.triggerEntryProjection(created.id);
 
     return { entry: result, talkingStonePassedTo, mentionFeedback };
   }
@@ -353,9 +341,7 @@ export class SendEntry {
       otterId: input.otterId,
     });
 
-    // 索引 speak 正文到记忆（旧 SendMessage 同构：剥 html-card 围栏；
-    // 失败消息不索引——旧 abort 路径只索引带 body 的中断正文，此处 completed 语义）
-    await this.indexEntry(created, external === true, []);
+    this.triggerEntryProjection(created.id);
 
     return { entry: created };
   }

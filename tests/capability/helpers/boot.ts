@@ -232,6 +232,8 @@ export async function bootCapabilityApp(options: BootOptions = {}): Promise<Capa
       syncAuth: false,
       startScheduler: false,
     });
+    // Why: the real entrypoint runs deferred workers after listen; capability must use the same delivery path.
+    await built.postListenInit();
     if (!options.recordingGatewayUrl) {
       await waitEmbeddingReady(built, options.embeddingTimeoutMs ?? 240_000);
     }
