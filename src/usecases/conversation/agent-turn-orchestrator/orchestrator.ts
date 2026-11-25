@@ -202,9 +202,12 @@ export class AgentTurnOrchestrator {
     if (invoke.status !== "completed") return undefined;
 
     try {
-      // token usage 落 invoke 行（终态快照）
-      if (result.tokenUsage) {
-        await ctx.callbacks.updateInvokeTokenUsage?.(input.invokeId, result.tokenUsage.input, result.tokenUsage.output, result.tokenUsage.cacheRead, result.tokenUsage.cacheWrite);
+      // token usage 落 invoke 行（整 turn 聚合，预算/账本唯一口径）：多 attempt
+      // turn 写末次 attempt 终态快照会漏计前几轮真实消耗；末次快照仅供 SSE/诊断
+      // （emitInvokeEnd 的 tokenUsage 字段），不落账。telemetry 缺口（delta 缺失）
+      // 不用快照伪造——四列留 null，由账本 usageGap 显式计出。
+      if (tokenUsageDelta) {
+        await ctx.callbacks.updateInvokeTokenUsage?.(input.invokeId, tokenUsageDelta.input, tokenUsageDelta.output, tokenUsageDelta.cacheRead, tokenUsageDelta.cacheWrite);
       }
       // model 归属落 invoke metadata（成功路径）
       this.recordInvokeModelSafe(ctx.callbacks, input.invokeId, result.modelAlias);
