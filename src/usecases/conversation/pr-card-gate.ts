@@ -173,7 +173,7 @@ function submitSignalPresent(fenceHtml: string): boolean {
  *  与提交信号的取词面不同：提交信号要认 onclick 属性里的 otterCard.submit，故只能剔展示区；
  *  残留披露要的是**搭档读得到的卡面文字**，因此额外剔掉三类「獭能写、搭档看不见/不算声明」的位置：
  *  - `<style>` / `<script>` 内容（样式与脚本不是卡面）；
- *  - `<button>` / `<a>` 元素整体（按钮文案如「带残留合入」不是披露，是个洞）；
+ *  - `<button>` 元素整体（按钮文案如「带残留合入」不是披露，是个洞；链接文字不剔——那是卡面正文）；
  *  - 标签属性值（`title="残留"`、`aria-label` 之类藏在属性里）。
  *  已知边界（机械不可证明，记边界不假称托底）：`style="display:none"` 之类 CSS 隐藏、
  *  近义词规避（「遗留」「尚未覆盖」不被认作披露）、以及真正写没写对——由检视与卡片回执兜底。 */
@@ -184,7 +184,6 @@ function visibleCardText(fenceHtml: string): string {
   return stripDisplayRegions(fenceHtml)
     .replace(/<(style|script)[\s\S]*?<\/\1>/gi, "")
     .replace(/<button[\s\S]*?<\/button>/gi, "")
-    .replace(/<a[\s>][\s\S]*?<\/a>/gi, "")
     .replace(/<[^>]*>/g, "");
 }
 

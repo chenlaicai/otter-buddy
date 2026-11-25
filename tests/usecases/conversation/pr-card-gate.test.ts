@@ -175,6 +175,11 @@ describe("#2013 决策卡必须披露残留（#3824 现场）", () => {
     expect(checkYieldGate(["#3850 可以合入了", card], undefined, cardFenceValues)).toContain("没有交代");
   });
 
+  it("放行：残留字样写在链接文字里（链接文字属卡面正文，不剔）", () => {
+    const card = cardWith('<div><a href="https://example.com">残留：邮箱未补，已登记排期</a></div>');
+    expect(checkYieldGate(["#3850 可以合入了", card], undefined, cardFenceValues)).toBeNull();
+  });
+
   it("放行：官方决策卡模板的示例卡原文本身能过闸（模板与闸不许分叉）", () => {
     const md = readFileSync(
       new URL("../../../.pi/skills/review-protocol/references/templates/decision-briefing-card.md", import.meta.url),
