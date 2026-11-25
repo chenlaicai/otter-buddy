@@ -1018,6 +1018,54 @@ export const mustBlockCases: ReplayCase[] = [
     source: "healing d536ca28（2026-11-23）",
     note: "部署公开只读链末段 grep SSH config；与既有 ssh config 放行样本同政策，前置 deploy 只读命令不改变判定。",
   },
+  // ── 2026-11-24 UTC 日报实录：ALLOW 2 / BLOCK 5 / SKIP 0 ──
+  {
+    command: "cd /Users/orca/ai/otter-buddy && cat > /tmp/issue-guard.md <<'EOF'\nSSH config 只读政策见 ~/.ssh/config，本段仅写入 issue 正文。\nEOF\ngh issue create --title '[bash-guard] 公开配置只读' --body-file /tmp/issue-guard.md",
+    expect: "allow",
+    source: "healing 55e01e59（2026-11-24）",
+    note: "heredoc 正文提及 SSH 路径但没有读取凭证目录；文本内容不应被当成真实文件访问。",
+  },
+  {
+    command: "ls ~/.ssh/ 2>/dev/null; grep -m5 \"github\" ~/.ssh/config 2>/dev/null; gh ssh-key list 2>&1 | head -3",
+    expect: "allow",
+    source: "healing 4935d204（2026-11-24）",
+    note: "公开 SSH config、目录列举和 gh 公钥元数据只读；与 #1892/#2000 放行政策一致，私钥读取负门不变。",
+  },
+  {
+    command: "cd /Users/orca/ai/otter-buddy && curl -s http://localhost:3000/api/settings | python3 -c 'import json,sys; x=json.load(sys.stdin); print(x.get(\"dbPath\") or x)'",
+    expect: "block",
+    source: "healing 8f092697（2026-11-24）",
+    reasonContains: "下载即执行",
+    note: "本机设置 JSON 直接管道 Python；后续改为 curl 落盘再解析。",
+  },
+  {
+    command: "cd /tmp/connector-evidence && pkill -f \"app-unzipped/app/dist/connector/main.js\" 2>/dev/null; sleep 1; ./scenario-d.exp",
+    expect: "block",
+    source: "healing 5c5e88d8（2026-11-24）",
+    reasonContains: "按名匹配",
+    note: "按 connector 进程名 pkill；应精确识别并终止字面量 PID。",
+  },
+  {
+    command: "cd /tmp && curl -sS -X POST http://dev.localhost:31000/api/auth/login -H 'Content-Type: application/json' -d '{\"username\":\"bob\",\"password\":\"redacted\"}' -c /tmp/bob.txt -o /tmp/bob.json -w \"login=%{http_code}\\n\"; curl -sS \"http://dev.localhost:31000/api/direct-messages/example/messages?limit=10\" -b /tmp/bob.txt | python3 -c \"import sys,json; print(json.load(sys.stdin))\"",
+    expect: "block",
+    source: "healing 7f8305e6（2026-11-24）",
+    reasonContains: "下载即执行",
+    note: "登录与私聊 JSON 直接管道 Python；凭证已占位，后续改为落盘解析。",
+  },
+  {
+    command: "kill -INT $(cat /tmp/planc-connector.pid) && sleep 4 && curl -sf -H 'X-Otter-User-Id: script:planc' -H 'X-Otter-User-Role: admin' http://localhost:3138/api/execution-machines | python3 -c \"import json,sys; d=json.load(sys.stdin); print(d['machines'])\"",
+    expect: "block",
+    source: "healing 79cd0623（2026-11-24）",
+    reasonContains: "下载即执行",
+    note: "执行机状态 JSON 直接管道 Python；精确 PID 的 INT 不改变 download_exec 判定。",
+  },
+  {
+    command: "curl -sf -H 'X-Otter-User-Id: script:planc' -H 'X-Otter-User-Role: admin' http://localhost:3138/api/execution-machines | python3 -c \"import json,sys; d=json.load(sys.stdin); print([m for m in d['machines'] if m['id']=='connector-example'])\"",
+    expect: "block",
+    source: "healing 2a658702（2026-11-24）",
+    reasonContains: "下载即执行",
+    note: "验收末段设备状态 JSON 直接管道 Python；后续落盘到证据文件再解析。",
+  },
 ];
 
 /** 放行抽样：日常正常工作流形态（守卫不应有任何反应） */
