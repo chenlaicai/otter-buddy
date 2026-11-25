@@ -267,6 +267,9 @@ function createMemoryTables(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS search_query_logs (
       id TEXT PRIMARY KEY,
       query TEXT NOT NULL,
+      query_hash TEXT NOT NULL DEFAULT '',
+      query_length INTEGER NOT NULL DEFAULT 0,
+      log_mode TEXT NOT NULL DEFAULT 'metadata-only',
       conversation_id TEXT NOT NULL,
       caller_id TEXT,
       detail_level TEXT,
@@ -280,6 +283,36 @@ function createMemoryTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_search_query_logs_created
       ON search_query_logs (created_at);
   `);
+
+  // 存量库迁移——埋点隐私边界三列（每列独立 try/catch 幂等，同 healing_events 模式）
+  try {
+    db.exec(`ALTER TABLE search_query_logs ADD COLUMN query_hash TEXT NOT NULL DEFAULT ''`);
+  } catch {
+    // 列已存在，忽略
+  }
+  try {
+    db.exec(`ALTER TABLE search_query_logs ADD COLUMN query_length INTEGER NOT NULL DEFAULT 0`);
+  } catch {
+    // 列已存在，忽略
+  }
+  try {
+    db.exec(`ALTER TABLE search_query_logs ADD COLUMN log_mode TEXT NOT NULL DEFAULT 'metadata-only'`);
+  } catch {
+    // 列已存在，忽略
+  }
+  // 新索引须在补列之后建：老库表存在但无 log_mode 列时，template 内建索引会因
+  // 未知列整块 exec 失败（迁移测试实证）。conversation_id 索引服务按对话删除
+  // （合规清除），(log_mode, created_at) 服务 redacted 有限保留期清理。
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_search_query_logs_conversation ON search_query_logs (conversation_id)`);
+  } catch {
+    // 已存在（或表刚建时已含同名列），忽略
+  }
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_search_query_logs_mode_created ON search_query_logs (log_mode, created_at)`);
+  } catch {
+    // 已存在，忽略
+  }
 
   // embedding 失败重试队列。
   // store-memory.ts 的 fire-and-forget embedding 失败后入队，

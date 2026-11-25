@@ -74,7 +74,11 @@ const allowDdlFiles = [];
 // embedding-task-gate.test.ts 同模式同理由。
 // 对抗审视修复：15→16——embed-queue-review-fixes.test.ts 同模式
 // （发现 2/3 需真实 SqliteMemoryRepository 的 embedding_tasks/scanDarkEntries 语义）。
-const MAX_ALLOW_DDL_FILES = 18;
+// 18→19：tests/frameworks/db/memory/search-query-log-modes.test.ts——
+// search_query_logs 存量库补列三列（query_hash/query_length/log_mode）迁移回归：需手建
+// 无三列旧形态表验证 initSchema ALTER 补列幂等 + 存量行取默认值，被测对象就是
+// 「旧 schema → 新 schema」迁移本身（与 schema.test.ts healing_events 补列同类场景）
+const MAX_ALLOW_DDL_FILES = 19;
 // 16→17：tests/usecases/conversation/resume-claim-and-summary.test.ts——
 // restart_pending_resumes 存量库迁移回归（claim 三列 ALTER 幂等），需手建无 claim 列旧形态表；
 // 被测对象就是「旧 schema → 新 schema」迁移本身，与 migration.test.ts 同类场景

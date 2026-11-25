@@ -2,6 +2,8 @@
  * 检索埋点集成测试。
  * 覆盖：insert 落表（JSON 字段序列化）、RecordSearchQuery 上下文快照构建
  * （最近 5 条、正序、预览截断）、fire-and-forget 失败不抛。
+ * 模式契约测试见 search-query-log-modes.test.ts；本文件既有用例走 redacted
+ * 模式（上下文快照路径仅 redacted 存在）。
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Database from "better-sqlite3";
@@ -46,7 +48,14 @@ function makeRecorder(contextMessages: Array<{ id: string; body: string }>) {
     },
     getEntryById: async (id) => pool.find(e => e.id === id) ?? null,
   };
-  return new RecordSearchQuery(repo, entryRepo as never, logger);
+  // 上下文快照路径仅 redacted 模式存在——既有快照用例固定走 redacted
+  return new RecordSearchQuery(
+    repo,
+    entryRepo as never,
+    logger,
+    async () => "normal",
+    { mode: "redacted", redactedRetentionDays: 0 },
+  );
 }
 
 describe("SqliteSearchQueryLogRepository.insert", () => {
@@ -60,6 +69,9 @@ describe("SqliteSearchQueryLogRepository.insert", () => {
       limitCount: 10,
       topEntryIds: ["e1", "e2"],
       total: 2,
+      queryHash: "a".repeat(64),
+      queryLength: 9,
+      logMode: "redacted",
       contextMessages: [{ id: "m1", senderId: "u1", role: "user", preview: "上次那个方案" }],
     });
 
@@ -126,6 +138,8 @@ describe("RecordSearchQuery.record", () => {
       failingRepo as never,
       entryRepo as never,
       logger,
+      async () => "normal",
+      { mode: "redacted", redactedRetentionDays: 0 },
     );
     await expect(recorder.record({
       query: "boom", conversationId: "conv-x", callerId: null,
