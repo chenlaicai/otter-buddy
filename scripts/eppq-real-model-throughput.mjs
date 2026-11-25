@@ -81,6 +81,9 @@ function loadProductionBenchmarkDataset(queryCount, candidateCount) {
   const dbPath = process.env.OTTER_EMBED_PROD_DB ?? path.join(MAIN_ROOT, "data/otter-buddy.db");
   const db = new Database(dbPath, { readonly: true });
   try {
+    // 隐私默认边界：新行默认 metadata-only（query 列为空串，被下方长度过滤自然跳过）；
+    // 原文仅显式 OTTER_SEARCH_LOG_MODE=redacted（脱敏后）落库。评估基线需原文时
+    // 由运维显式开启 redacted 模式采集——导出默认即 metadata-only 兼容。
     const rows = db.prepare(`
       SELECT id, query, top_entry_ids FROM search_query_logs
       WHERE total > 0 AND length(trim(query)) >= 8 ORDER BY created_at DESC

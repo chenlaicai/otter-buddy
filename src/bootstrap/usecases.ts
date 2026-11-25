@@ -72,9 +72,8 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries, recordBelief, transitionBelief, supersedeBelief, manageConsolidationState } = memoryUcs;
   // 彻底切换：未读状态读 entries
   const queryMessage = new QueryMessage(repos.conversation, entryRepo);
-  // 检索埋点（评估基线数据源）
-  // 收尾批3：上下文快照数据源切 entries
-  const recordSearchQuery = new RecordSearchQuery(repos.searchQueryLog, entryRepo, logger);
+  // 检索埋点（评估基线数据源；隐私模式装配见 buildRecordSearchQuery）
+  const recordSearchQuery = buildRecordSearchQuery(repos, entryRepo, logger);
   const manageReadState = new ManageReadState(repos.conversation, entryRepo);
   // 信号轨迹查询退役
   const manageParticipant = new ManageParticipant(
@@ -240,6 +239,29 @@ function buildMemoryUseCases(
   const manageConsolidationState = new ManageConsolidationState(repos.consolidationState);
 
   return { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries, recordBelief, transitionBelief, supersedeBelief, manageConsolidationState };
+}
+
+/** 检索埋点装配（隐私默认边界）：
+ *  OTTER_SEARCH_LOG_MODE（metadata-only 默认 / redacted 显式评估 / off 零写入）；
+ *  redacted 有限保留期 OTTER_SEARCH_LOG_RETENTION_DAYS（缺省 30 天，仅约束 redacted 行）。
+ *  收尾批3：上下文快照数据源切 entries（仅 redacted 模式读取）。 */
+function buildRecordSearchQuery(
+  repos: Repositories,
+  entryRepo: EntryRepository,
+  logger: Logger,
+): RecordSearchQuery {
+  const searchLogMode = (process.env.OTTER_SEARCH_LOG_MODE ?? "metadata-only") as "metadata-only" | "redacted" | "off";
+  const retentionDaysRaw = Number(process.env.OTTER_SEARCH_LOG_RETENTION_DAYS);
+  return new RecordSearchQuery(
+    repos.searchQueryLog,
+    entryRepo,
+    logger,
+    async (conversationId) => {
+      const conv = await repos.conversation.getById(conversationId).catch(() => null);
+      return (conv as { kind?: "normal" | "external" } | null)?.kind ?? null;
+    },
+    { mode: searchLogMode, redactedRetentionDays: Number.isFinite(retentionDaysRaw) && retentionDaysRaw > 0 ? retentionDaysRaw : 30 },
+  );
 }
 
 /** SendEntry 装配（拆出降 initUseCases 行数——max-lines-per-function 60） */
