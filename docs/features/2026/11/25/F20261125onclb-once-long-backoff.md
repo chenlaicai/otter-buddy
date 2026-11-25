@@ -54,6 +54,7 @@ modules:
 - **notify 次数**：`ONCE_MAX_RETRIES + ONCE_LONG_RETRY_DELAYS_MS.length + 1`（=10，含首发），仅最终 error 时落一次，消灭静默死亡保留。
 - **进入长退避时落 warn 日志**（任务未死、在长退避中——可观测但不刷屏，不加 healing 类型）。
 - **链级取消 = 代际令牌**：链启动读取并登记当前代际；clearTaskTimer（onChange updated/deleted）与 stop() 推现代际——等待中的 timer 同步清理（clearTimeout + resolve），**执行中**的链在轮边界（入口/等待返回）代际失配而终止。只清等待中的 timer 不够：执行中 stop/改期后，本轮失败旧链还会继续注册后续轮（delta 复核探针实证）。新链启动读新代际，永远只认自己代的令牌，无「新链被旧取消误杀」竞态。
+- **终态副作用的代际保护**：轮执行完成后的落账动作（成功删除任务 / 耗尽标 error + 通知）前再查一次代际——执行中改期后旧链成功也不得删新任务（本轮执行不可撤销，但新调度必须保留到新时点）；旧链耗尽也不得把改期后的 active 新任务标 error（失败与否由新链判定）。条目清理：任务删除/终态时 delete、onChange deleted 时 delete、边界判定 undefined 视为失配（防 Map 只写不清滞留）。
 
 ## 设计取舍
 
@@ -84,7 +85,7 @@ modules:
 
 **失败用例证据（bugfix）**：新用例「#1975 快速重试耗尽后长退避轮成功 → 任务删除，不标 error」在旧实现上必失败——旧代码 3×65s 耗尽即 `updateStatus('error')`，第 5 次 invoke 不会发生（invokeCount 停在 4、任务留存 error 态）。验证输出见 PR Verification 节（stash 源码改动跑新测试 → 红；恢复后 → 绿）。
 
-**测试结果**：`npx vitest run tests/usecases/scheduler/scheduler-service.test.ts` → **135/135 绿**（含新增 6 用例：长退避轮成功 / 禁用终止 / stop 等待中与执行中终止 / 改期等待中与执行中终止 + 改造 1 用例含总尝试数与耗尽通知断言）。
+**测试结果**：`npx vitest run tests/usecases/scheduler/scheduler-service.test.ts` → **137/137 绿**（含新增 8 用例：长退避轮成功 / 禁用终止 / stop 等待中与执行中终止 / 改期等待中与执行中终止 / 改期后旧链成功不删任务 / 耗尽前被改期不标 error + 改造 1 用例含总尝试数与耗尽通知断言）。
 
 **验收断言（可机械复验）**：
 
@@ -97,6 +98,8 @@ modules:
 | stop 终止（执行中） | 新用例 E：长退避首轮 invoke 挂起中 stop()，放行失败后推进 1h | 旧链本轮失败后终止，invokeCount 停在 5 |
 | 改期终止（等待中） | 新用例 D：快速全败后改期 +2h 并 updated，推进 30m 后再推进到新时点 | 旧链不提前执行；新 triggerAt 到点执行成功、任务删除 |
 | 改期终止（执行中） | 新用例 F：长退避首轮 invoke 挂起中改期 + updated，放行失败后推进 1h+到新时点 | 旧链终止不进第 6 次；新时点第 6 次成功、任务删除、无 error |
+| 改期后旧链成功 | 新用例 G：第 5 轮 invoke 挂起中改期 + updated，放行成功 | 旧链不删任务（新调度接管）；新时点第 6 次成功后任务删除 |
+| 耗尽前被改期 | 新用例 H：最后一轮（第 10 次）invoke 挂起中改期 + updated，放行失败 | 不标 error 不通知（新任务由新链判定）；新时点第 11 次成功、任务删除 |
 
 **已知边界（留痕不挂账）**：长退避挂内存态，进程重启丢失重试链且 scheduleOnce 将过期 once 任务直接删除（「重启 = once 任务静默消失」是既有独立行为，非本单引入，未处理）。
 

@@ -275,6 +275,8 @@ export class SchedulerService {
           try {
             if (action === 'deleted') {
               this.clearTaskTimer(taskId);
+              // 任务删除即无新链：清除代际条目（在飞旧链读到 undefined 视为失配终止）
+              this.onceRetryGeneration.delete(taskId);
             } else if (action === 'updated') {
               this.clearTaskTimer(taskId);
               // 重新获取任务并调度
@@ -1250,18 +1252,25 @@ export class SchedulerService {
     for (let i = 0; i < ONCE_LONG_RETRY_DELAYS_MS.length; i++) {
       if (await this.tryTriggerOnce(task, ONCE_LONG_RETRY_DELAYS_MS[i]!, `long-backoff round ${i + 1}/${ONCE_LONG_RETRY_DELAYS_MS.length}`, gen)) return;
     }
+    // 终态副作用前的代际检查：最后一轮执行中任务被改期 → 不标 error、不通知——
+    // 改期后的任务是 active 新任务，其失败与否由新链判定，旧链不得代为宣判
+    if (this.onceRetryGeneration.get(task.id) !== gen) {
+      this.logger.info(`Once task ${task.id} exhausted but chain superseded, leaving error verdict to new schedule`);
+      return;
+    }
     this.logger.error(`Once task ${task.id} exhausted all retries (fast + long backoff), marking as error`);
     await this.taskRepo.updateStatus(task.id, 'error', new Date().toISOString());
-    // once 任务重试耗尽同样落通知，消灭静默死亡
+    // once 任务重试耗尽同样落通知，消灭静默死亡；任务终态即链终态，清理代际条目
     const totalAttempts = ONCE_MAX_RETRIES + ONCE_LONG_RETRY_DELAYS_MS.length + 1;
     await this.notifyTaskErrored(task.id, totalAttempts, 'once task exhausted all retries');
+    this.onceRetryGeneration.delete(task.id);
   }
 
   /** once 重试链的单轮延迟尝试。返回 true = 重试链终止（成功删除 / 任务已不在或被禁用）；
  *  false = 本轮失败，可继续下一轮。 */
   private async tryTriggerOnce(task: ScheduledTask, delayMs: number, label: string, gen: number): Promise<boolean> {
-    // 轮边界代际检查：链启动后被 updated/deleted/stop 推现代际 → 本链已作废，终止
-    if ((this.onceRetryGeneration.get(task.id) ?? 0) !== gen) {
+    // 轮边界代际检查：链启动后被 updated/deleted/stop 推进或清除代际 → 本链已作废，终止
+    if (this.onceRetryGeneration.get(task.id) !== gen) {
       this.logger.info(`Once task ${task.id} retry chain superseded (stop/reschedule), aborting retry`);
       return true;
     }
@@ -1277,7 +1286,7 @@ export class SchedulerService {
       this.onceRetryTimers.set(task.id, entry);
     });
     // 等待返回后再次检查（等待中被取消：resolve 由取消方触发，此处代际已失配）
-    if ((this.onceRetryGeneration.get(task.id) ?? 0) !== gen) {
+    if (this.onceRetryGeneration.get(task.id) !== gen) {
       this.logger.info(`Once task ${task.id} retry chain superseded during wait, aborting retry`);
       return true;
     }
@@ -1294,8 +1303,15 @@ export class SchedulerService {
       // 让重试链独立控制重试/error 语义。用二次检查取回的最新任务定义触发——
       // 改期/改体后重试轮执行最新定义而非链创建时的旧副本。
       await this.triggerTask(current, { skipConsecutiveFailureTracking: true });
-      // Why: 一次性任务重试成功后直接删除，不保留历史
+      // 终态副作用前的代际检查：本轮执行中任务被改期（updated 推现代际）时，
+      // 本轮执行本身不可撤销（工作已做），但不得删除任务——新调度仍要按新时点执行。
+      if (this.onceRetryGeneration.get(task.id) !== gen) {
+        this.logger.info(`Once task ${task.id} retry succeeded but chain superseded, keeping task for new schedule`);
+        return true;
+      }
+      // Why: 一次性任务重试成功后直接删除，不保留历史；任务终态即链终态，清理代际条目
       await this.taskRepo.delete(task.id);
+      this.onceRetryGeneration.delete(task.id);
       return true;
     } catch (error) {
       this.logger.error(`Once task ${task.id} retry failed (${label})`, error as Error);
