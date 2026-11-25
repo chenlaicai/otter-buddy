@@ -7,6 +7,8 @@
  * - 主闸宽表在 yield-to-user 上下文收评价措辞（「可以合入了」正是 08:43 事故形态）；
  * - 决策卡判定只认围栏内 otterCard.submit。
  */
+import { readFileSync } from "node:fs";
+
 import { describe, it, expect } from "vitest";
 import {
   hasPrReference,
@@ -126,20 +128,21 @@ describe("#2013 决策卡必须披露残留（#3824 现场）", () => {
   const cardWith = (inner: string) => ["```html-card title=\"PR 3850 合入决策\"", inner,
     "<script>otterCard.submit({ summary: '3850合入' })</script>", "```"].join("\n");
 
-  it("拦截：卡在场、按钮在场，但没有「残留」字样（#3824 事故形态）", () => {
+  it("拦截：卡在场、按钮在场，但没有「残留」字样（事故形态）", () => {
     const err = checkYieldGate(["#3850 可以合入了", cardWith("<div>验证：CI 全绿</div>")], undefined, cardFenceValues);
-    expect(err).toContain("残留");
+    // 断言命中「残留未披露」分支本身，而非两段话术共用的「残留」二字
+    expect(err).toContain("没有交代");
   });
 
   it("拦截：残留两个字只写在正文、不在决策卡里", () => {
     const err = checkYieldGate(["#3850 残留两项待定调，可以合入了", cardWith("<div>验证：CI 全绿</div>")], undefined, cardFenceValues);
-    expect(err).toContain("残留");
+    expect(err).toContain("没有交代");
   });
 
   it("拦截：残留只写在另一张不做决策的卡里（不许分散蒙混）", () => {
     const noteCard = ["```html-card title=\"补充说明\"", "<div>残留：40×40 命中区</div>", "```"].join("\n");
     const err = checkYieldGate(["#3850 可以合入了", noteCard, cardWith("<div>验证：CI 全绿</div>")], undefined, cardFenceValues);
-    expect(err).toContain("残留");
+    expect(err).toContain("没有交代");
   });
 
   it("放行：显式写「无残留」", () => {
@@ -153,7 +156,33 @@ describe("#2013 决策卡必须披露残留（#3824 现场）", () => {
 
   it("展示区豁免：残留字样只出现在 code/pre 里不算披露", () => {
     const card = cardWith("<pre>残留与后续：无残留</pre>");
-    expect(checkYieldGate(["#3850 可以合入了", card], undefined, cardFenceValues)).toContain("残留");
+    expect(checkYieldGate(["#3850 可以合入了", card], undefined, cardFenceValues)).toContain("没有交代");
+  });
+
+  it("拦截：残留只写在标签属性里（title 属性内，搭档看不见属性值）", () => {
+    const card = cardWith('<div title="残留与后续">验证：CI 全绿</div>');
+    expect(checkYieldGate(["#3850 可以合入了", card], undefined, cardFenceValues)).toContain("没有交代");
+  });
+
+  it("拦截：残留只出现在按钮文案里（「带残留合入」不是披露）", () => {
+    const card = ["```html-card title=\"PR 3850 合入决策\"",
+      "<button onclick=\"otterCard.submit({ summary: '3850合入' })\">带残留合入</button>", "```"].join("\n");
+    expect(checkYieldGate(["#3850 可以合入了", card], undefined, cardFenceValues)).toContain("没有交代");
+  });
+
+  it("拦截：残留只写在 <style> 块里（样式不是卡面文字）", () => {
+    const card = cardWith("<style>.residual::after{content:'残留'}</style><div>验证：CI 全绿</div>");
+    expect(checkYieldGate(["#3850 可以合入了", card], undefined, cardFenceValues)).toContain("没有交代");
+  });
+
+  it("放行：官方决策卡模板的示例卡原文本身能过闸（模板与闸不许分叉）", () => {
+    const md = readFileSync(
+      new URL("../../../.pi/skills/review-protocol/references/templates/decision-briefing-card.md", import.meta.url),
+      "utf8",
+    );
+    const fence = md.match(/```html-card[\s\S]*?\n```/);
+    expect(fence).not.toBeNull();
+    expect(checkYieldGate(["#3850 可以合入了", fence![0]], undefined, cardFenceValues)).toBeNull();
   });
 });
 

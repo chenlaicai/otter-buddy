@@ -46,16 +46,20 @@ causal_links:
 ## 方案
 
 - 代码层（`pr-card-gate.ts`）：抽出 `stripDisplayRegions`（HTML 注释 / code / pre / textarea 剔除，与提交信号同口径）；新增 `residualSignalPresent`（字样集「残留 / 未完成项 / 未处理项」）与 `residualDisclosurePresent`——要求**同一张含提交信号的卡**内命中；主闸 `checkYieldGate` 在「卡在场但未披露残留」时返回新的 `RESIDUAL_DISCLOSURE_REJECTION`。
-- 模板层：`PR_CARD_GATE_REJECTION` 与 `get_html_card_contract` 的 checklist 同步增「残留与后续」项，写明「无残留也要显式写」「有需要你介入的残留时按钮须两个：先补齐再合 / 带残留合入 + 后续登记」。
+- 取词面收窄（检视修订）：残留判定不共用提交信号的「仅剔展示区」口径，而是先取**卡片可见文字**（`visibleCardText`）——额外剔掉 `<style>/<script>` 块、`<button>/<a>` 元素整体、以及全部标签属性值。理由：提交信号必须认 `onclick` 属性里的 `otterCard.submit`，残留披露要的是搭档读得到的卡面文字；按钮文案「带残留合入」、`title="残留"`、样式表里的字样都不是披露。
+- 模板层（含检视修订）：官方决策卡模板 `references/templates/decision-briefing-card.md` 的「后续事项」节改名「残留与后续」、示例卡补残留条目、自检清单同步，并新增回归用例**把模板示例卡原文喂进闸**——防「照官方模板写卡反被拒」的双轨复活；`PR_CARD_GATE_REJECTION` 与 `get_html_card_contract` 的 checklist 同步增「残留与后续」项，写明「无残留也要显式写」「有需要你介入的残留时按钮须两个：先补齐再合 / 带残留合入 + 后续登记」。
 - 规范层：`decision-briefing.md` 补机械闸约束与「能力缺口=未完成、不得以已知差异名义合入后补报」的判定口径。
 
 ## 已知边界
 
 - 闸只认**字样**，不判残留是否真实、严重度几何——严重度由搭档判；空壳形态（写了「无残留」但其实有）机械不可证明，与提交信号同层记边界，由检视与事后回执兜底。
+- 已知越过路径（记为边界不假称托底）：CSS 隐藏（`style="display:none"` 等）里的字样仍会被算作披露——机械层不做 CSS 语义求值；近义词（「遗留」「尚未覆盖」）不被认作披露，反而会被拦。
+- 判定时机仍在 yield：speak 时卡已可见、按钮可点，yield 才拦——speak→yield 窗口内旧形态理论可重演（窗口极短且 speak 后就交棒），记边界。
 - 只作用于 yield-to-user 的呈递形态；普通状态通报、检视回呈不受影响（沿用 #1952 的双闸触发条件）。
 
 ## 验证
 
-- `npx vitest run tests/usecases/conversation/pr-card-gate.test.ts` → 61/61（本轮新增 6 例：卡在场无残留字样→拦；残留只在正文→拦；残留只在另一张非决策卡→拦；显式「无残留」→放行；逐条列残留→放行；只在 `<pre>` 里→拦）。
+- `npx vitest run tests/usecases/conversation/pr-card-gate.test.ts` → 65/65（本轮新增 10 例：卡在场无残留字样→拦；残留只在正文→拦；残留只在另一张非决策卡→拦；显式「无残留」→放行；逐条列残留→放行；只在 `<pre>` 里→拦；只在标签属性里→拦；只在按钮文案里→拦；只在 `<style>` 里→拦；官方模板示例卡原文→放行）。
+- `npx vitest run tests/usecases/conversation tests/interface-adapters/agent-runtime` → 74 文件 / 817 例全过。
 - `npx tsc --noEmit` 零错误。
 - 事故重放：把 #3824 那张卡（无「残留」字样、单按钮）喂进主闸 → 拒绝并要求补「残留与后续」。
