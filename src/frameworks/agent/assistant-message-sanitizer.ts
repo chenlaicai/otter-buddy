@@ -106,13 +106,14 @@ function isMalformedToolCall(block: ToolCall): boolean {
   return emptyCallId !== (block.name === "");
 }
 
-/** toolResult 孤儿判定：与畸形/碎片剔除对称（call_id 段空或 toolName 空）——
- * 对应的 toolCall 已被剔除，无论 isError 与否保留都会破坏 fc/output 配对。 */
+/** toolResult 孤儿判定：与畸形/碎片剔除对称，且限定 Responses 的 `|` 形态 id（
+ * 其他 api 的 id 不含 |，天然不命中，收敛域与 assistant 侧一致）——
+ * call_id 段空或 toolName 空（对应的 toolCall 已被剔除，无论 isError 保留都破配对）。 */
 function isOrphanToolResult(message: Message): boolean {
   if (message.role !== "toolResult") return false;
   const { toolCallId, toolName } = message as { toolCallId: string; toolName: string };
-  if (toolName === "") return true;
-  return toolCallId.includes("|") && toolCallId.split("|")[0] === "";
+  if (!toolCallId.includes("|")) return false;
+  return toolCallId.split("|")[0] === "" || toolName === "";
 }
 
 /**
@@ -156,7 +157,9 @@ function aggregateAssistantContent(
       }
       if (isMalformedToolCall(block)) {
         // 单空畸形：剔除不聚合（并入真调用有错归属风险），其孤儿结果由
-        // isOrphanToolResult 对称剔除，保 fc/output 配对。
+        // isOrphanToolResult 对称剔除，保 fc/output 配对。同时切断归属链：
+        // 其后双空碎片无法区分归属（畸形还是更早真调用的延续），只能丢弃。
+        pendingFor = undefined;
         fragmentsDropped++;
         continue;
       }

@@ -333,3 +333,28 @@ describe("aggregateFragmentedToolCalls（kimi 流式拆碎 function_call 致 dup
     expect(cleaned).toHaveLength(1);
     expect(cleaned![0]).toBe(real);
   });
+
+  it("toolName 空但 id 非 Responses 形态（无 |）的 toolResult 不剔除（收敛域）", () => {
+    const foreign = toolResult("toolu_abc123", "");
+    const real = toolResult("bash_0|fc_real", "bash");
+    const cleaned = aggregateFragmentedToolCalls([foreign, real]);
+    expect(cleaned).toBeUndefined();
+  });
+
+  it("真调用 → 单空畸形 → 双空碎片：碎片不越过畸形并入真调用（归属链切断）", () => {
+    const msg = {
+      role: "assistant",
+      content: [
+        { type: "toolCall", id: "bash_0|fc_real", name: "bash", arguments: {}, argumentsError: "e\n\nReceived arguments:\n{}" },
+        { type: "toolCall", id: "bash_1|fc_nameless", name: "", arguments: {}, argumentsError: "e\n\nReceived arguments:\ngarbage" },
+        { type: "toolCall", id: "|fc_frag", name: "", arguments: {}, argumentsError: "e\n\nReceived arguments:\n,\"command\": \"from_after_single\"}" },
+      ],
+      api: "openai-responses", provider: "kimi", model: "k3.1-pro",
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: "toolUse", timestamp: 0,
+    } as unknown as AssistantMessage;
+    const cleaned = aggregateFragmentedToolCalls([msg]);
+    const calls = (cleaned![0] as AssistantMessage).content.filter((b) => b.type === "toolCall");
+    expect(calls).toHaveLength(1);
+    expect((calls[0] as { arguments: Record<string, unknown> }).arguments).toEqual({});
+  });
