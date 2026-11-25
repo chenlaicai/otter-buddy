@@ -29,7 +29,7 @@ healing `d536ca28-692a-41eb-83bd-d68181a90e60` 的完整 toolcall 在读取部�
 - 首轮固化 d536ca28 时实测 206 例中此例失败（received `block`），其余 205 例通过。
 - 2026-11-25 追加 11-24 的 7 条去重样本（ALLOW 2 / BLOCK 5）后，实测 **213 例中 3 失败、210 通过**。失败全部为 SSH 公开只读 ALLOW 样本（d536ca28、55e01e59、4935d204），作为 #2000 的可证伪复现；5 条 `curl→python` / 按名杀进程负门全部按预期 BLOCK。
 
-候选裁决已回写 `data/guard-replay-candidates-2026-11-24.json`，未把负门误标为 ALLOW。
+各候选 verdict 与本文件 `expect` 逐条对应；candidates JSON 仅是 gitignored 过程产物，不作为 PR 验收依据。55e01e59、5c5e88d8、79cd0623、2a658702 四条在独立检视后已还原为原始 invoke toolcall，只有 7f8305e6 按安全纪律对密码与实体 ID 做等价占位。
 
 ## Rollback
 
@@ -41,4 +41,4 @@ Golden Gate: n/a（verify_by=static_only）。
 
 ## 测试改动声明
 
-方向：收紧。新增 8 条 ALLOW 回归样本（含首轮 1 条）与 5 条 BLOCK 负门样本，零存量断言删改。
+方向：收紧。本分支合计新增 8 条回放（ALLOW 3 / BLOCK 5），零存量断言删改。

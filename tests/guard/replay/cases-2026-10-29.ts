@@ -1020,7 +1020,7 @@ export const mustBlockCases: ReplayCase[] = [
   },
   // ── 2026-11-24 UTC 日报实录：ALLOW 2 / BLOCK 5 / SKIP 0 ──
   {
-    command: "cd /Users/orca/ai/otter-buddy && cat > /tmp/issue-guard.md <<'EOF'\nSSH config 只读政策见 ~/.ssh/config，本段仅写入 issue 正文。\nEOF\ngh issue create --title '[bash-guard] 公开配置只读' --body-file /tmp/issue-guard.md",
+    command: "cd /Users/orca/ai/otter-buddy && cat > /tmp/issue-guard.md <<'EOF'\n## 案发现场\n2026-11-23 healing `d536ca28-692a-41eb-83bd-d68181a90e60`：部署只读命令被 `cred_dir_access` 拦截。完整 toolcall 后段为 `grep ... ~/.ssh/config | head`，不是 commandHead 中可见的纯 deploy 文件读取。\n\n既有回放明确把 SSH config 公开只读列为放行：`tests/guard/replay/cases-2026-10-29.ts` 中 `healing 081327a7`（#1892 改判）。本次精确样本已追加同文件，实跑 `npx vitest run tests/guard/replay/replay.test.ts`：**206 中 1 失败，expected allow / received block**，稳定复现。\n\n## 影响\n合法部署核查被拦；且与既有放行样本政策不一致，形成同语义不同裁决。\n\n## 已排查结论\n- 完整命令确实含 `~/.ssh/config`，所以 commandHead 单独看会误判为“无凭证路径”；不能据此删样本。\n- #1892 已确定 ssh config/目录列举属公开只读放行，本样本应判 ALLOW。\n- 当前源码回放也返回 block，排除仅是旧进程缓存。\n\n## 排查方向（假设，高置信）\n检查 `grep -n -A8 -B2 <pattern> ~/.ssh/config | head` 与既有 `sed -n ... config` 的放行差异；应为公开配置文件读操作统一放行，同时保持私钥读取负门。\n\n## 验证断言\n问题还在判据：回放样本 `healing d536ca28` 的 `judge(command)` 返回 `block` 而非 `allow`。数据源：`tests/guard/replay/replay.test.ts`；修复后及 30 天到期回查。\n\n## 关闭标准\n该精确样本及既有私钥负门全部通过，修复 PR 合入且同 ruleId 30 天无同型误拦，由搭档确认关闭。\nEOF\ngh issue create --title '[bash-guard] SSH config 的 grep 只读链与既有放行政策不一致' --body-file /tmp/issue-guard.md --label bug --label P1 --label daily-review",
     expect: "allow",
     source: "healing 55e01e59（2026-11-24）",
     note: "heredoc 正文提及 SSH 路径但没有读取凭证目录；文本内容不应被当成真实文件访问。",
@@ -1039,7 +1039,7 @@ export const mustBlockCases: ReplayCase[] = [
     note: "本机设置 JSON 直接管道 Python；后续改为 curl 落盘再解析。",
   },
   {
-    command: "cd /tmp/connector-evidence && pkill -f \"app-unzipped/app/dist/connector/main.js\" 2>/dev/null; sleep 1; ./scenario-d.exp",
+    command: "cd /Users/orca/ai/otter-buddy/data/workspaces/6af46649-f93f-4c5b-a6d2-245a4ed33e9f/connector-onboarding-evidence/prb-real && pkill -f \"app-unzipped/app/dist/connector/main.js\" 2>/dev/null; sleep 1; rm -f scenario-d.log; ./scenario-d.exp \"$PWD/app-unzipped\" \"$PWD/home-a\" scenario-d.log; echo \"exit=$?\"",
     expect: "block",
     source: "healing 5c5e88d8（2026-11-24）",
     reasonContains: "按名匹配",
@@ -1053,14 +1053,14 @@ export const mustBlockCases: ReplayCase[] = [
     note: "登录与私聊 JSON 直接管道 Python；凭证已占位，后续改为落盘解析。",
   },
   {
-    command: "kill -INT $(cat /tmp/planc-connector.pid) && sleep 4 && curl -sf -H 'X-Otter-User-Id: script:planc' -H 'X-Otter-User-Role: admin' http://localhost:3138/api/execution-machines | python3 -c \"import json,sys; d=json.load(sys.stdin); print(d['machines'])\"",
+    command: "EV=/Users/orca/ai/otter-buddy/data/workspaces/6af46649-f93f-4c5b-a6d2-245a4ed33e9f/connector-onboarding-evidence/planc && kill -INT $(cat /tmp/planc-connector.pid) && sleep 4 && curl -sf -H 'X-Otter-User-Id: script:planc' -H 'X-Otter-User-Role: admin' http://localhost:3138/api/execution-machines | python3 -c \"import json,sys; d=json.load(sys.stdin); print(d['machines'])\" && sqlite3 ~/.otter/alpha/fe9de8d3/otter-buddy.db \"SELECT device_id,status,disconnect_reason FROM online_sessions ORDER BY connected_at DESC LIMIT 1;\"",
     expect: "block",
     source: "healing 79cd0623（2026-11-24）",
     reasonContains: "下载即执行",
     note: "执行机状态 JSON 直接管道 Python；精确 PID 的 INT 不改变 download_exec 判定。",
   },
   {
-    command: "curl -sf -H 'X-Otter-User-Id: script:planc' -H 'X-Otter-User-Role: admin' http://localhost:3138/api/execution-machines | python3 -c \"import json,sys; d=json.load(sys.stdin); print([m for m in d['machines'] if m['id']=='connector-example'])\"",
+    command: "set -e\nWS=/Users/orca/ai/otter-buddy/data/workspaces/6af46649-f93f-4c5b-a6d2-245a4ed33e9f\nEV=$WS/connector-onboarding-evidence/planc-final\npython3 - <<'PY'\nimport json,pathlib\nws=pathlib.Path('/Users/orca/ai/otter-buddy/data/workspaces/6af46649-f93f-4c5b-a6d2-245a4ed33e9f')\ns=json.load(open(ws/'connector-onboarding-evidence/planc-final/07-verification-summary.json'))\nassert all(s[f'P{i}']['status']=='PASS' for i in range(1,7))\nr=(ws/'connector-onboarding-planc-report.md').read_text()\nfor i in range(1,7): assert f'P{i}' in r\nassert (ws/'connector-onboarding-evidence/planc-final/log-hashes.txt').stat().st_size>0\nprint('final validation PASS: P1-P6 + report + 52 hashes')\nPY\nWT=/Users/orca/ai/otter-buddy/.otter/worktrees/planc-verify\nprintf 'worktree_head='; git -C \"$WT\" rev-parse HEAD\nprintf 'worktree_dirty_lines='; git -C \"$WT\" status --porcelain | wc -l\ncurl -sf -H 'X-Otter-User-Id: script:planc' -H 'X-Otter-User-Role: admin' http://localhost:3138/api/execution-machines | python3 -c \"import json,sys;d=json.load(sys.stdin);print('final device=',[m for m in d['machines'] if m['id']=='connector-a0bf297d'])\"",
     expect: "block",
     source: "healing 2a658702（2026-11-24）",
     reasonContains: "下载即执行",
