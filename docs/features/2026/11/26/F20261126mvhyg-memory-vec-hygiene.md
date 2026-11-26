@@ -109,6 +109,7 @@ RHI 每次扫描在 vec 审计可用时追加 `metric_type=memory_vec` 的四行
 |---|---|---|
 | 只读审计 | 对含 live/orphan 的 `/tmp` vec0 DB 运行 audit CLI | JSON 仅含模式、路径和四项计数；比例正确、无正文、孤儿保留 |
 | dry-run 零写入 | 对同一 DB 运行 cleanup 默认模式 | 输出 `mode=dry-run`，源库行不变，不创建备份 |
+| apply 参数护栏 | 分别触发 `--backup` 无 apply、backup=源库、备份已存在 | 三种调用均非零退出；源库 live/orphan 不变，已有备份正文不被覆盖 |
 | 一致性备份与 apply | WAL 中写入 live entry 后，指定 `/tmp` backup 运行 `--apply` | 备份含 WAL-only entry 与清理前孤儿；源库 `after.orphan=0`，live entry/vec 全保留 |
 | 幂等 | 对已无孤儿 DB 再调清理函数 | `deleted=0`，after 与之前一致 |
 | 正常删除 | 经 `deleteBySource` 删除带全卫星的 entry | 目标全卫星消失，无关 entry/FTS/Vec/weights/sidecar 保留 |
@@ -122,7 +123,8 @@ RHI 每次扫描在 vec 审计可用时追加 `metric_type=memory_vec` 的四行
 - `npm run build`：通过；首次因 worktree 未安装 `@earendil-works/pi-durable` 停在依赖检查，补齐 worktree 依赖后同一命令完整通过，含 connector closure/package。
 - `npx vitest run tests/frameworks/db/memory/memory-vec-hygiene.test.ts tests/frameworks/db/memory/delete-consistency.test.ts tests/frameworks/db/memory-projection-maintenance.test.ts`：3 文件、5 用例通过。
 - `npx vitest run tests/usecases/health/rhi-scan-worker.test.ts`：12 用例通过。
-- `npx vitest run tests/scripts/memory-vec-hygiene.test.ts tests/app/build-app.test.ts`：2 文件、11 用例通过；含真实子进程、`/tmp` 文件库、WAL 备份和全栈 overview 断言。
+- `npx vitest run tests/scripts/memory-vec-hygiene.test.ts tests/app/build-app.test.ts`：首轮 2 文件、11 用例通过；含真实子进程、`/tmp` 文件库、WAL 备份和全栈 overview 断言。
+- 对抗审视补强三条 apply 参数护栏后，`npx vitest run tests/scripts/memory-vec-hygiene.test.ts`：**5 用例通过**，逐项覆盖 `--backup` 无 apply、backup=源库、拒绝覆盖已有备份，并回读源库不变及已有备份正文不变；该文件 ESLint 通过。
 - 主库只读命令 `node scripts/audit-memory-vec.mjs --db=/Users/orca/ai/otter-buddy/data/otter-buddy.db` 成功返回上述 153101/69865/83236 快照；未运行主库 apply。
 - `npx vitest run`：全量 **545 文件 / 6941 用例通过**，命令退出码 0；完整输出见对话工作区 `evidence/mvhg-full-test.log`。
 - `npm run lint`、`lint:intent`、`lint:schema`、`lint:tests`、`lint:docs`、`lint:capability`、`git diff --check` 均通过；部分 lint 有警告输出但退出码为 0，本项只声明命令通过，不据此判断警告归属。完整 ESLint 与 intent 输出见 `evidence/mvhg-lint.log`、`evidence/mvhg-lint-intent.log`。

@@ -73,6 +73,43 @@ describe("memory_vec 审计/清理脚本（/tmp 真实 DB）", () => {
     expect(fs.readdirSync(tmpDir).filter(name => name.includes("bak-vec-hygiene"))).toEqual([]);
   });
 
+  it.each([
+    {
+      label: "--backup 未搭配 --apply",
+      apply: false,
+      backupKind: "separate",
+      expected: "--backup 仅可与 --apply 同用",
+    },
+    {
+      label: "备份路径等于源库",
+      apply: true,
+      backupKind: "source",
+      expected: "backup 路径不得与源 DB 相同",
+    },
+    {
+      label: "备份文件已经存在",
+      apply: true,
+      backupKind: "existing",
+      expected: "备份文件已存在，拒绝覆盖",
+    },
+  ])("apply 安全护栏：拒绝 $label 且不写源库", async ({ apply, backupKind, expected }) => {
+    await addLiveEntry("live-1");
+    addOrphan("orphan-1");
+    const backupPath = backupKind === "source" ? dbPath : path.join(tmpDir, "guard-backup.db");
+    if (backupKind === "existing") fs.writeFileSync(backupPath, "original-backup");
+    const args = [`--db=${dbPath}`, `--backup=${backupPath}`];
+    if (apply) args.push("--apply");
+
+    await expect(execFileAsync(process.execPath, [CLEANUP_SCRIPT, ...args], { cwd: ROOT }))
+      .rejects.toMatchObject({ stderr: expect.stringContaining(expected) });
+
+    expect(db.prepare("SELECT memory_entry_id FROM memory_vec ORDER BY memory_entry_id").all())
+      .toEqual([{ memory_entry_id: "live-1" }, { memory_entry_id: "orphan-1" }]);
+    expect(db.prepare("SELECT id FROM memory_entries").all()).toEqual([{ id: "live-1" }]);
+    if (backupKind === "existing") expect(fs.readFileSync(backupPath, "utf8")).toBe("original-backup");
+    if (backupKind === "separate") expect(fs.existsSync(backupPath)).toBe(false);
+  });
+
   it("apply 的 SQLite 备份含 WAL-only 数据，源库 orphan=0 且 live entry/vec 全保留", async () => {
     await addLiveEntry("live-1");
     await addLiveEntry("live-2");
