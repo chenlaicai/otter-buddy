@@ -29,14 +29,17 @@ import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import { ndcgAtK, reciprocalRank, mrr, mean } from "./ranking-metrics";
 import { CORPUS, GOLDEN_QUERIES, WEIGHT_PRESETS, daysAgoIso, CONV_ALPHA, CONV_BETA, CONV_GAMMA } from "./golden-corpus";
 
-/** 生产默认配置（config-service.ts buildMemoryConfig 默认值，评测不自编参数） */
+/** 生产默认配置（config-service.ts buildMemoryConfig 默认值，评测不自编参数）。
+ *  weightHalfLifeDays 7→14（默认切换，与 buildMemoryConfig 同步——
+ *  本夹具声明为生产默认，不同步即失真；vecSimilarityThreshold/vecCandidateLimit
+ *  不入本夹具：本套件 vec 路为 FTS-only mock 口径，两者不影响指标） */
 const PROD_MEMORY_CONFIG = {
   rrfK: 60,
   alpha: 0.4,
-  vecSimilarityThreshold: 0.3,
+  vecSimilarityThreshold: 0.1,
   bothBoost: 1.2,
   currentConversationBoost: 1.5,
-  weightHalfLifeDays: 7,
+  weightHalfLifeDays: 14,
   weightHalfLifeDaysDocument: 90,
   userFlagMultiplier: 2,
   frequencyBoostFactor: 0.1,
@@ -59,11 +62,12 @@ const PROD_MEMORY_CONFIG = {
  * 不能单独证明「变好」；改 rerank 的 PR 绿灯必须附逐信号前后对比，禁单看
  * 地板（见特性文档 实现记录「反事实与地板灵敏度」节）。
  *  改动排序管线的行为 PR 必须重跑本套件并更新地板（上升可改数字，下降须先
- *  证明是测量噪声或语义预期变化——后者需搭档确认）。 */
-export const BASELINE = {
-  ndcg5: 0.765,
-  ndcg10: 0.772,
-  mrr: 0.888,
+ *  证明是测量噪声或语义预期变化——后者需搭档确认）。
+ *  msg 半衰期 7→14 后实测 0.7684/0.7754/0.8985，地板随新基线上移
+ *  （实测与评测侧 phasec-grid 预验证一致，交叉验证成立）。 */export const BASELINE = {
+  ndcg5: 0.768,
+  ndcg10: 0.775,
+  mrr: 0.898,
 } as const;
 
 function mockEmbeddingGateway(): EmbeddingGateway {
@@ -269,7 +273,10 @@ describe("golden 评测 runner：全链路指标 + 回归地板", () => {
     const expected = {
       D7: { top1: "g-fact-cv01", targets: ["g-fact-cv01", "g-fact-cv02"] },
       C11: { top1: "g-fact-cv02", targets: ["g-doc-old01", "g-doc-old02"] },
-      E12: { top1: "g-clu-06b", targets: ["g-clu-06a", "g-clu-06b"] },
+      // msg 半衰期 7→14 后，30 天龄 message（词面略高+本对话加成）权重提升约4.4倍，
+      // 默认榜首由文档 g-clu-06b 翻转为 message g-clu-06a——评测网格（25 组合）背书的预期行为变化，
+      // 逐条锁随之重锁；targets 不变（两正例仍均入 top10）。
+      E12: { top1: "g-clu-06a", targets: ["g-clu-06a", "g-clu-06b"] },
       E13: { top1: "g-clu-07a", targets: ["g-clu-07a", "g-clu-07b", "g-doc-old02"] },
       E14: { top1: "g-clu-08b", targets: ["g-clu-08a", "g-clu-08b"] },
     } as const;
@@ -316,8 +323,12 @@ describe("golden 评测 runner：全链路指标 + 回归地板", () => {
 
     const e12 = GOLDEN_QUERIES.find((q) => q.id === "E12")!;
     const e12Rel = new Map(Object.entries(e12.expected));
-    const e12Before = (await runGoldenQuery("E12")).map((e) => e.id);
-    const e12After = (await runGoldenQuery("E12", shortDocumentHalfLife)).map((e) => e.id);
+    // msg 半衰期 7→14 后，30 天龄 message 直接压过文档层，文档半衰期
+    // 判别力结构被 msg 变量淹没——本段隔离 msg 半衰期（固定 7），单变量测 doc 半衰期边际效应；
+    // 生产默认下的 E12 榜首变化已由上方「逐条锁」用例重锁（g-clu-06a）。
+    const e12MsgPinned = { ...PROD_MEMORY_CONFIG, weightHalfLifeDays: 7 };
+    const e12Before = (await runGoldenQuery("E12", e12MsgPinned)).map((e) => e.id);
+    const e12After = (await runGoldenQuery("E12", { ...e12MsgPinned, weightHalfLifeDaysDocument: 1 })).map((e) => e.id);
     expect(e12Before[0], "E12 默认文档榜首").toBe("g-clu-06b");
     expect(e12After[0], "E12 半衰期=1 后 message 榜首").toBe("g-clu-06a");
     expect(e12After).not.toEqual(e12Before);
@@ -336,7 +347,7 @@ describe("golden 评测 runner：全链路指标 + 回归地板", () => {
     expect(ndcgAtK(e13After, e13Rel, 10)).not.toBe(ndcgAtK(e13Before, e13Rel, 10));
   });
 
-  it("显式 multiply 回退路径保持 golden-seed-v3 基线 0.6783/0.7028/0.8112", async () => {
+  it("显式 multiply 回退路径保持 golden-seed-v3 基线 0.6814/0.7052/0.8129（h14 重锁）", async () => {
     const legacyEngine = new SearchEngine({ ...PROD_MEMORY_CONFIG, rerankMode: "multiply" });
     const legacy = new SearchMemory(repo, repo, mockEmbeddingGateway(), legacyEngine, createTestLogger());
     const ndcg5s: number[] = [];
@@ -358,9 +369,11 @@ describe("golden 评测 runner：全链路指标 + 回归地板", () => {
     console.log(
       `[golden-eval][multiply] n=${GOLDEN_QUERIES.length} nDCG@5=${mean(ndcg5s).toFixed(4)} nDCG@10=${mean(ndcg10s).toFixed(4)} MRR=${mrr(rrs).toFixed(4)}`,
     );
-    expect(mean(ndcg5s)).toBeCloseTo(0.6783, 4);
-    expect(mean(ndcg10s)).toBeCloseTo(0.7028, 4);
-    expect(mrr(rrs)).toBeCloseTo(0.8112, 4);
+    // 半衰期 7→14 影响所有 rerank 模式的共同输入，multiply 基线随之重锁
+    // （旧 h7 基线 0.6783/0.7028/0.8112；重锁语义=锁定回退路径不漂移，非锁定 h7 时代数字）。
+    expect(mean(ndcg5s)).toBeCloseTo(0.6814, 4);
+    expect(mean(ndcg10s)).toBeCloseTo(0.7052, 4);
+    expect(mrr(rrs)).toBeCloseTo(0.8129, 4);
   });
 
   it("additive 全中性化反事实复现 golden-seed-v3 锚点 0.7792/0.7950/0.9315（±0.001）", async () => {

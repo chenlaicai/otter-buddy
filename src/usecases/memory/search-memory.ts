@@ -21,7 +21,7 @@ import type { MemoryWriter } from "./memory-writer";
 import type { TerminologyRepository } from "./terminology-repository";
 import type { EmbeddingGateway } from "./embedding-gateway";
 import type { SearchEngine, RrfHit, ScoredHit } from "./search-engine";
-import { DOCUMENT_CONTENT_TYPES } from "./search-engine";
+import { DOCUMENT_CONTENT_TYPES, DEFAULT_VEC_CANDIDATE_LIMIT } from "./search-engine";
 import type { Logger } from "@usecases/ports/logger";
 
 /** snippet 降级截取长度（FTS5 highlight 不可用时） */
@@ -506,7 +506,10 @@ export class SearchMemory {
       const aggregatedFts = this.preAggregateFtsBySource(ftsHits);
       snippetMap = new Map(aggregatedFts.map((h) => [h.entryId, h.snippet]));
       // PR审视 vec 预聚合同样限制每 source top-3，防长文档 chunk 霸占 RRF
-      const vecSearch = await this.searchVec(query.query, filters, query.limit);
+      // vec 候选池深度用 vecCandidateLimit（默认 20），不再跟随 query.limit——
+      // 池深与 slate 长度解耦；searchSimilar 路径语义不同，仍用调用方 limit。
+      // ?? 兑底仅为类型收窄：构造回填保证运行时非空。
+      const vecSearch = await this.searchVec(query.query, filters, this.searchEngine.configRef.vecCandidateLimit ?? DEFAULT_VEC_CANDIDATE_LIMIT);
       const vecHits = this.preAggregateVecBySource(vecSearch.hits);
       rrfHits = this.searchEngine.rrfFusion(
         aggregatedFts.map((h) => ({ entryId: h.entryId, ftsRank: h.ftsRank, entry: h.entry })),
@@ -516,7 +519,7 @@ export class SearchMemory {
     } else {
       const ftsHits = await this.reader.searchFTS(query.query, filters);
       const aggregatedFts = this.preAggregateFtsBySource(ftsHits);
-      const vecSearch = await this.searchVec(query.query, filters, query.limit);
+      const vecSearch = await this.searchVec(query.query, filters, this.searchEngine.configRef.vecCandidateLimit ?? DEFAULT_VEC_CANDIDATE_LIMIT);
       const vecHits = this.preAggregateVecBySource(vecSearch.hits);
       rrfHits = this.searchEngine.rrfFusion(aggregatedFts, vecHits);
       return this.rerankAndReturn(rrfHits, query.limit, detailLevel, snippetMap, true, query.debug ?? false, query.currentConversationId, vecSearch.state);

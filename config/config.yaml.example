@@ -99,9 +99,15 @@ memory:
   # 用于合并不同检索源（FTS5 vs 向量搜索）的排序结果
   # 值越大，排名分数曲线越平缓
   rrfK: 60
-  # 记忆权重衰减半衰期，单位：天（默认 7）
+  # 记忆权重衰减半衰期，单位：天（默认 14，少压制近两周内容；
+  # 21 天被回归测试擦线退化否决）
   # 记忆每经过这么多天，相关性权重减半
-  weightHalfLifeDays: 7
+  weightHalfLifeDays: 14
+  # Vec 相似度阈值，低于 (1-distance) 的候选被过滤（默认 0.1）
+  # 旧值 0.3 曾使 vec 路过门率≤4%、语义检索形同关闭
+  # vecSimilarityThreshold: 0.1
+  # Vec 候选池深度（vec0 KNN k，默认 20）——独立于单次检索返回条数 limit
+  # vecCandidateLimit: 20
   # 用户标记记忆的加权倍数（默认 2.0）
   # 用户主动标记的记忆在检索排名中获得此倍数加成
   userFlagMultiplier: 2.0
