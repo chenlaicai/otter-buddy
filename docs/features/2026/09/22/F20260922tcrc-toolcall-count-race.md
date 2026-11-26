@@ -2,7 +2,6 @@
 id: F20260922tcrc
 title: toolCallCount 快照竞态修复（#763）：catch 读取 vs finally 清理
 change_type: fix
-status: implemented
 created: 2026-09-22
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

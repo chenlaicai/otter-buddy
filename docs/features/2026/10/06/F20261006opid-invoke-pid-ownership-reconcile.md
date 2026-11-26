@@ -3,7 +3,6 @@ id: F20261006opid
 title: 重启窗口期孤儿 invoke 根治：pid 归属判据替换时间戳守卫
 change_type: fix
 capability_test: "n/a: 进程归属判据 + 存量库迁移，无 LLM 行为面"
-status: implemented
 created_at: 2026-10-06
 created_in_conversation: d7377cfd-8497-4338-9fb5-366967ffe87e
 causal_links:

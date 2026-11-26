@@ -13,7 +13,6 @@ causal_links:
   to:
     - F20260717yngs   # llm-api-config-unification：config 透传模式的同构延续
 
-status: development
 change_type: fix
 tags: [embedding, bge-m3, model-loading, offline, config-wiring, huggingface, worker-thread, memory-vec]
 modules:

@@ -3,7 +3,6 @@ id: F20261008pi11
 title: pi SDK 升级 0.86.0 → 1.1.0（依赖升级 + 两处行为适配）
 change_type: feature-update
 capability_test: "n/a: 依赖升级，验证面 = tsc 0 error + 322 文件 4893 测试全绿 + 导出/运行时探针（见「验证矩阵」节）"
-status: implemented
 created_at: 2026-10-08
 created_in_conversation: 325ef7b7-8e42-4edc-9abf-eae8f332a2c4
 causal_links:

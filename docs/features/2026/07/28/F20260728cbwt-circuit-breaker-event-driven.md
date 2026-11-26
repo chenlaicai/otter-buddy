@@ -21,7 +21,6 @@ causal_links:
     - F20260728cbtf   # 工具名字段修复（同一起事故的第一次修复，遗留死线语义缺陷）
     - F20260727guar  # OutputGuard（接管时间维度的挂死保护）
 
-status: final
 change_type: fix
 tags: [circuit-breaker, steer, incident-fix, event-driven, tool-signature]
 modules:

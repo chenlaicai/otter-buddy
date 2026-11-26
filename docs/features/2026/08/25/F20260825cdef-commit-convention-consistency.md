@@ -8,7 +8,6 @@ summary: |
   `Feature`，Type Tags 表与 hook 白名单只收录 5 种）。本特性按 git log 存量验证结果
   执行方向 1：文档收敛至 5 种类型，删除 `Feature`。
 change_type: fix
-status: active
 capability_test: "n/a: 纯文档订正 + 既有 hook/CI 行为验证，无 LLM 参与行为"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 ---

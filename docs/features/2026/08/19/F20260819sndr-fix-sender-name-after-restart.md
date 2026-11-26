@@ -17,7 +17,6 @@ causal_links:
     - F20260819spyd   # speak+yield 双工具拆分
 
 # 元数据
-status: locked
 change_type: fix
 tags: [sse, sender-name, circuit-breaker, restart, frontend, bugfix]
 modules: [src/interface-adapters/agent-runtime/agent-invoker.ts, web/src/pages/conversation/index.tsx]

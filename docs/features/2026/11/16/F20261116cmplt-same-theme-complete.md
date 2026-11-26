@@ -2,7 +2,6 @@
 id: F20261116cmplt
 title: 检视建议「同主题可完善项」强关联判定补例：随单做完整、不留尾巴（#1890 复盘）
 change_type: prompt
-status: implemented
 created: 2026-11-16
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

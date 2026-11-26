@@ -19,7 +19,6 @@ causal_links:
     - "#509"
     - "#519"
 
-status: final
 change_type: fix
 tags: [memory, retrieval, progressive-disclosure, summary, projection, bugfix]
 modules:

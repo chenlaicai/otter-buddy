@@ -4,7 +4,6 @@ id: F20261118clkpt
 date: 2026-11-18
 module: extensions
 change_type: feature
-status: active
 summary: |
   CoLink 协议从 vendor 的 @colink/app-sdk 0.15.0 迭代到 0.28.0 并整体重构：
   createCoLinkApp→createCoLinkRuntime、turn→ctx、app.mentioned→app.user_message_received、

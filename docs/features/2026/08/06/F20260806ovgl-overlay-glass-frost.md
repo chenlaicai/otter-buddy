@@ -15,7 +15,6 @@ causal_links:
     - F20260724glas   # 玻璃材质 4 层级体系的上游（本特性恢复其 L3 磨砂玻璃定位）
   to: []
 
-status: development
 change_type: fix
 tags: [web, ux, glass, css]
 modules:

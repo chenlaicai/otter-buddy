@@ -15,7 +15,6 @@ causal_links:
     - F20260807arop  # 对抗审视反讨好优化（移除"可以合入"出口）
     - F20260810sopt   # Skill 系统优化（PR 留痕机制）
 
-status: development
 change_type: prompt
 tags: [skills, review, prompt]
 modules:

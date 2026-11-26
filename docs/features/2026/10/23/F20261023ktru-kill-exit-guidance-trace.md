@@ -2,7 +2,6 @@
 id: F20261023ktru
 title: kill 族正道指引绝对路径化 + restart-service 执行留痕（#1069 复发跟进）
 change_type: fix
-status: implemented
 created: 2026-10-23
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

@@ -9,7 +9,6 @@ summary: |
   新增 prompts/scheduled/ 模板目录（真相源在 git）+ scripts/update-scheduled-task-body.mjs 更新脚本，
   数据源从 3 项扩到 5 项（补 self-healing events、memory），并固化 #352 的调查纪律。
 change_type: feature
-status: active
 capability_test: "n/a: 定时任务 prompt 模板 + 运维脚本，无 LLM 参与的行为变更（LLM 行为由 prompt 内容引导，效果观察走 #352 关闭条件：观察 2 周）"
 created_in_conversation: 1030241b-4ef2-46f2-99d3-82ae34cd1f66
 tags:

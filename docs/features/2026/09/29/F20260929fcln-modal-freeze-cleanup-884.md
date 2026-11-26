@@ -15,7 +15,6 @@ summary: >
 created: 2026-09-28
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 change_type: refactor
-status: implemented
 related_issues: ["#884"]
 related:
   - F20260909srf6      # 模糊语义切换（本清理的直接前提）

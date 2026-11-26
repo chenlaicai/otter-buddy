@@ -2,7 +2,6 @@
 id: F20261113sgnpr
 title: signal 块改 speak 独立参数，废除 body 内嵌标签
 change_type: fix
-status: development
 created_at: 2026-11-13
 capability_test: "tests/capability/magic-words-signal.capability.test.ts（objection/blocked 采样用例已同步改为 signal 参数口径）"
 intent:

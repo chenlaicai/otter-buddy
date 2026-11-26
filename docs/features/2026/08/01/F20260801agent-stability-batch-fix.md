@@ -13,7 +13,6 @@ causal_links:
   from:
     - F20260724regd   # sender-name-projection：发言名字显示问题是该修复的回归
 
-status: final
 change_type: fix
 tags: [agent, stability, bugfix, invocation, sender-name, message-ordering, session]
 modules:

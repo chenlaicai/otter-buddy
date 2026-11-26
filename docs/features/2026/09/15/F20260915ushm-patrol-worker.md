@@ -3,7 +3,6 @@ id: F20260915ushm
 title: 巡检 worker：四个扫台账循环合并为单一定时器（8→5 常驻循环）
 summary: 落地 #949（chen「后台循环太多」裁决的结构化后半截）：运行时对账（#823）/ Signal Aging（#927）/ RHI Scan（#401）/ Embedding Retry（F20260812mrcq）四个同构「定时醒来扫台账」循环合并为单一 PatrolWorker——一个 1h setInterval 按序驱动四家职责，常驻循环 8→5。职责注册接口（PatrolDuty name+run）+ 失败隔离（一家炸不影响后续）+ start 幂等/stop 等 in-flight。SchedulerService 删 #823 独立对账定时器改暴露 reconcileMissedWindowsNow 公共方法；EmbeddingRetryWorker start() 不再自持定时器（PatrolWorker 调 tickNow）。闹钟盘点报告（timer-audit-20260915）的合并处方落地。
 type: feature
-status: development
 created: 2026-09-15
 created_in_conversation: c2f347c6-7e59-4e2e-ab48-10f64a5a1258
 modules: [scheduler, health, memory]

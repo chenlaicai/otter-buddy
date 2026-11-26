@@ -17,7 +17,6 @@ causal_links:
 
 
 # 元数据
-status: locked
 change_type: feature
 tags: [architecture, agent, tools, skills, pi-agent]
 modules: [src/interface-adapters/agent-runtime/, src/frameworks/agent/]

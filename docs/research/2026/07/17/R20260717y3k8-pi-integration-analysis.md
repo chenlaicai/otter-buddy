@@ -14,7 +14,6 @@ causal_links:
     - R20260716x2k9   # Pi Agent 能力探索
 
 # 元数据
-status: locked
 exploration_type: technical
 tags: [pi-agent, integration, sdk, cli, mcp, comparison]
 conclusion: 维持当前 SDK 方案，Otter 是单机 Node.js 应用，SDK 方式提供更低延迟、更简单运维、更好的类型安全

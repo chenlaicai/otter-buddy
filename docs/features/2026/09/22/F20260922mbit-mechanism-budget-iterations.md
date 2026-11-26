@@ -2,7 +2,6 @@
 id: F20260922mbit
 title: 机制预算四问迭代项收口（#834）：术语精确化 + 措辞统一 + 承载格式示例
 change_type: fix
-status: implemented
 created: 2026-09-22
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

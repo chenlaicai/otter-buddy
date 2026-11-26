@@ -15,7 +15,6 @@ causal_links:
     - F20260722d3k7   # 行为模式强化（本特性清理其引入的重复条款，保留合规效力）
 
 # 元数据
-status: implemented
 change_type: refactor
 tags: [speak, agent-loop, terminate, context-engineering, skills, tools, prompt]
 modules: [interface-adapters/agent-runtime/tools/, skills/code-implementation/]

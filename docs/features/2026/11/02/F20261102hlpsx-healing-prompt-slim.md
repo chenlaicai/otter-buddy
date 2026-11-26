@@ -2,7 +2,6 @@
 id: F20261102hlpsx
 title: healing 分析任务 prompt 瘦身（#1512）：数据区线索化 + 锚点补齐 + 预算控制
 change_type: refactor
-status: implemented
 created: 2026-11-02
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

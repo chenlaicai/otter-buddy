@@ -1,1 +1,0 @@
-# F20261103obarx intent 块补录：#1742 当日合入文档漏填 intent 块，被本 PR 新全域门（#1740）CI 实跑捕获——按门提示补 frontmatter intent（problem/expected_effect/verify_by:behavior_check），纯元数据订正不涉正文

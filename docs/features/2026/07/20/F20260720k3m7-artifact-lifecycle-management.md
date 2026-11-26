@@ -14,7 +14,6 @@ causal_links:
     - F20260713c7p2   # domain-conversation
 
 # 元数据
-status: development
 change_type: feature
 tags: [artifact, lifecycle, linked-resource, state-machine]
 modules: [src/entities/conversation/, src/frameworks/db/conversation/]

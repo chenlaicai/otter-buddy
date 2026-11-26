@@ -3,7 +3,6 @@ id: F20260901sgpv
 title: '协作机制 v2：信号协议 P1 — 信号路由器（入口换轨）'
 summary: '信号协议（F20260901sgpx）实现第二阶段：新建 SignalRouter 作为调度收敛点，web 主入口与 IM 入口（飞书/微信）换轨至信号路由（投递即点火 + busyQueue 排队 + 档位矩阵 P1 落地面），resume 启动补扫接入信号补路由（崩溃窗口兜底），消费失败 healing 可见。P1 边界内 scheduler/web-retry 暂留直连链，链引擎本体不动。'
 change_type: feature
-status: draft
 capability_test: "n/a: P1 为调度骨架换轨（A 类行为契约测试覆盖，见## 验证）；能力级验证（插话不打断/锁超时消失）在 P2 invoke 循环落地后以 capability 测试覆盖"
 tags: [agent-architecture, signal-protocol, dispatch, collaboration]
 created_in_conversation: 52bfdd91-a61e-4323-b1f7-1fe3daaadc32

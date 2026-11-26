@@ -2,7 +2,6 @@
 id: F20261104fptgk
 title: 第一性三关：任务开工前的心智纪律（#1749 复盘定稿）
 change_type: prompt
-status: implemented
 created: 2026-11-04
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

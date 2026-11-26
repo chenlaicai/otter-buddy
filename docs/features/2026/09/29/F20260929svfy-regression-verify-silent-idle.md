@@ -13,7 +13,6 @@ intent:
   verify_by:
     type: behavior_check
     reason: 新增纪律段有可观察行为（skip 落账/心跳/断言豁免），非纯文案
-status: draft
 created_at: 2026-09-29
 created_in_conversation: f4402db8-9dee-4979-82b9-f0d46ed4f195
 closes_issue: 1208

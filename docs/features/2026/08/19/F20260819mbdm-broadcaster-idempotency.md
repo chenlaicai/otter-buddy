@@ -3,7 +3,6 @@ id: F20260819mbdm
 title: MessageBroadcaster 幂等性：基于 messageId 的去重机制
 summary: 为 MessageBroadcaster.broadcast 添加进程内 LRU 去重机制，防止飞书 webhook at-least-once 投递语义下重复广播消息。
 change_type: fix
-status: locked
 created_in_conversation: bbcfaa33-f036-4493-94de-3faf1c6df6cf
 modules:
   - src/usecases/im/message-broadcaster.ts

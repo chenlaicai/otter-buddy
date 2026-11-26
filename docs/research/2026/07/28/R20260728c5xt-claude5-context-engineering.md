@@ -19,7 +19,6 @@ causal_links:
     - F20260716szw8   # 记忆渐进式披露
 
 # 元数据
-status: draft
 exploration_type: technical
 tags: [context-engineering, prompt, skills, tools, claude-5, anthropic-blog, insight]
 conclusion: Otter 系统层上下文已符合 Claude 5 新范式；应将规则式防御从 skill/工具描述中清理；speak 回合控制经 transcript 实证与 SDK 源码验证，应从文案禁令改为 loop terminate 机制（属协议修正而非行为拦截）

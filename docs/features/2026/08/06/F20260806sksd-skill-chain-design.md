@@ -14,7 +14,6 @@ causal_links:
     - F20260728skrp
     - F20260721cap0
 
-status: design
 change_type: prompt
 tags: [skills, prompt-engineering, multi-agent, workflow]
 modules:

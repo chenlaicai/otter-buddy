@@ -15,7 +15,6 @@ causal_links:
     - F20260713o4t8   # domain-otter
 
 # 元数据
-status: locked
 change_type: feature
 tags: [otter, conversation, isolation, concurrency]
 modules: [src/frameworks/agent/, src/interface-adapters/agent-runtime/]

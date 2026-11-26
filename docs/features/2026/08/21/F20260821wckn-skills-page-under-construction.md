@@ -8,7 +8,6 @@ summary: |
   根因：skills 页纯 mock 却提供注册/加载/卸载假交互，误导用户信任（#366 问题 #13）。
   做法：页面收敛为真实数据只读目录 + 显式建设中横幅。
 
-status: development
 change_type: fix
 tags: [web, cleanup, skills]
 modules:

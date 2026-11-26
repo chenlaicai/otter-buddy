@@ -3,7 +3,6 @@ id: F20260828rdsc
 title: README 首屏增加系统运行截图
 summary: README 首屏增加主对话界面截图。求职场景下招聘方 10 秒内打开 README，第一屏看到系统真实运行画面是「项目是活的」最强信号；纯文字+ASCII 架构图缺少这一层直观性。截图经 playwright 2x 采集、降采样至 1600px、JPEG q92 压缩至 404KB，落位 docs/images/。
 change_type: feature
-status: implemented
 capability_test: "n/a: 纯文档改动（A 类），无 LLM 参与行为"
 created_in_conversation: 09bf83a5-8a9a-4aba-815e-a92c783b4800
 ---

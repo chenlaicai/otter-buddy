@@ -10,7 +10,6 @@ summary: |
   ②恢复执行时写一条 healing event（errorType='other'，severity 按中断发言数分级），
   让每日健康检查数据源闭环。
 change_type: fix
-status: active
 capability_test: "n/a: 消息文案与 healing event 写入，无 LLM 参与行为"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 ---

@@ -14,7 +14,6 @@ causal_links:
   references:
     - "#338"
 
-status: development
 change_type: fix
 tags: [agent, degenerate, circuit-breaker, resilience, issue-fix]
 modules:

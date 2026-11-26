@@ -11,7 +11,6 @@ causal_links:
   from:
     - F20260817a3rt
 
-status: development
 change_type: refactor
 tags: [im, broadcaster, error-handling, isolation]
 modules:

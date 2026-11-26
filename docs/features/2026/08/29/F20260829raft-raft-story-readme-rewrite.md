@@ -6,7 +6,6 @@ date: 2026-08-29
 change_type: feature-update
 scope: [readme]
 type: feature
-status: draft
 created_in_conversation: cb80d695-bce9-4b83-9f2a-98618242acd0
 ---
 

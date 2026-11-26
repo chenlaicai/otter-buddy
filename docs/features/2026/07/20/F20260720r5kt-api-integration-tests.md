@@ -15,7 +15,6 @@ causal_links:
     - F20260715b8c6   # usecases-layer-implementation
 
 # 元数据
-status: development
 change_type: feature
 tags: [testing, integration-test, api, http]
 modules: [tests/, src/interface-adapters/http/]

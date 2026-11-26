@@ -13,7 +13,6 @@ causal_links:
     - F20260805abpp
   to: []
 
-status: development
 change_type: fix
 tags: [frontend, projection, error-handling]
 modules:

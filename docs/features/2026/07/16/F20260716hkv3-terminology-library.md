@@ -16,7 +16,6 @@ causal_links:
 
 
 # 元数据
-status: draft
 change_type: feature
 tags: [design, memory, terminology, glossary, domain-knowledge, multi-library]
 modules: [domain/memory, frameworks/db, interface-adapters/agent-runtime]

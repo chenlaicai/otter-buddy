@@ -4,7 +4,6 @@ title: skill 产出清单内置特性文档为默认交付物
 summary: |
   issue #443：8/25 三个 PR（#434/#435/#436）全被对抗审视抓「B2 特性文档缺失」严重发现，根因是 skill 产出清单未把特性文档列为默认交付物，交付依赖派工简报人工提醒。本 PR 落地 issue 方案 1+2：worktree-isolation 与 code-implementation 两个 skill 的 Output 描述、工作流、产出表同步加入特性文档行；修正 code-implementation 输入表「不存在则跳过」与 B2 硬规则「必须」的矛盾。方案 3（commit-msg/CI 工具层校验）评估为暂缓，结论已评论至 issue。
 change_type: feature-update
-status: active
 capability_test: "n/a: 纯 skill prompt 变更（B 类），行为效果由后续 PR 的对抗审视 B2 检核自然验证"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 ---

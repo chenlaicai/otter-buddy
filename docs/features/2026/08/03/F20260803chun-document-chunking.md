@@ -14,7 +14,6 @@ causal_links:
     - F20260803mval   # memory-validator：upsert + replaceBySource 基础设施
     - F20260803emlo   # embedding 本地加载（PR #130，chunk embedding 收益依赖）
 
-status: design
 change_type: feature
 tags: [memory, document-sync, fts, search, chunking, embedding, full-text-index]
 modules:

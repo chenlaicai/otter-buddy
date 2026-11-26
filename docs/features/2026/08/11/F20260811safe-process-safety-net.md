@@ -10,7 +10,6 @@ causal_links:
   from:
     - F20260728cbwt
 
-status: development
 change_type: fix
 tags: [stability, error-handling]
 modules:

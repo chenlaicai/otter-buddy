@@ -13,7 +13,6 @@ causal_links:
   from:
     - F20260827mpcg
 
-status: development
 change_type: fix
 tags: [skills, memory, hygiene, process]
 modules:

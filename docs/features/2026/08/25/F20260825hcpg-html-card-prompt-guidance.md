@@ -4,7 +4,6 @@ title: html-card 主动引导归位与体积预算扩容
 summary: |
   海獭呼叫用户时几乎总用 md、卡片不出的两层根因修复：①正向判断标准在 F20260728htar 历次压缩中失传（只移出未移入），本次归位 speak description（场景锚+正文卡片搭配+反例）；②单卡 4KB 中文实容仅 ~1300 汉字，扩到 8KB，CARD_MAX_BYTES 落位 api-contract 单一真相源。多獭讨论裁决（kimi/mimo/大獭）：单点归位不加 SYSTEM.md 副锚（工具 description 每请求注入，pi-ai 源码验证）、场景锚+反例划界、不搞频控、不加 magic word。
 change_type: prompt
-status: implemented
 tags: [html-card, speak, tool-description, prompt, llm-behavior]
 modules:
   - src/interface-adapters/agent-runtime/tools/tool-factory.ts

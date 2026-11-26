@@ -14,7 +14,6 @@ causal_links:
     - F20260802hybrid  # 混合架构（MPA/SPA 决定了轮询而非全局 SSE）
   to: []
 
-status: development
 change_type: feature
 tags: [conversation, ux, polling, sql]
 modules:

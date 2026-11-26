@@ -4,7 +4,6 @@ title: bash 求值器语义模型落地——撤四条拟合规则 + 补裁簇�
 summary: 派工单「方案 A：语义模型落地 + 补裁簇重裁」执行记录。语义模型三条腿（可求值按落点判 / 不可证回落 / 只读正面放行）取代拟合型假写证据：撤 C'''（X.append→cwd）、C4（print→cwd）、D'（gh pr 变更→cwd）、A'（主仓字面量闸）四条「隐式写→落点=cwd」规则（zdebug 实证 12 条误伤全是 {path:"/repo"} 凭空捏造）；open() mode 三分类修正（python 默认读=非写嫌疑 / 写 mode 字面量=写证据 / 非字面量=不可证 fail-closed，含 mode= kwarg 与 perl 模式）；push 远端目标=非写（本地路径例外按落点判）；pull 补进写族词表（双签终版驳回「pull 非写」）。补裁簇 12 条逐条按 §3.2.1 重批（【重裁前裁决（已废）】留痕可回溯），含派工单点名 4 条同构对与 8 条同族批改笔误。棘轮 177→148（added=0，shrink_only=PASS），全仓 5433/5433 绿。
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 date: 2026-10-15
-status: development
 modification_class: deletion
 intent:
   problem: "考题库批错答案（同命令一放一拦/读文件当写文件/字符串当写路径）与迁就错题的拟合假写证据规则（C'''/C4/D'/A'）造成 12 条 zdebug 误伤（写目标全为 {path:/repo} 凭空捏造）；工单②追加：放行库 35+ 条黑盒外置脚本考题盲放过考（bash <file> 无写面词即正面 ALLOW，探针 7 形态全盲放）"

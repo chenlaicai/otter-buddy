@@ -16,7 +16,6 @@ causal_links:
     - "#334": 检视流程链断点——常驻规则自相矛盾 + 编排者文件无流程职责
 
 # 元数据
-status: draft
 change_type: feature
 tags: [agent, orchestration, dispatch, guard, ledger, mechanism]
 modules:

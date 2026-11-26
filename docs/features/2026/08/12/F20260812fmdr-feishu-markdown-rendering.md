@@ -12,7 +12,6 @@ causal_links:
   from:
     - F20260728htar
 
-status: development
 change_type: feature
 tags: [feishu, im, rendering, channel-adapter]
 modules:

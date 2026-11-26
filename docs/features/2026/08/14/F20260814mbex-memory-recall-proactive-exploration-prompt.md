@@ -13,7 +13,6 @@ causal_links:
     - F20260813mren
     - F20260721m3r1   # 其"不每次回复前都搜索"触发规则已被本特性反转（见设计决策 D4 映射）
 
-status: development
 change_type: prompt
 tags: [memory, prompt, agent-behavior]
 modules:

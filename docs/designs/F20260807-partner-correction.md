@@ -1,7 +1,6 @@
 ---
 id: F20260807-partner-correction
 title: 海獭伙伴化纠正方案
-status: draft
 author: 大獭
 created: 2026-08-07
 ---

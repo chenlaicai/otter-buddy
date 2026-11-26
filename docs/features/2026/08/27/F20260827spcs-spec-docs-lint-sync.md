@@ -3,7 +3,6 @@ id: F20260827spcs
 title: 三处规范文档同步：R1 force-with-lease 豁免、SKILL-TEMPLATE 字段对齐、lint 校验补盲
 summary: 一个 PR 带三个 issue 的规范同步批处理。#468 R1 红线第 4 条按分支类型区分——受保护分支 force push 永远禁止，本期创建未合入的 feature 分支 rebase 后放行 --force-with-lease；#455 SKILL-TEMPLATE 特性文档字段清单按真实使用率重排（核心五字段 + capability_test + created_in_conversation，冷门字段降为可选）；#470 validator 补 status 枚举 active、title 可读性、文件名 slug 三项校验 + lint:docs ratchet 约束存量。
 change_type: prompt
-status: development
 created_in_conversation: 02e892ea-b291-4108-bacf-0d6148790511
 capability_test: "n/a: 规范文档与 lint 逻辑改动（validator 有单元测试 tests/entities/document/frontmatter-validator.test.ts），无 LLM 参与行为"
 tags: [spec, lint, validator, r1, docs]

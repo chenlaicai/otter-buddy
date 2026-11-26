@@ -2,7 +2,6 @@
 id: F20260922wxlg
 title: 微信扫码重定向网关切换（#571）+ IM 命令解析器通道无关重命名（#572）
 change_type: fix
-status: implemented
 created: 2026-09-22
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

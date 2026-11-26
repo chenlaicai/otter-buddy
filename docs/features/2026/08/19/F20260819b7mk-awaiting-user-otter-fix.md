@@ -4,7 +4,6 @@ title: 修复发言石传给 otter 时对话状态误判为 awaiting_user
 summary: |
   在 listConversationsWithMeta 的派生活动状态中，当最后一条消息是 otter 发出且发言石传给另一个 otter 时，
   状态应为 processing 而非 awaiting_user。
-status: draft
 change_type: fix
 tags: ["conversation", "database", "bugfix", "talking-stone", "activity-status"]
 modules: ["src/frameworks/db/conversation/sqlite-conversation-repository.ts"]

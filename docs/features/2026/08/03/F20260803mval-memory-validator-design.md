@@ -14,7 +14,6 @@ causal_links:
     - F20260730heal   # self-healing-system：对账 + 健康可见性是 self-heal 思想在记忆链路的应用
     - F20260728htar   # html-card-dual-speak-format：表重建迁移的先例（messages_fts rebuild）
 
-status: development
 change_type: fix
 tags: [memory, validator, document-sync, observability, link-integrity, db-migration, upsert, health-endpoint]
 modules:

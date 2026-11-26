@@ -2,7 +2,6 @@
 id: F20261103blnkr
 title: supersede 反向索引：扫描期计算 + from 链存在性校验（#1294）
 change_type: feature
-status: implemented
 created: 2026-11-03
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

@@ -11,7 +11,6 @@ summary: |
   当前时间（零缓存成本保新鲜度）；config 开关启用 PI_CACHE_RETENTION=long（1h TTL，
   已实测 GLM anthropic 兼容端点接受 ttl 字段）。预期命中率 92.3% → 96%+。
 change_type: fix
-status: active
 capability_test: "n/a: 纯机制层改动（时间戳格式/env 注入），deterministic，由单测覆盖"
 created_in_conversation: eecf065a-aec3-4c3a-8aa8-ccf86ad4d857
 causal_links:

@@ -3,7 +3,6 @@ id: F20261012gtfr
 title: 试金石三库冻结——一步到位验收语料入库（放行/拦截/条件期望 + CI 冻结完整性断言）
 summary: 「bash 一步到位」方案 §四 的语料工程化收口：1006 条 unique 真实数据经 §3.2.1 证明演算裁决 + 双签口径重刷，冻结为三库（放行 780 / 拦截 48 / 条件期望 108）进 tests/fixtures，CI 断言门（verdict 二值 / SKIP=0 / id+命令跨库唯一 / 残余面 7 条钉名 / 全量遍历守恒）。剔除 30 + 非写维度附录 40 显式记档；残余面 7 条（真实误拦但 fail-closed 仍拦）residual_face 如实钉 BLOCK 不许隐身。重刷变化数：git 口径翻转 68、条件期望 108、O-2 归池 26、剔除 20、台账复裁 8。2026-10-13 轻审收口（检视獭1360 3 点位 + 大獭拍板）后终态：三库 765+50+106（同命令期望对齐 / 复合条目拆段归桶 / 5 条依据错配改正 / 运维豁免限定句入档 + B 节 3 条归池）；同日大獭裁决 2 条探针漏网放水口翻 BLOCK 后终版：**763+52+106**。
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
-status: implemented
 modification_class: mechanism-addition
 change_type: feature
 tags: [guard, touchstone, corpus, ci-gate]

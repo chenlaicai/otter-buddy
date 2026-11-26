@@ -16,7 +16,6 @@ causal_links:
   related_issues:
     - "#242 (可观测性基础设施)"
 
-status: implemented
 change_type: feature
 tags: [observability, metrics, prom-client, scheduler]
 modules:

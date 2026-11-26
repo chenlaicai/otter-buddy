@@ -14,7 +14,6 @@ causal_links:
     - F20260716t2ab   # tool-skill-mechanism
 
 # 元数据
-status: development
 change_type: feature
 tags: [agent, circuit-breaker, safety, harness]
 modules: [src/frameworks/agent/]

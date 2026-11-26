@@ -13,7 +13,6 @@ causal_links:
     - F20260720k3m7
     - F20260728skrp
 
-status: development
 change_type: feature
 tags: [skills, feature-doc, lifecycle, worktree, linked-resource, workflow]
 modules:

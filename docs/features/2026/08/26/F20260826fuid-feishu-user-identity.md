@@ -12,7 +12,6 @@ summary: |
 causal_links:
   from:
     - F20260729im
-status: development
 change_type: feature
 tags: [feishu, im, identity, user-guide]
 modules:

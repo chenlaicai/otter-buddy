@@ -12,7 +12,6 @@ causal_links:
   from:
     - F20260805abpp
 
-status: development
 change_type: feature
 tags: [output-guard, degenerate, retry]
 modules:

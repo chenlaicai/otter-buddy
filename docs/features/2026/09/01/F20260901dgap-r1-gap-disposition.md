@@ -3,7 +3,6 @@ id: F20260901dgap
 title: "R1 推进器 14-60 天空窗处置：显式接受为 R2 收口等价终态 + gapDispositions 审计留痕"
 summary: "#661 空窗场景实测频率为 0（371 链 0 命中，23 条纯 implemented 全为「随 PR 同步拍板」形态）；语义分析证明空窗态 ≡ R2 收口后终态（判据完全等价），且 issue 前提「R3 60 天兜底」不成立（R3 仅适用 in-flight 链）；处置 = 显式接受 + gapDispositions 审计留痕通道（纯留痕零动作），放宽 R1 上限方案因制造 R1/R2 振荡被否决。"
 change_type: feature
-status: implemented
 substatus: active
 created_at: 2026-09-01
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc

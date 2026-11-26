@@ -13,7 +13,6 @@ causal_links:
   from:
     - F20260720qs9y   # 每个对话创建独立大獭
 
-status: implemented
 change_type: fix
 tags: [conversation, otter, api, frontend, llm, sdk]
 modules: [interface-adapters/http, usecases/conversation, frameworks/llm, web]

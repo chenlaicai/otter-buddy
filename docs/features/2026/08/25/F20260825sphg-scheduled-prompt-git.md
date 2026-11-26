@@ -4,7 +4,6 @@ title: 定时任务 prompt git 化治理
 summary: |
   issue #416：把散落在 DB 的定时任务 prompt 迁移到 git 仓库作为真相源。三个任务全部治理完成：依赖升级自动化 + 每日 issue 处理迁入 prompts/scheduled/ 模板并同步 DB；self-healing-analysis 的静态文案从 scheduler-service.ts 硬编码提取为 dynamic 模板（{{HEALING_DATA}} 占位符运行时填充）。同步脚本新增 dynamic 模板防护 + 修复文件名直配分支不去 frontmatter 的 bug。
 change_type: feature
-status: active
 capability_test: "n/a: 纯代码/模板变更，无 LLM 行为改动"
 created_in_conversation: 725a3302-e1d4-4e3e-bd1f-5f40cf7f9f42
 ---

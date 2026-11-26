@@ -14,7 +14,6 @@ causal_links:
     - F20260713m5q3   # domain-memory：记忆系统基础，body 索引是 document layer 的扩展
     - F20260721qh74   # document-data-model：文档数据模型，body 是文档完整性的最后一环
 
-status: design
 change_type: feature
 tags: [memory, document-sync, fts, search, full-text-index, feature-body]
 modules:

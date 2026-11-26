@@ -18,7 +18,6 @@ causal_links:
     - F20260805fmdb   # 本工作捕获并修复的 fresh-DB 迁移回归
     - F20260805mspk   # 本工作发现的 mimo speak 协议不稳定
 
-status: implemented
 change_type: refactor
 capability_test: tests/capability/memory-recall.capability.test.ts
 tags: [test, capability-test, refactor, composition-root, llm-behavior]

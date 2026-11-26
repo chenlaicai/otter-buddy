@@ -2,7 +2,6 @@
 id: F20261102sgtrc
 title: 工具签名残余口子收口：五组管理/检索工具接入实体签名（#1399）
 change_type: fix
-status: implemented
 created: 2026-11-02
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

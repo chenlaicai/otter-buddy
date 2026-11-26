@@ -3,7 +3,6 @@ id: F20260828ptun
 title: P1 prompt 改动：最简实现自检 + 批评→测试用例
 summary: 把 R20260828pntr（ponytail 深度研究）的两条可迁移思想落到 skill prompt 层：① code-implementation 自检步新增「最简实现检查」必答项（阶梯：仓库已有→stdlib→已装依赖→才写新代码），对抗 LLM 过度建设偏差；② review-protocol 处置节新增「批评→测试用例」提示，行为类检视发现优先沉淀为 golden 场景（good/bad 参考轨迹），一次性修复堵当前漏洞、永久场景防未来复发。
 change_type: feature
-status: implemented
 capability_test: "n/a: 纯 prompt/skill 文档改动，无 LLM 参与行为、无代码逻辑；效果属 P2 A/B 对照范畴（暂不排期）"
 created_in_conversation: 325ef7b7-8e42-4edc-9abf-eae8f332a2c4
 ---

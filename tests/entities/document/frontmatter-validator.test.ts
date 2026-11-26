@@ -1,8 +1,8 @@
 /**
- * frontmatter validator 新增规则测试（/ ）
+ * frontmatter validator 规则测试
  *
  * 覆盖：title 可读性（纯 slug 报 warn）、文件名 slug 后缀（裸 ID 报 warn）、
- * status 枚举 active 补录（不再误报）。规则实现在单一真相源
+ * status 字段退役（出现即 error）。规则实现在单一真相源
  * src/entities/document/frontmatter-validator.ts，本测试直接 import 真实现。
  */
 import { describe, it, expect } from "vitest";
@@ -11,13 +11,11 @@ import {
   validateTitleReadability,
   validateFilenameSlug,
 } from "../../../src/entities/document/frontmatter-validator";
-import { isKnownFeatureStatus } from "../../../src/entities/document/known-values";
 
 const BASE_FM = {
   id: "F20260827test",
   title: "特性文档 lint 校验增强",
   summary: "补齐 status 枚举与 title 可读性校验",
-  status: "development",
   change_type: "prompt",
 };
 
@@ -118,17 +116,37 @@ describe("validateFeatureFrontmatter: 文件名 slug 后缀（#470 评论必查�
   });
 });
 
-describe("status 枚举 active 补录（#455）", () => {
-  it("status: active 是已知值", () => {
-    expect(isKnownFeatureStatus("active")).toBe(true);
+describe("status 字段退役（#2050）", () => {
+  it("不写 status：无 error（正路）", () => {
+    const r = validateFeatureFrontmatter(BASE_FM, "docs/features/2026/11/26/F20260827test-no-status.md");
+    expect(r.errors.some((e) => e.includes("status 字段已退役"))).toBe(false);
   });
 
-  it("status: in-progress 仍报 Unknown warning（#470 原始案例）", () => {
+  it("写任意 status 值（旧合法值 active）→ error 阻断", () => {
+    const r = validateFeatureFrontmatter(
+      { ...BASE_FM, status: "active" },
+      "docs/features/2026/11/26/F20260827test-status-active.md"
+    );
+    expect(r.valid).toBe(false);
+    expect(r.errors.some((e) => e.includes("status 字段已退役"))).toBe(true);
+  });
+
+  it("写非法值 in-progress 同样 error（不再走 Unknown warning 软通道）", () => {
     const r = validateFeatureFrontmatter(
       { ...BASE_FM, status: "in-progress" },
-      "docs/features/2026/08/27/F20260827test-lint-docs-enhance.md"
+      "docs/features/2026/11/26/F20260827test-status-inprogress.md"
     );
-    expect(r.warnings.some((w) => w.includes("Unknown feature status: in-progress"))).toBe(true);
+    expect(r.valid).toBe(false);
+    expect(r.errors.some((e) => e.includes("status 字段已退役"))).toBe(true);
+    expect(r.warnings.some((w) => w.includes("Unknown feature status"))).toBe(false);
+  });
+
+  it("写 archived 也不行：归档是 sync 的系统行为，作者不可声明", () => {
+    const r = validateFeatureFrontmatter(
+      { ...BASE_FM, status: "archived" },
+      "docs/features/2026/11/26/F20260827test-status-archived.md"
+    );
+    expect(r.errors.some((e) => e.includes("status 字段已退役"))).toBe(true);
   });
 });
 

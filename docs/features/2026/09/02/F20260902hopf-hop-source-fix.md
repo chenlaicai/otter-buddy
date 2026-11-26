@@ -9,7 +9,6 @@ summary: |
   修复：Map 提升为链级 chainSourceMessageIds（target → 触发消息列表），
   回填按 aggregatedTargets 落位（yield 给谁就记在谁名下），多源覆盖
   （A、B 同 hop yield C 时 C 对两条触发消息各记一条 attempt）。
-status: final
 change_type: fix
 tags: [signal-protocol, dispatch-ledger, hop-source, bugfix]
 modules: [src/usecases/conversation/dispatch-chain-engine.ts]

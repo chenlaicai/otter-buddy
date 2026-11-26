@@ -4,7 +4,6 @@ title: 健康指标评分引擎：五维度健康分与拖累归因
 summary: 在 RHI 可观测数据之上建语义层后端：五维度健康分纯函数（质量成本/架构稳定/交付活力/流程合规/信号压力）+ 状态分级 + 走向判定 + 拖累归因，worker 旁路写 health_index 快照行 + score API 端点，CLI/backfill 口径继承。全确定性规则，复用既有快照管道零新表。
 created: 2026-08-29
 created_in_conversation: 9e709aca-dd74-42fa-9fe1-4e7bbaf24bdb
-status: development
 change_type: feature
 capability_test: "n/a: 纯评分函数逻辑，边界由 health-score.test.ts 36 用例覆盖，无 prompt 行为"
 tags: [rhi, health-index, scoring]

@@ -18,7 +18,6 @@ causal_links:
   to: []
 
 # 元数据
-status: implemented   # 代码已实现（测试全绿），首轮对抗审视 6 严重/7 建议已处置，待 delta 复核
 change_type: feature
 capability_test: "n/a: 数据层+管线+投影为主，vision 端到端已由方案 §八 前置实测（GLM flash 真图识别通过）；本层验证走 vitest 单测（含 HTTP 层集成测试）"
 tags: [multimodal, attachments, vision, api, projection, egress]

@@ -13,7 +13,6 @@ causal_links:
     - F20260716zq9q   # conversation-session-architecture：handoffSession 设计（已实现但成死代码）
   to: []
 
-status: implemented
 change_type: fix
 tags: [otter, session, restart, domain-model, invariant, agent-gateway, root-cause]
 modules:

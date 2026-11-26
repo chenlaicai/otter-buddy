@@ -4,7 +4,6 @@ title: 股票数据桥脚本入库（stock-cli 五命令）
 summary: "PR1: 股票数据桥脚本入库 — scripts/stock-cli.py 单文件，封装 akshare 提供五命令数据查询"
 change_type: feature
 created_in_conversation: "7df22e6e-caba-4fc9-a3ab-1e9e2a3ff02d"
-status: active
 capability_test: "n/a: 纯 A 类脚本，无 LLM 参与行为"
 ---
 

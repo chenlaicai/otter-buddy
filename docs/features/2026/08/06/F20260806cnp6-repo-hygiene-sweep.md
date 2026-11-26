@@ -13,7 +13,6 @@ causal_links:
     - F20260717wx6q   # pi-agent-core-cleanup（system-prompt-config.ts 当年"保守保留"决策，本次推翻）
     - F20260731-multi-model-routing   # 多模型路由引入时的单/双路径兼容设计 + settings 语义劣化起点，Part 2/3 收编
 
-status: development
 change_type: refactor
 capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 tags: [cleanup, dead-code, compatibility-shim, single-source, config, incompatible, settings]

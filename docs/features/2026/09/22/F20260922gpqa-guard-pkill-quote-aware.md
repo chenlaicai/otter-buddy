@@ -2,7 +2,6 @@
 id: F20260922gpqa
 title: bash 守卫引号感知修复（#852）：bash/sh -c 引号载荷内第二位起词元检测
 change_type: fix
-status: implemented
 created: 2026-09-22
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

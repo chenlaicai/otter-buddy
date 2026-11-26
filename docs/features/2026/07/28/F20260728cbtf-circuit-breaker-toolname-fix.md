@@ -17,7 +17,6 @@ causal_links:
     - F20260716bte2   # agent-circuit-breaker（熔断器引入，bug 源头）
     - F20260727guar  # OutputGuard（误杀的对外呈现路径）
 
-status: final
 change_type: fix
 tags: [circuit-breaker, pi-sdk, tool-call, steer, ci, incident-fix]
 modules:

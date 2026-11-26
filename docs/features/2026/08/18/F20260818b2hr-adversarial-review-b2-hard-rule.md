@@ -11,7 +11,6 @@ causal_links:
   from:
     - F20260817dr28
 
-status: development
 change_type: prompt
 tags: [skills, adversarial-review, prompt, b2-hard-rule]
 modules:

@@ -3,7 +3,6 @@ id: F20260821a5cc
 title: html-card 卡片数量检测
 summary: 在 speak 工具中增加执行时检测，如果检测到 3+ 张卡片就拒绝执行，并提示 LLM 合并卡片或分多次 speak 输出。
 change_type: feature
-status: active
 created_at: 2026-08-21
 modules:
   - src/interface-adapters/agent-runtime/tools/tool-helpers.ts

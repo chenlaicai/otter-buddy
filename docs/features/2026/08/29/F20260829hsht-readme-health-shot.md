@@ -3,7 +3,6 @@ id: F20260829hsht
 title: README 补健康面板截图
 summary: PR #557 合入后的 Step 3 收尾：健康面板四图看板（趋势双轴/类型环形/模块热区/五态堆叠条）以真实数据截图补入 README 首屏，与对话截图形成"协作现场 + 自我度量"两张图呼应，中英双版同步。
 change_type: feature-update
-status: active
 created_in_conversation: 09bf83a5-8a9a-4aba-815e-a92c783b4800
 capability_test: n/a（纯文档+图片，无逻辑变更；图片内容经敏感词预扫 + 目验）
 from:

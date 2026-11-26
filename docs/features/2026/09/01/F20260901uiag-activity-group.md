@@ -3,7 +3,6 @@ id: F20260901uiag
 title: '协作机制 v2·P4 前置：信号轨迹 UI 底座与活动段分组（读路径先行）'
 summary: F20260901sgpx P4「turn 退役」的前置读路径工程：消息流按活动段（信号触发→静默）分组的派生视图先行上线——v1 用时间间隔+说话者转换启发式，P1 信号路由落地后升级为按投递信号切分；P4 拆 turn 写路径时 UI 零改动。信号轨迹徽章（档位/状态）依赖 P0 的 signal_level 元数据列，本期不渲染占位不造假。
 change_type: feature
-status: draft
 capability_test: "n/a: 纯前端渲染逻辑（A 类），vitest 单测覆盖分组函数 9 用例；无 LLM 参与的行为"
 tags: [signal-protocol, ui, activity-group, turn-retirement]
 from: F20260901sgpx

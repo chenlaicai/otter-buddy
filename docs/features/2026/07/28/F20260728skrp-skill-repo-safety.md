@@ -17,7 +17,6 @@ causal_links:
     - F20260728cbtf   # 同一起 t002 事故的第一次修复（熔断器字段）
     - F20260728cbwt   # 同一起事故的第二次修复（熔断器机制），流程问题由本文档收口
 
-status: final
 change_type: fix
 tags: [skill, dev-process, repo-safety, worktree, incident-fix]
 modules:

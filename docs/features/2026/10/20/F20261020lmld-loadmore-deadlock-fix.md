@@ -6,7 +6,6 @@ created_at: 2026-10-20
 created_in_conversation: a23f0f4a-612c-46e9-8d83-be648ced720e
 type: feature
 change_type: bugfix
-status: implemented
 related: F20261008w8lt, F20260803vmsg, F20261010vwst, F20261016inbs
 ---
 

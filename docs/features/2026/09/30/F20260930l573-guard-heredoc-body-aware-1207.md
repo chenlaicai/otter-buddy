@@ -15,7 +15,6 @@ summary: >
 created: 2026-09-30
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 change_type: fix
-status: implemented
 related_issues: ["#1207", "#760"]
 related:
   - F20260928grv2          # V2 结构模型（cd 豁免/管道右段判定的宿主）

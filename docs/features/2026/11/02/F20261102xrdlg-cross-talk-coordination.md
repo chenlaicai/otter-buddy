@@ -2,7 +2,6 @@
 id: F20261102xrdlg
 title: 跨对话工作协调：接手预检 + 双向接管协议（#1735）
 change_type: prompt
-status: implemented
 created: 2026-11-02
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

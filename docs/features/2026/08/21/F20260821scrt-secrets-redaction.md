@@ -12,7 +12,6 @@ causal_links:
   from:
     - F20260812mrcq
 
-status: development
 change_type: feature
 tags: [security, memory, redaction]
 modules:

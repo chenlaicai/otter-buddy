@@ -11,7 +11,6 @@ causal_links:
   from:
     - F20260811onst
 
-status: development
 change_type: feature-update
 tags: [scheduler, once-task, auto-remove]
 modules:

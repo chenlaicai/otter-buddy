@@ -19,7 +19,6 @@ causal_links:
 
 
 # 元数据
-status: implemented
 change_type: feature
 tags: [architecture, entities, clean-architecture, conversation, otter, memory, talking-stone]
 modules: [src/entities/]

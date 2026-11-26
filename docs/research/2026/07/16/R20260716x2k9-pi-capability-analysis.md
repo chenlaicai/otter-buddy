@@ -13,7 +13,6 @@ causal_links:
   from: []
 
 # 元数据
-status: locked
 exploration_type: technical
 tags: [pi-agent, architecture, integration, embedded-agent]
 conclusion: Pi 是嵌入式 Agent 库，通过 AgentHarness 集成到 Otter，无需 MCP 协议

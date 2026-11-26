@@ -8,7 +8,6 @@ summary: |
   根因：模板给了"可以合入"出口 + 次要观察廉价处置 + LLM 讨好倾向三因叠加。
   方案：移除"可以合入"出口，改为"存在以下问题（决策者判断）"；保留原则性引导对抗讨好倾向。
 
-status: development
 change_type: feature-update
 tags: [skill, review, anti-sycophancy]
 modules:

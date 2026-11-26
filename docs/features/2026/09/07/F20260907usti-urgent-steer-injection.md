@@ -7,7 +7,6 @@ summary: "P3a ①：signal-router 的 URGENT+busy 分支改调 agentGateway.stee
 feature_id: F20260907usti
 created_in_conversation: 449d8f5d-e91e-49c0-ade5-0fbd9b3d0fcb
 created_at: 2026-09-07
-status: active
 modules:
   - conversation
   - agent-runtime

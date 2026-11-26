@@ -4,7 +4,6 @@ id: F20261118clkid
 date: 2026-11-18
 module: extensions
 change_type: feature
-status: active
 summary: |
   拍板口径：CoLink 回话的**发送身份**恒为 App 安装令牌（POST /messages 用 appToken，用户令牌不用于
   正式回话）；用户身份只用于读私密。但「用哪个身份发」与「这一轮能不能发」是两件事：ctx.reply 与真正

@@ -10,7 +10,6 @@ summary: |
   - 系统消息与重试 prompt 统一为同一文本，避免 LLM 上下文看到不一致的两条消息
   - .pi/SYSTEM.md 诚实直言段尾增加困境上报原则
 
-status: final
 change_type: feature
 tags: [agent, speak, retry, system-prompt, llm-behavior]
 modules:

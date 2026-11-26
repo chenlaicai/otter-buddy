@@ -13,7 +13,6 @@ causal_links:
     - F20260818cbkr
     - F20260827mtbl
 
-status: development
 change_type: fix
 tags: [healing, circuit-breaker, observability, diagnostics]
 modules:

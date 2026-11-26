@@ -4,7 +4,6 @@ id: F20261118clkpg
 date: 2026-11-18
 module: extensions
 change_type: fix
-status: active
 from: F20261118clkpt
 summary: |
   平台（CoLink #3393 / F20261118dmcur）把 App 私聊历史读取统一成与话题同款的

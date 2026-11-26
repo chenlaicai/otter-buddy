@@ -18,7 +18,6 @@ causal_links:
     - F20260721spea   # speak-skill
 
 # 元数据
-status: development
 change_type: feature
 tags: [agent, tools, skills, audit, participant, context, artifacts]
 modules: [src/interface-adapters/agent-runtime/tools/, skills/, src/frameworks/agent/]

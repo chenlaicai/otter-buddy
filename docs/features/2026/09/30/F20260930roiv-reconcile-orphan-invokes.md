@@ -2,7 +2,6 @@
 id: F20260930roiv
 title: 启动窗口期孤儿 invoke 延迟 reconcile
 type: BugFix
-status: implemented
 created_at: 2026-09-29
 created_in_conversation: 9ae84389-031a-4da1-be13-0238bcdf6a29
 causal_links:

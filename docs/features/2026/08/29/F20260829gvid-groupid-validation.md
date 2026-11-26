@@ -3,7 +3,6 @@ id: F20260829gvid
 title: "create_linked_resource groupId 必填校验——pr/worktree/branch 三类产物强制分组"
 summary: 工具层 + domain 层双层校验：创建 pr/worktree/branch 类型资源时 groupId（特性文档编号）必填，漏传报错。fact/url/file 维持可选。
 change_type: feature
-status: active
 created_at: 2026-08-29
 created_in_conversation: 325ef7b7-8e42-4edc-9abf-eae8f332a2c4
 intent:

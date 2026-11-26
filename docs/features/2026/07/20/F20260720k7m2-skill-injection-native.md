@@ -15,7 +15,6 @@ causal_links:
 
 
 # 元数据
-status: locked
 change_type: feature
 tags: [agent, skills, sdk, refactor]
 modules: [src/frameworks/agent/, src/interface-adapters/skill-adapter/]

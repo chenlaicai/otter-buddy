@@ -28,7 +28,7 @@ ID `R20260716x2k9` → 必须 `docs/research/2026/07/16/R20260716x2k9-*.md`。
 
 ### 软警告（不阻断入库，进 health 端点 warnings）
 
-`status`、`change_type`、`exploration_type` 的未知值不阻断，但会被校验器记入 warnings。已知值见 `src/entities/document/known-values.ts`。
+`exploration_type` 的未知值不阻断，但会被校验器记入 warnings。已知值见 `src/entities/document/known-values.ts`。`status` 字段已退役（#2050）：文档合入即不可变，生命周期状态无法演进，归档（archived）由 sync 自动标记——frontmatter 出现 status 会被 error 阻断，新文档不写。
 
 `title` 与文件名 slug（F20260827spcs，#470）：
 
@@ -177,8 +177,8 @@ causal_links:
   from:
     - F20260803m9q2   # 因果上游（sync 读取，存入 DB metadata）
 
-status: development      # draft / proposed / design / development / active / locked / final / implemented / archived
 change_type: feature     # feature / refactor / fix / prompt / feature-update（真相源 src/entities/document/known-values.ts）
+# status 已退役（#2050）：不要写 status 字段（文档状态由系统管理，归档由 sync 自动标记）
 tags: [area, concept]
 modules:
   - src/path/to/file.ts

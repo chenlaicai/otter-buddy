@@ -2,7 +2,6 @@
 id: F20261113etsan
 title: kimi 空 text 块回放致 400 死循环：beforeRequest 剥除 openai-responses 空 text
 change_type: fix
-status: development
 created_at: 2026-11-13
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 capability_test: "n/a: 仅净化发往 provider 的消息历史，不改变任何工具/生成式能力语义"

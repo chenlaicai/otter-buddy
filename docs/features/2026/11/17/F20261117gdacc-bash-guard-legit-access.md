@@ -2,7 +2,6 @@
 id: F20261117gdacc
 title: bash 守卫放行部署公开只读与格式化管道：#1892 colink 部署 7 连拦收口
 change_type: fix
-status: implemented
 created: 2026-11-17
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

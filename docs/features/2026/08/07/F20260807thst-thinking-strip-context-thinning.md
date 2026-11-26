@@ -9,7 +9,6 @@ summary: |
   保留当前轮 thinking 不动，JSONL 完整保留可审计。
 
 change_type: feature
-status: implemented
 tags: [agent-runtime, context-optimization, sdk-extension]
 modules:
   - src/frameworks/agent/pi-session-factory.ts

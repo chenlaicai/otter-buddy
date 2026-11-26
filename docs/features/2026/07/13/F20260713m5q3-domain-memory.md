@@ -18,7 +18,6 @@ causal_links:
 
 
 # 元数据
-status: locked
 change_type: feature
 tags: [implementation, s4, domain, memory, search, fts5, vec0, rrf]
 modules: [domain/memory]

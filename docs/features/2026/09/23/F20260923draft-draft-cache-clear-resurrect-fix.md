@@ -11,7 +11,6 @@ summary: |
   修法：①saveDraft 同步更新 ref（与 clearDraft 同构）；
   ②cleanup deps 收窄为 []（只在真正卸载时执行 flush）。
 
-status: implemented
 change_type: fix
 tags: [web, ux, fix]
 modules:

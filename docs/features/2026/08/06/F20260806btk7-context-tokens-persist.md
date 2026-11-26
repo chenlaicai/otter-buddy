@@ -16,7 +16,6 @@ causal_links:
     - F20260724cwgn   # refresh-streaming-resume（M3"ctx 缺失不渲染"守卫在此引入，历史未持久化缺口在此记录为已知）
 
 # 元数据
-status: development
 change_type: fix
 tags: [token-usage, context, persistence, sse, message-complete]
 modules:

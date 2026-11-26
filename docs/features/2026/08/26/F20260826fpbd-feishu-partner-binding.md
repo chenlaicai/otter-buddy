@@ -1,7 +1,6 @@
 ---
 id: F20260826fpbd
 title: 飞书搭档静态绑定与访客命令权限
-status: development
 summary: 搭档身份从动态推断改静态绑定（config.feishu.partnerOpenId），访客消息不再冒充搭档；命令门禁仅搭档可用（方案B）
 capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 change_type: feature

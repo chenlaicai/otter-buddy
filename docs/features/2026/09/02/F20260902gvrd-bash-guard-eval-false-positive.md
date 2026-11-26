@@ -14,7 +14,6 @@ summary: |
 causal_links:
   from:
     - F20260831aksp
-status: development
 change_type: fix
 tags: [bash-safety-guard, false-positive, eval, agent]
 modules:

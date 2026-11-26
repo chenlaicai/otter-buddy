@@ -2,7 +2,6 @@
 id: F20260901wtpa
 title: scheduled_task watchlist-only patch：自选池更新与 prompt 全文解耦
 date: 2026-09-01
-status: development
 summary: issue #610——操盘獭任务 body 为 {prompt, watchlist} 全文 JSON，改自选池需整包重写 body 丢一字即坏。为 HTTP update 通道增加 watchlist-only patch 语义（服务端读旧 body 只替换 watchlist 字段），调用方不再携带 prompt 全文。含两方向选型论证（独立存储 vs patch 语义）
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 capability_test: "n/a: 纯 A 类改动（HTTP 更新通道 + 测试），不涉及 LLM 行为"

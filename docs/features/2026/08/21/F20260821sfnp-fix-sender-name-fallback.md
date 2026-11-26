@@ -1,6 +1,5 @@
 ---
 id: F20260821sfnp
-status: development
 created_at: "2026-08-21T11:18:00+08:00"
 updated_at: "2026-08-21T11:18:00+08:00"
 feature_number: F20260821sfnp

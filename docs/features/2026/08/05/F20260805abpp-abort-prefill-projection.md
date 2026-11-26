@@ -16,7 +16,6 @@ causal_links:
     - F20260724cwgn   # 统一渲染通道 + 轮询续看（refreshMessages 原始设计）
 
 # 元数据
-status: development
 change_type: fix
 tags: [output-guard, timeout, sse, abort, frontend-projection]
 modules:

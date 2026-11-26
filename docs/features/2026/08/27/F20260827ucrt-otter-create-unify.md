@@ -18,7 +18,6 @@ causal_links:
   to: []
 
 # 元数据
-status: implemented   # 代码已实现（测试全绿），待对抗审视
 change_type: feature
 capability_test: "n/a: HTTP 契约与 UI 表单变更为主，无 LLM 行为变更；验证走 vitest 单测（契约透传/血缘忽略/头像 override/UI 交互）"
 tags: [otter-creation, api-contract, web-ui, model-routing]

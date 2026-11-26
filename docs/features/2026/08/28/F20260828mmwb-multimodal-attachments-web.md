@@ -18,7 +18,6 @@ causal_links:
   to: []
 
 # 元数据
-status: implemented   # 代码已实现（web 272 用例全绿 + 根仓 1958 全绿），首轮审视 1🔴2🟡 处置完毕待 delta 复核
 change_type: feature
 capability_test: "n/a: 纯前端 UI 交互（上传状态机/渲染/校验），无 LLM 行为；验证走 vitest + jsdom（28 个新用例覆盖校验纯函数/状态机/渲染三件套）"
 tags: [multimodal, attachments, web, upload, ui]

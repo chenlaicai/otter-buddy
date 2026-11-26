@@ -14,7 +14,6 @@ causal_links:
     - F20260807scrk   # 滚动抖动与新消息计数修复：引入 debounce 和去重逻辑
   to: []
 
-status: development
 change_type: fix
 tags: [conversation, sse, new-messages-count, dedup]
 modules:

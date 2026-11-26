@@ -2,7 +2,6 @@
 id: F20261110rstor
 title: 链接资源恢复字段补全与归档对账
 change_type: fix
-status: development
 created_at: 2026-11-10
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 capability_test: "n/a: 生产数据恢复脚本与 SQLite 对账，无 LLM 参与行为"

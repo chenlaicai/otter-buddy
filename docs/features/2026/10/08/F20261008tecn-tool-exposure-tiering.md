@@ -3,7 +3,6 @@ id: F20261008tecn
 title: 工具面分层暴露（EazoTack 式工具瘦身 v1：deferred + tool_search 按需激活）
 change_type: feature
 capability_test: "n/a: prompt/配置层改动 + SDK 声明面行为，验证面 = 331 files / 4979 tests 全绿 + 真 LLM 冒烟（glm-5.3 全链路：tool_search→add_terminology→speak）"
-status: implemented
 created_at: 2026-10-08
 created_in_conversation: 325ef7b7-8e42-4edc-9abf-eae8f332a2c4
 causal_links:

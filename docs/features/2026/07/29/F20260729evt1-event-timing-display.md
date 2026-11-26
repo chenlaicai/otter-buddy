@@ -10,7 +10,6 @@ summary: |
   - 流式进行中 StreamingProcess 实时计时（100ms 刷新）
   - 消息头部流式中显示开始时间（不再只显示"正在回复..."）
 
-status: final
 change_type: feature
 tags: [ui, streaming, timing, sse]
 modules:

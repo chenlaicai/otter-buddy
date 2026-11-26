@@ -16,7 +16,6 @@ causal_links:
   to: []
 
 # 元数据
-status: implemented   # 代码已实现（测试全绿），待对抗审视
 change_type: feature
 capability_test: "web/src/pages/conversation/RightPanel.test.tsx"
 tags: [web-ui, right-panel, linked-resource, copy-ux]

@@ -13,7 +13,6 @@ causal_links:
   from:
     - F20260811onst
 
-status: implemented
 change_type: fix
 tags: [agent, scheduled-task, tool-allowlist, bugfix]
 modules:

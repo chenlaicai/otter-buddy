@@ -13,7 +13,6 @@ causal_links:
     - F20260731mmr   # 多模型路由：引入 alias 作为 provider id 的方案，但只覆盖了 app 侧注册表
   to: []
 
-status: implemented
 change_type: fix
 tags: [llm, multi-model, pi-sdk, auth, model-runtime]
 modules:

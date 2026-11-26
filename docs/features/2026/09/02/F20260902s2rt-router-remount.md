@@ -7,7 +7,6 @@ summary: |
   web/飞书/微信入口 + RIS 启动补扫换轨；scheduler/retry 仍直连（经链引擎记账，
   无双触发账面歧义）。rbsg 两起事故的根因均已消除：语义混淆→台账真相源；
   存量点火→墓碑一次性翻篇（#739 守卫）。摘装配一行即回直连链（降级面不变）。
-status: final
 change_type: feature
 tags: [signal-protocol, signal-router, dispatch-ledger, incident-hardening]
 modules: [src/usecases/conversation/signal-router.ts, src/app.ts]

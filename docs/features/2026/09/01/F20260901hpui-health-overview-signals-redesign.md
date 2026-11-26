@@ -3,7 +3,6 @@ id: F20260901hpui
 title: "健康面板总览+信号重设计：复发模式卡、低置信折叠、合并后修复密度（含 #652 口径修复）"
 summary: "健康面板重设计 PR2（Issue #647 + #652）：总览从统计仪表重组为出血点仪表——复发模式卡（bug●→fix● 交替时间轴，频次从 evidence_detail.commits 派生）为首屏主角；confidence=low 信号折叠收纳且不进 critical/健康分计数（口径单一真相源 signal-counts.ts，overview 与 D5 同源）；热点热力条 teal→caramel；趋势降 sparkline 可展开；图表默认蓝绿橙全面退场换 otter token；新检测器 post_merge_fix_density（合入后窗口期 bugfix ≥3 次或占比 ≥30% = 特性不对劲，高扇入文件 ≥10 特性触碰进排除清单且面板可见）。"
 change_type: feature
-status: implemented
 substatus: active
 created_at: 2026-09-01
 created_in_conversation: 7c6e78b5-6fdc-462e-9383-4d96cf95dcd7

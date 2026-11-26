@@ -8,7 +8,6 @@ summary: |
   核心动机：均摊覆盖导致注意力分散、每轮 fresh-eyes 重审导致审视不收敛；作者侧只有服从导向规则（"立即修复、不许问"），盲目遵从使对抗结构退化为单人审阅。
   主机制：焦点声明（1–3 维度深挖、其余扫过）+ 阻断性/次要观察分级 + 复审 delta 化 + 作者四分类处置（接受/带证据反驳/部分接受/呈搭档）。
 
-status: development
 change_type: prompt
 capability_test: "n/a: prompt 技能文档，行为验证通过 .pi/skills 内的 SKILL.md 执行"
 tags: [adversarial-review, collaboration-protocol, skills]

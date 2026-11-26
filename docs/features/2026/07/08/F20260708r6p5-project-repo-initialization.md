@@ -13,7 +13,6 @@ causal_links:
   from: []
 
 # 元数据
-status: locked
 change_type: feature
 tags: [config, infrastructure, project-setup]
 modules: [project-setup]

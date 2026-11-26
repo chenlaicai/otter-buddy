@@ -15,7 +15,6 @@ causal_links:
     - F20260805abpp   # Agent 无缝重试机制
 
 # 元数据
-status: development
 change_type: refactor
 tags: [scroll, jank, virtuoso, batch-update, performance]
 modules: [web]

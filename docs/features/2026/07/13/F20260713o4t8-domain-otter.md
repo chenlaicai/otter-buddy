@@ -17,7 +17,6 @@ causal_links:
 
 
 # 元数据
-status: locked
 change_type: feature
 tags: [implementation, s4, domain, otter, ddd, agent]
 modules: [domain/otter]

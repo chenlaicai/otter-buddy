@@ -3,7 +3,6 @@ id: F20260915n84u
 title: 调度饿死根治：skip 不吞 claim + expected 缓存重算 + 运行时对账兜底
 summary: 修复 #823——9/6 现场日志取证实锤：self-healing-analysis 动态 skip（无 open events）吞掉 claim 但不建 execution，Polling tick 的 expected 缓存因此永久停在旧窗口（饿死自锁、零日志），任务错过 18:00 窗口、2 条 healing events 悬置 28h。根修三层：resolveEffectiveBody 移到 claim 前（skip 不吞 claim）+ tick 重算 expected（解锁饿死自锁）+ 运行时 1h 对账降级为兜底。另落地 tickImpl 测试注入口子。
 type: feature
-status: development
 created: 2026-09-15
 created_in_conversation: c2f347c6-7e59-4e2e-ab48-10f64a5a1258
 modules: [scheduler]

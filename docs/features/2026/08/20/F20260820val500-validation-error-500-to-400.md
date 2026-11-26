@@ -12,7 +12,6 @@ causal_links:
   from:
     - F20260807fact
 
-status: development
 change_type: fix
 tags: [api, error-handling, validation, conversation]
 modules:

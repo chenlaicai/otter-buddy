@@ -13,7 +13,6 @@ summary: |
   中文 FTS 检索失效、职责堆积、"机制最小化"宪法名存实亡、承诺面跑在代码前面。
   otter 侧优化项仅作引子（含球权收尾契约、承诺面对账），另行立项。
 
-status: draft
 exploration_type: technical
 tags: [multi-agent, agent-society, pi-sdk, harness, orchestration, memory, architecture-governance]
 causal_links:

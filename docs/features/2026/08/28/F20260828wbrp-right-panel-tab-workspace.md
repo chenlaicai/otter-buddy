@@ -3,7 +3,6 @@ id: F20260828wbrp
 title: 右侧栏 tab 化改版与工作区文件浏览
 summary: 将右侧栏三大卡片（参与者、关键资源、定时任务）改为顶部图标 tab 切换，新增工作区文件浏览 tab
 change_type: feature
-status: development
 created_in_conversation: f8bf2fbe-6da0-4861-8f48-9ccb27f50c07
 modules:
   - web/src/pages/conversation/RightPanel.tsx

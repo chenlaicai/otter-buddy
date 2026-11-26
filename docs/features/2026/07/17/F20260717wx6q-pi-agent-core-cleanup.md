@@ -14,7 +14,6 @@ causal_links:
     - F20260716sq6e   # pi-agent-core vs coding-agent
 
 # 元数据
-status: locked
 change_type: refactor
 tags: [cleanup, code-quality, refactor, pi-agent-core]
 modules: [src/frameworks/agent/, src/interface-adapters/agent-runtime/]

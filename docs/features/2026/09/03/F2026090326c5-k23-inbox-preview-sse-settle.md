@@ -7,7 +7,6 @@ summary: >
   注入「N 条待消化」预告（台账 pending 推导，含 busyQueue 排队信号，HALT 特别注明）——
   獭能主动告知用户「插话看到了，跑完就处理」。K3：web POST SSE 关流判据从「路由器返回」
   改为「本轮信号 attempt 全部到终态」（30s 超时兜底）——用户看到流关闭 = 本轮触发的活都落地。
-status: implemented
 change_type: feature
 tags: [signal-protocol, dispatch-ledger, sse-lifecycle, inbox-preview, sgp2-k23]
 modules: [src/usecases/conversation/, src/interface-adapters/http/, src/frameworks/db/conversation/]

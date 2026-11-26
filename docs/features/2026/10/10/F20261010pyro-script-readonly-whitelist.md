@@ -3,7 +3,6 @@ id: F20261010pyro
 title: 脚本只读载荷白名单补位——python open 读写模式固化 + collections/statistics/math 只读面 + node stdin 流消费（closes #1416）
 summary: 10-10 晨间六连拦（healing 90d8307f 等，00:25-00:50Z）根因修复。issue 描述的「open() 缺省模式被当写」经复现核实已在早期修复处理（pythonOpenModesReadOnly）；真根因是三处枚举白名单缺词——①keys.update 不在 PY_READONLY_METHODS ②Counter 不在 PY_READONLY_CALLS ③process.stdin 不在 node process 负向白名单且 on 不在 NODE_READONLY_METHODS。修复=词表补位（update/add/most_common/elements、Counter/defaultdict/OrderedDict/math 族、on、stdin）+ 9 例测试（放行 4 + 拦截负门 5，借壳写形态全拦）。对齐搭档拍板的统一判定核方向（fact 17b1447f）：词表补位是旧链止血，判定核收编才是根治路径。
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
-status: implemented
 modification_class: narrow-fix
 intent:
   problem: "每日体检/日常取证的只读脚本载荷（json.load(open()) 解析、Counter 统计、stdin 流消费）被 main_write 误拦六连——枚举白名单追不上真实命令形态"

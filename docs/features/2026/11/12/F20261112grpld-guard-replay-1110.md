@@ -2,7 +2,6 @@
 id: F20261112grpld
 title: 11-10 守卫负门样本固化与日报回放路径纠正
 change_type: fix
-status: development
 created_at: 2026-11-12
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 capability_test: "n/a: 仅增加确定性 guard 回放数据、修正定时任务文档路径，不涉及生成式能力变化"

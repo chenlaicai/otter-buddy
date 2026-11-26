@@ -12,7 +12,6 @@ causal_links:
   from:
     - F20260813actk
 
-status: implemented
 ---
 
 # 修复左侧栏未读消息数字小红点不会消失

@@ -16,7 +16,6 @@ causal_links:
     - F20260721cap0
 
 # 元数据
-status: locked
 change_type: feature
 tags: [agent, skills, history, conversation, message-query]
 modules: [skills/]

@@ -18,7 +18,6 @@ causal_links:
 
 
 # 元数据
-status: draft
 change_type: feature
 tags: [architecture, integration, frontend, api-client, sse, startup, api-contract]
 modules: [api-contract/, web/src/, web/vite.config.ts, src/interface-adapters/, src/usecases/, src/frameworks/]

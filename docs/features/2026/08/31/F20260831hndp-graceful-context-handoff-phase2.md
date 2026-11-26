@@ -6,7 +6,6 @@ summary: |
   升级为 LLM 叙事合成（readOnly invocation + kimi 六分区模板），并将件②③④注入扩展到手动重启
   和熔断重启路径。摘要合成失败时降级为机械转储，永不阻塞 restart。
 change_type: feature
-status: active
 capability_test: "n/a: LLM叙事合成链路改动，测试覆盖见 tests/frameworks/agent/synthesis-prompt-builder.test.ts + handoff-package-synthesis.test.ts + agent-invoker-handoff.test.ts"
 created_in_conversation: 9d326c9d-9818-40a2-9982-898315fe7aa4
 from: F20260825hndf

@@ -2,7 +2,6 @@
 id: F20260929scfx
 title: 能力库全书——skill 正文全文 + 系统提示词分节 + 工具清单三编展示
 summary: 能力库页面从 14 条 frontmatter 摘要升级为三编全书：卷首 SYSTEM.md 心法总纲分节续页、卷中 skill 正文全文装箱分页、卷末工具清单紧凑排版，并修复第N门序号与页序不一致。
-status: implemented
 created: 2026-09-29
 created_in_conversation: 9eeb7b69-26d5-4957-b7f2-9f7fd5a00d77
 modification_class: narrow-fix

@@ -17,7 +17,6 @@ causal_links:
 
 
 # 元数据
-status: locked
 change_type: feature
 tags: [implementation, s4, infra, llm, agent, embedding]
 modules: [infra/llm-gateway, infra/agent-core, infra/embedding]

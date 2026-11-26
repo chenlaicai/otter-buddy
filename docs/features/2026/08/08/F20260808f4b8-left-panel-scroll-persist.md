@@ -2,7 +2,6 @@
 id: F20260808f4b8
 title: 左侧栏滚动位置保持
 summary: "修复左侧对话列表栏在 MPA 整页刷新后滚动位置重置到顶部的 UX 问题。使用 sessionStorage + beforeunload 在页面卸载前保存滚动位置，新页面挂载后恢复。"
-status: development
 created: 2026-08-08
 ---
 

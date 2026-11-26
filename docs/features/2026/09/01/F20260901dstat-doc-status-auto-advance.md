@@ -3,7 +3,6 @@ id: F20260901dstat
 title: "文档状态自动推进：值域契约、子状态、每日批量推进器与高置信回填"
 summary: "根治「干完没归档」假警报（18 条 chain_stall 主因）：status 实际值域收敛为在途/终态/未知三分组契约（单一真相源）；implemented+substatus:active 子状态让分批合入大特性不提前豁免；每日批量推进器（R1 迭代标记/R2 收口/R3 高置信归档，未知值一律不碰留痕）；回填参数化验证。"
 change_type: feature
-status: implemented
 substatus: active
 created_at: 2026-09-01
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc

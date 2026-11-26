@@ -19,7 +19,6 @@ causal_links:
     - F20260721x8k9   # scheduled-task：定时摘要任务的底座
     - F20260802hybr   # hybrid-architecture：Web MPA + 对话 SPA，桥接消息通过 Web/SSE 可见
 
-status: active   # 已经过 1 轮对抗审视 + 4 项致命问题拍板 + Spike 6 通过
 change_type: feature
 tags: [agent, recruiting, boss-zhipin, browser-extension, mv3, observability, inbound]
 modules:

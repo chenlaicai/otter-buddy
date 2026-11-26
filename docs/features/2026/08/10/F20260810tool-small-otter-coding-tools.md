@@ -13,7 +13,6 @@ causal_links:
     - F20260805rsto   # 重启獭生 session 机制
   to: []
 
-status: development
 change_type: feature-update
 tags: [agent, tools, permissions, small-otter]
 modules:

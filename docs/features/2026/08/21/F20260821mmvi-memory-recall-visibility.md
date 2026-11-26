@@ -1,7 +1,6 @@
 ---
 id: F20260821mmvi
 title: 记忆检索透明：让搭档感知到"有记忆"
-status: implemented
 change_type: feature
 created: 2026-08-21
 issue: 6425dd76-2898-4490-b073-4ef75276ae05

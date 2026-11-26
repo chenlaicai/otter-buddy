@@ -23,7 +23,6 @@ causal_links:
   to: []
 
 # 元数据
-status: implemented   # 代码已实现（测试全绿），待对抗审视
 change_type: feature
 capability_test: "n/a: 纯解析/IO 管线（post 段落解析、多媒体下载循环），无 LLM 行为；注入链路复用 Phase 1 AttachmentInjectionService；验证走 vitest（SDK mock 不出网）"
 tags: [feishu, post, rich-text, ingress, multimodal, attachments, media]

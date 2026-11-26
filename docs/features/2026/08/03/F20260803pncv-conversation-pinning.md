@@ -14,7 +14,6 @@ causal_links:
     - F20260730heal   # self-healing-system：Self-Healing 对话需要置顶在列表顶部
     - F20260802hybrid # hybrid-architecture：右键菜单操作后整页刷新
 
-status: final
 change_type: feature
 tags: [conversation, pinning, ui, self-healing]
 modules:

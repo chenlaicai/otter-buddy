@@ -3,7 +3,6 @@ id: F20260826scd3
 title: PR3 stock-analysis skill — A 股个股分析能力
 summary: 新建 stock-analysis skill，基于 stock_data 工具引导 LLM 完成基本面+技术面+消息面+资金面的多维分析，含免责声明。
 change_type: feature
-status: development
 capability_test: "n/a: prompt 层 skill 定义，无代码行为；通过 lint:skills 结构校验验证"
 created_at: 2026-08-26
 created_in_conversation: 7df22e6e-caba-4fc9-a3ab-1e9e2a3ff02d

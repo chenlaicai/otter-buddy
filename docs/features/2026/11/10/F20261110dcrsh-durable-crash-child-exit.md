@@ -2,7 +2,6 @@
 id: F20261110dcrsh
 title: durable SIGKILL 测试子进程早退诊断
 change_type: fix
-status: development
 created_at: 2026-11-10
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 capability_test: "n/a: 测试夹具进程等待与构建前置校验，无 LLM 参与行为"

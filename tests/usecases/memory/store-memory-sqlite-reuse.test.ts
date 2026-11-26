@@ -155,7 +155,6 @@ id: ${sourceId}
 title: sync 级复活幂等验收
 summary: 内容未变的摘要在复活轮保留向量
 change_type: fix
-status: draft
 created_at: 2026-11-10
 ---
 # 正文

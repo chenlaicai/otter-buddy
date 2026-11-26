@@ -7,7 +7,6 @@ summary: |
   信号——重扫视野只碰「从未派发」的行，失效模式从永燃改为哑火；② shouldThrottle
   最小点火间隔（60s）——即使记账意外缺失，热循环最坏频率从 15 次/秒压到 1 次/分钟。
   R5 回放判据三用例锁定。失败信号重试语义不变：仅用户手动 retry。
-status: final
 change_type: fix
 tags: [signal-protocol, damping, loop-prevention, incident-hardening]
 modules: [src/usecases/conversation/signal-router.ts, src/frameworks/db/conversation/sqlite-dispatch-attempt-repo.ts]

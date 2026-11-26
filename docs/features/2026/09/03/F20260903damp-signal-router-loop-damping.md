@@ -13,7 +13,6 @@ causal_links:
     - F20260902sgp2   # v2 设计（S1/S2 落地）
     - F20260902rbsg   # v1 回滚根因分析（本事故对照输入）
 
-status: final
 change_type: fix
 tags: [signal-protocol, dispatch-ledger, incident, loop-damping]
 modules:

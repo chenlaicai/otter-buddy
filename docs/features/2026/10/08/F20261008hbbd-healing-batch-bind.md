@@ -6,7 +6,6 @@ created: 2026-10-08
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 change_type: feature
 capability_test: "tests/interface-adapters/agent-runtime/tools/healing-batch-bind.test.ts"
-status: active
 modules:
   - src/entities/healing/
   - src/usecases/healing/

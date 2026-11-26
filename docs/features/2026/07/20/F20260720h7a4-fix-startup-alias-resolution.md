@@ -14,7 +14,6 @@ causal_links:
     - F20260708r6p5   # project-repo-initialization
 
 # 元数据
-status: locked
 change_type: fix
 tags: [typescript, path-alias, startup, bugfix]
 modules: [tsconfig, vitest.config]

@@ -9,7 +9,6 @@ summary: |
   盲区（ratio=0.510>0.3），机制 A 是唯一防线。B 落地「消费即处置」规范进每日健康
   检查模板。附带发现：运行进程自 8/20 起未重启，跑的旧配置 threshold=50（main 已是 20）。
 change_type: fix
-status: active
 capability_test: "n/a: 纯脚本/测试/prompt 变更，无 LLM 行为改动"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 ---

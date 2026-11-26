@@ -5,7 +5,6 @@ created: 2026-10-09
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 module: session
 type: BugFix
-status: implemented
 issue: 1371
 pr: 1379
 summary: tool_search 从 SDK 共享 extension runtime 改为每会话 customTools 注册（holder 廿迟绑定 session 引用），根除任一 session dispose 后全进程 ctx stale 的传染链；BM25 vendor 简化实现（含参数 schema 语料 + stem 归一，与 SDK 版对齐）+ 中文 2-gram 增强。

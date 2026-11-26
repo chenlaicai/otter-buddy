@@ -14,7 +14,6 @@ causal_links:
   from:
     - F20260818sgmt
 
-status: development
 change_type: feature
 tags: [agent, conversation, tool-protocol]
 modules:

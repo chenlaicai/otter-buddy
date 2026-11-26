@@ -15,7 +15,6 @@ causal_links:
   from:
     - R20260817dshp
 
-status: implemented
 change_type: feature
 tags: [testing, capability, agent, refactor-safety]
 modules:

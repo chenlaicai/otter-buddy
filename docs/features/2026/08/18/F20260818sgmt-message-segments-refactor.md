@@ -7,7 +7,6 @@ summary: |
   根因：speak/yield 拆分后一条消息内容由多次 speak 累积，单列 body 语义不匹配。
   主机制：每次 speak INSERT 一条 segment，读取侧 aggregateBody 聚合，存量自动迁移。
 
-status: implemented
 ---
 
 # 消息内容模型重构：messages.body → message_segments 子表

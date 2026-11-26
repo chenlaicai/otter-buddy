@@ -2,7 +2,6 @@
 id: F20261102blkcm
 title: stripTsComments 块注释穿透修复（#1291）：isLineStart/lastNonWhitespace 块注释感知
 change_type: fix
-status: implemented
 created: 2026-11-02
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

@@ -16,7 +16,6 @@ causal_links:
     - "#346"
     - "#338"
 
-status: development
 change_type: feature-update
 tags: [agent, degenerate, test, negative-fixture, issue-fix, tech-debt]
 modules:

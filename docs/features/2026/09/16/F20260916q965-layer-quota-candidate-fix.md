@@ -2,7 +2,6 @@
 id: F20260916q965
 title: 层配额候选修复：dedup chunk-priority 吃掉候选池致配额从未生效（#965）
 change_type: fix
-status: implemented
 created: 2026-09-16
 created_in_conversation: 9e709aca-dd74-42fa-9fe1-4e7bbaf24bdb
 modules:

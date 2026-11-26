@@ -2,7 +2,6 @@
 id: F20260831aksp
 title: 防误杀本系统机制完整设计：脚本杀伐校验 + 守卫拦截闭环 + 拦截可观测
 date: 2026-08-31
-status: implemented
 summary: 三层防线统一设计——①otter-buddy.sh 杀伐前校验端口归属（8/29 误杀路径）②bash 守卫拦截后带上下文引导 LLM 自纠（修复「拦截即停摆」）③拦截全程可观测（healing 落账）+ 守卫归一化堵引号拼接绕过 + 误拦只引导语义替代（R1 审视修正）
 created_in_conversation: cb80d695-bce9-4b83-9f2a-98618242acd0
 capability_test: "n/a: 纯 A 类改动（shell 脚本 + 守卫重试链路），不涉及 LLM 行为"

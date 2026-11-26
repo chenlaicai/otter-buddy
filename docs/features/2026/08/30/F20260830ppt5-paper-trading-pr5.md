@@ -2,7 +2,6 @@
 id: F20260830ppt5
 title: 纸面交易操盘循环（PR5）：定时任务 seed + 操盘獭 prompt + 干跑验证
 date: 2026-08-30
-status: development
 summary: PR5 操盘循环落地——15:05 撮合 + 15:30 操盘獭定时任务（幂等 seed 挂真实 conversation）、操盘獭 prompt、自选池管理、3 交易日干跑验证；含对抗审视 5 严重发现修复 + 大獭补真实启动冒烟 13/13
 created_in_conversation: 7df22e6e-caba-4fc9-a3ab-1e9e2a3ff02d
 capability_test: "n/a: 纯 A 类改动（定时任务基建 + 测试），不涉及 LLM 行为"

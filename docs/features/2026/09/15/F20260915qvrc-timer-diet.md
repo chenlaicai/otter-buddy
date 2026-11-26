@@ -3,7 +3,6 @@ id: F20260915qvrc
 title: 闹钟瘦身：高频常驻循环降频（Polling/Pool Sweep/Metrics Flush/Embedding Retry）
 summary: 应 chen 15:09「后台循环太多」裁决 + 15:24「一个 PR 处理完」指令：四个高频常驻循环降频——调度 Polling 30s→5min、Session Pool Sweep 1min→5min、Metrics Flush 1min→5min、Embedding Retry 30s→1h。每个降频都论证过业务粒度容忍度（任务最小粒度 1min、池 TTL 10min、指标看趋势、暗化条目仅影响语义召回）。同构循环合并（4 个扫台账循环 → 巡检 worker）与 RHI on-demand 评估另开 issue 排期。
 type: feature
-status: development
 created: 2026-09-15
 created_in_conversation: c2f347c6-7e59-4e2e-ab48-10f64a5a1258
 modules: [scheduler, agent, metrics, memory]

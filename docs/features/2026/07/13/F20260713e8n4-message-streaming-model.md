@@ -19,7 +19,6 @@ causal_links:
 
 
 # 元数据
-status: locked
 change_type: feature
 tags: [implementation, s4, domain, conversation, message, streaming, events, redesign]
 modules: [domain/conversation, infra/db]

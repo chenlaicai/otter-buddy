@@ -12,7 +12,6 @@ summary: |
 causal_links:
   from:
     - F20260831aksp
-status: development
 change_type: feature
 tags: [guard-bounce, bash-safety-guard, orchestrator, action-token, healing]
 modules:

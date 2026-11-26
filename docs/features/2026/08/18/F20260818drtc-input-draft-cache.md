@@ -9,7 +9,6 @@ summary: |
   根因：MessageInput 用局部 useState 管理输入，页面卸载即丢失。
   主机制：conversationId 为键的 localStorage 读写 + 卸载前持久化。
 
-status: implemented
 change_type: feature
 tags: [web, ux]
 modules:

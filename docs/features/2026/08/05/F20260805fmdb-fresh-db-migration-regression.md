@@ -16,7 +16,6 @@ causal_links:
     - F20260806tstr   # 测试体系重构（其 build-app 测试捕获本 bug）
   to: []
 
-status: implemented
 change_type: fix
 tags: [database, migration, fresh-install, regression, sqlite]
 modules:

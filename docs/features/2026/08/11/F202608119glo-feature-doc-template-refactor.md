@@ -10,7 +10,6 @@ summary: |
 causal_links:
   from: []
 
-status: development
 change_type: feature
 tags: [documentation, template, agent-workflow]
 modules:

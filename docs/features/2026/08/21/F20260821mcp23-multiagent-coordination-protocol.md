@@ -16,7 +16,6 @@ causal_links:
     - Anthropic论文: https://www.anthropic.com/research/multiagent-systems
 
 # 元数据
-status: draft
 change_type: prompt
 tags: [multiagent, coordination, conflict-resolution, trust-calibration, prompt]
 modules:

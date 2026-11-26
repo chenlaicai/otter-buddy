@@ -12,7 +12,6 @@ causal_links:
     - F20260807snip
   to: []
 
-status: development
 change_type: fix
 tags: [memory, progressive-disclosure, context-bloat, detail-level]
 modules:

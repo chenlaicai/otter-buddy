@@ -8,7 +8,6 @@ summary: |
   消除跨层引用（13 → 2），修复类型安全问题，提升高内聚低耦合。
   经过两轮架构自检，确保 main.ts 仅做纯组装、零业务逻辑。
 
-status: final
 change_type: refactor
 tags: [architecture, clean-arch, composition-root, refactoring, code-quality]
 modules:

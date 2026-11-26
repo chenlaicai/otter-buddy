@@ -18,7 +18,6 @@ causal_links:
 
 
 # 元数据
-status: locked
 change_type: feature
 tags: [architecture, analysis, conversation, session, pi-agent, memory, context-management]
 modules: [architecture]

@@ -17,7 +17,6 @@ causal_links:
     - F20260805abpp   # 中断可见性：扩展 maybeScrollToBottom 到 message.aborted handler
   to: []
 
-status: development
 change_type: fix
 tags: [conversation, virtuoso, scroll, streaming]
 modules:

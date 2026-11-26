@@ -16,7 +16,6 @@ causal_links:
     - F20260804dcnv   # 磁盘 ID 扫描共享逻辑（本修复的观测思路沿袭）
     - F20260803mval   # upsert + 内容指纹机制（对齐后走 update 分支的保证）
 
-status: implemented
 change_type: fix
 tags: [memory, doc-sync, id-drift, unique-constraint, observability]
 modules: [src/usecases/document/sync-documents.ts, src/usecases/document/feature-repository.ts, src/usecases/document/research-repository.ts, src/frameworks/db/document/sqlite-feature-repository.ts, src/frameworks/db/document/sqlite-research-repository.ts]

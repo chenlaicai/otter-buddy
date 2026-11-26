@@ -13,7 +13,6 @@ causal_links:
   from: [F20260817mrp2, F20260824cfgs]
 
 # 元数据
-status: active
 change_type: feature
 tags: [agent, model-routing, identity, adversarial-collaboration]
 modules: [src/frameworks/agent/identity-builder.ts, src/frameworks/agent/pi-session-factory.ts, src/interface-adapters/agent-runtime/tools/tool-factory.ts, src/usecases/ports/agent-tools.ts]

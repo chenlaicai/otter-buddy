@@ -15,7 +15,6 @@ causal_links:
   from:
     - F20260811sktp
 
-status: implemented
 change_type: feature
 tags: [lint, ci, engineering-hygiene]
 modules:

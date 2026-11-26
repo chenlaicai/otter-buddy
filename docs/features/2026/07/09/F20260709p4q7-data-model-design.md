@@ -16,7 +16,6 @@ causal_links:
 
 
 # 元数据
-status: locked
 change_type: feature
 tags: [data-model, design, sqlite, ddd]
 modules: [data-model]

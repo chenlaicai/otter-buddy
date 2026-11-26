@@ -9,7 +9,6 @@ summary: |
   Vite 多入口构建，服务端路由实现干净 URL（无 .html 后缀）。解决对话无独立 URL、URL 带 .html 后缀、
   800+ 行巨型组件、无法深链接等问题。
 
-status: final
 change_type: feature
 tags: [web, frontend, architecture, mpa, spa, routing, vite, hybrid]
 modules:

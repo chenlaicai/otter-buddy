@@ -3,7 +3,6 @@ id: F20260807srts
 title: 对话列表按最新消息时间排序
 doc_type: feature
 change_type: feature
-status: development
 summary: |
   对话列表排序从 created_at 改为最新消息时间：ORDER BY 子句改为
   COALESCE(lm.created_at, c.created_at) DESC，活跃对话排最前面，

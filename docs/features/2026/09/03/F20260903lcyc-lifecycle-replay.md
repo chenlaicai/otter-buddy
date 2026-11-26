@@ -7,7 +7,6 @@ summary: |
   （L1 未出生非 pending → L2 出生追溯 pending 且点火一轮即止 → L3 死亡 pending 消失
   → L4 全链顺序回放计数轨迹 0→1→0→0）。验证 v2 修复后生命周期各阶段失效模式
   全部落在哑火侧；补充 S1 观察期抓到的 queryOtter.getById 同步/异步契约坑（测试侧）。
-status: final
 change_type: fix
 tags: [signal-protocol, lifecycle, replay-test, incident-hardening]
 modules: [tests/usecases/conversation/signal-router-lifecycle.test.ts]

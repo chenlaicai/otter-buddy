@@ -167,7 +167,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     ] as const) {
       await repo.commitFile("src/invoker.ts", content, message);
     }
-    await repo.commitDoc("docs/features/2026/08/01/F20260801wwww.md", "---\nid: F20260801wwww\ntitle: 测试链\nsummary: 冒烟测试用 F 文档\nchange_type: feature\nstatus: development\n---\n\nbody\n", "[F20260801wwww][agent][Feature Update] 加文档");
+    await repo.commitDoc("docs/features/2026/08/01/F20260801wwww.md", "---\nid: F20260801wwww\ntitle: 测试链\nsummary: 冒烟测试用 F 文档\nchange_type: feature\n---\n\nbody\n", "[F20260801wwww][agent][Feature Update] 加文档");
   }
 
 
@@ -219,7 +219,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     await mkdir(oldDocDir, { recursive: true });
     await writeFile(
       path.join(oldDocDir, "F20260701zzzz.md"),
-      "---\nid: F20260701zzzz\ntitle: 旧链\nsummary: pr-stalled 测试\nchange_type: feature\nstatus: development\n---\n\nbody\n",
+      "---\nid: F20260701zzzz\ntitle: 旧链\nsummary: pr-stalled 测试\nchange_type: feature\n---\n\nbody\n",
       "utf-8",
     );
     repo.git(["add", "docs/"]);

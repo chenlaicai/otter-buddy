@@ -10,7 +10,6 @@ summary: |
   SSE 忙等待轮询浪费 CPU、callHistory/recentSegments 无界增长、Scheduler 用 console.error、
   DetailLevel 类型定义重复。按风险分三批修复。
 
-status: final
 change_type: fix
 tags: [code-quality, bugfix, architecture, cleanup, error-handling]
 modules:

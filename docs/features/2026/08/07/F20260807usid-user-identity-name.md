@@ -7,7 +7,6 @@ summary: |
   让海獭知道搭档叫什么。用户显示名存 settings 表，首次 invoke 注入身份段，roster/abort body 等 6 处"搭档"硬编码改为动态读取。零 migration，零 prompt 文件改动。
 
 change_type: feature
-status: implemented
 tags: [identity, user, settings]
 modules:
   - src/usecases/settings/settings-keys.ts

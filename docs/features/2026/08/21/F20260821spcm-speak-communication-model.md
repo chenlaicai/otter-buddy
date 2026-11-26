@@ -15,7 +15,6 @@ causal_links:
     - "#354"
     - "#357"
 
-status: development
 change_type: feature-update
 tags: [agent, speak, yield, prompt, retry-policy, observability, multi-otter]
 modules:

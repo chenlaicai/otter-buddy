@@ -13,7 +13,6 @@ causal_links:
   from:
     - F20260716t2ab
 
-status: draft
 change_type: prompt
 tags: [prompt, agent-behavior, llm-behavior, identity, refactor]
 modules:

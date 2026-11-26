@@ -12,7 +12,6 @@ causal_links:
   from:
     - F20260813dr25
 
-status: development
 change_type: prompt
 tags: [skills, requirement-analysis, prompt, intent-confirmation]
 modules:

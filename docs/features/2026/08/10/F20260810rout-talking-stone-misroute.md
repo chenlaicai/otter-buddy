@@ -14,7 +14,6 @@ causal_links:
   to:
     - F20260813actk
 
-status: implemented
 change_type: prompt
 tags: [agent-routing, talking-stone, prompt, multi-otter]
 modules:

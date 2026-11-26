@@ -12,7 +12,6 @@ causal_links:
   from:
     - F20260813dr26
 
-status: development
 change_type: prompt
 tags: [skills, code-implementation, prompt, precheck]
 modules:

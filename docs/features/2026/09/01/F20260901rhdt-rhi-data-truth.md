@@ -3,7 +3,6 @@ id: F20260901rhdt
 title: "健康面板重设计 PR1：信号与链数据修真"
 summary: "为复发模式卡/泳道时间线补结构化数据——evidence_detail 全类型 commit 序列、chain_stall 置信分层（规则甲）、active 值止血收编、链详情端点、upsert UPDATE 侧刷新、存量库补列迁移。UI 形态不变。"
 change_type: feature
-status: development
 created_at: 2026-09-01
 created_in_conversation: 7c6e78b5-6fdc-462e-9383-4d96cf95dcd7
 capability_test: "n/a: 纯数据层改动（schema迁移+检测器补结构化详情+端点透出），无 LLM 行为涉及"

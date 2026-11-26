@@ -4,7 +4,6 @@ title: "issue #466 诊断与 Prompt 兜底：小獭任务模板加入「卡住�
 summary: |
   issue #466 三层处置。诊断结论：两次用户干预分属两只不同小獭、两种不同异常形态（kimi-coder 长任务卡片反复重写 14 次工具调用无中间汇报被用户强制中断；mimo PR-1 生成超时两次被系统保护中断）。Prompt 兜底：otter-summon 小獭任务模板加入「连续多次工具调用无结论应主动汇报困境」，把 SYSTEM.md A2 卡住报告原则下沉到小獭 systemPrompt。防护评估：建议引入「工具调用预算告警」作为独立后续 issue，本 PR 不实现。
 change_type: prompt
-status: draft
 from: []
 capability_test: "n/a: prompt 模板 + 诊断报告，无代码路径变更"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc

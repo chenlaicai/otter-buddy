@@ -16,7 +16,6 @@ causal_links:
     - F20260810rsta   # restart_otter 工具（restartSession 从 controller 提取共用）
     - F20260813rstrt  # pendingRestart 自重启延迟执行
 
-status: development
 change_type: fix
 tags: [agent, degenerate, circuit-breaker, session-restart, resilience]
 modules:

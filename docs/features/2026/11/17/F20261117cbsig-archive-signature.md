@@ -2,7 +2,6 @@
 id: F20261117cbsig
 title: 循环熔断签名表补全：archive_artifact_for_reconciliation 与五个带实体工具入表（#1895）
 change_type: fix
-status: implemented
 created: 2026-11-17
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

@@ -18,7 +18,6 @@ causal_links:
   from: [F20260826pfix]
 
 # 元数据
-status: development
 change_type: fix
 capability_test: "n/a: 纯前端 UI 组件变更，无 LLM 参与行为；验证走 web 单测（vitest）+ 浏览器手动验证内容渲染"
 tags: [web-ui, bugfix, modal, workspace, tree, react-markdown, iframe]

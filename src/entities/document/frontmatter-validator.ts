@@ -1,7 +1,5 @@
 import {
   isKnownChangeType,
-  isKnownFeatureStatus,
-  isKnownResearchStatus,
   isKnownExplorationType,
 } from "./known-values";
 import { FID_DATE_SEGMENT, FID_SUFFIX_SEGMENT, FID_READ_SUFFIX_SEGMENT, LEGACY_FID_IDS } from "./fid-format";
@@ -29,7 +27,7 @@ export function validateFeatureFrontmatter(
 
   validateFeatureId(fm.id, errors, options.strictNewId === true);
   validateSummary(fm.summary, errors);
-  validateFeatureStatus(fm.status, warnings);
+  validateStatusRetired(fm.status, "feature", errors);
   validateChangeType(fm.change_type, warnings);
   validateTitleReadability(fm.title, warnings);
   validateSupersedesPrefix(fm.supersedes, "F", errors);
@@ -56,7 +54,7 @@ export function validateResearchFrontmatter(
 
   validateResearchId(fm.id, errors, options.strictNewId === true);
   validateSummary(fm.summary, errors);
-  validateResearchStatus(fm.status, warnings);
+  validateStatusRetired(fm.status, "research", errors);
   validateExplorationType(fm.exploration_type, warnings);
   validateSupersedesPrefix(fm.supersedes, "R", errors);
   if (filePath) {
@@ -108,10 +106,14 @@ function validateSummary(summary: unknown, errors: string[]): void {
   }
 }
 
-/** 未知值进 warnings 不阻断（应用层不再硬卡语义枚举） */
-function validateFeatureStatus(status: unknown, warnings: string[]): void {
-  if (status && typeof status === "string" && !isKnownFeatureStatus(status)) {
-    warnings.push(`Unknown feature status: ${status}`);
+/** status 字段已退役：文档合入即不可变，生命周期状态无法演进；
+ *  归档（archived）是 sync 在磁盘文档消失时写入 DB 的系统行为，作者不可声明。
+ *  frontmatter 出现 status 字段（无论值）→ error 阻断，机械拦住，不依赖执行者读 skill。 */
+function validateStatusRetired(status: unknown, kind: "feature" | "research", errors: string[]): void {
+  if (status !== undefined) {
+    errors.push(
+      `${kind} 文档的 status 字段已退役：文档状态由系统管理（archived 由 sync 自动标记），请删除 frontmatter 中的 status 行（#2050）`
+    );
   }
 }
 
@@ -147,12 +149,6 @@ export function validateFilenameSlug(filePath: string, warnings: string[]): void
   const base = filePath.split("/").pop() ?? "";
   if (new RegExp(`^F${FID_DATE_SEGMENT}${FID_READ_SUFFIX_SEGMENT}\\.md$`).test(base)) {
     warnings.push(`Filename "${base}" missing slug suffix: prefer F<date><id>-<slug>.md`);
-  }
-}
-
-function validateResearchStatus(status: unknown, warnings: string[]): void {
-  if (status && typeof status === "string" && !isKnownResearchStatus(status)) {
-    warnings.push(`Unknown research status: ${status}`);
   }
 }
 

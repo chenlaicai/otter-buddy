@@ -11,7 +11,6 @@ summary: |
   污染隔离、批评→测试用例、SUPERSEDED 不删。考古发现：git 历史在 7/2 被切断，项目 6 月
   有前世，prompt 迭代史不可考。本文同时校准了我们与 F20260825evgl 评测体系的真实差距。
 
-status: draft
 exploration_type: technical
 tags: [evaluation-methodology, prompt-engineering, benchmark-design, selftest-first, agent-behavior, capability-test, ponytail]
 causal_links:

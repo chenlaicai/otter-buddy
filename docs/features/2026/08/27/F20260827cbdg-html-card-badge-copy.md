@@ -15,7 +15,6 @@ causal_links:
   to: []
 
 # 元数据
-status: implemented   # 代码已实现（测试全绿），待对抗审视
 change_type: prompt   # UI 文案属 prompt 层变更（用户可感知的措辞调整），无逻辑改动
 capability_test: "web/src/pages/conversation/HtmlCard.test.tsx（徽标断言已同步新文案）"
 tags: [html-card, web-ui, copywriting]

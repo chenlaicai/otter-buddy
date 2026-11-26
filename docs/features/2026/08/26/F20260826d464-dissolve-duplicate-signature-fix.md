@@ -10,7 +10,6 @@ summary: |
   导致批量操作被连续相同签名计数器误判为卡壳循环。
 tags: [circuit-breaker, tool-signature, dissolve, batch-ops]
 modules: [src/frameworks/agent/tool-call-circuit-breaker.ts, tests/frameworks/agent/tool-call-circuit-breaker.test.ts]
-status: draft
 created_at: 2026-08-26
 ---
 
