@@ -8,7 +8,7 @@ intent:
   expected_effect: "静止选中块由 WebGL 清玻璃透镜常驻绘制（frost=0.03、静止端 strength=0.5、可见折射），DOM 高亮块仅在降级路径可见且不再使用纯白十六进制色；液滴流动动画端点参数零变化；透镜生命周期闭环（无选中退场、reduced-motion 动态切换退场、几何变化重对位）"
   verify_by:
     type: behavior_check
-capability_test: "n/a: 视觉效果类改动——机器验收 = material-v3.test.ts 契约断言（锁 frost/strength 端点与兜底样式）+ 893 单测（含 6 条生命周期行为测试） + Playwright 截图目检（静止/运动/连点/自定义背景标）"
+capability_test: "n/a: 视觉效果类改动——机器验收 = material-v3.test.ts 契约断言（锁 frost/strength 端点与兜底样式）+ 894 单测（含 7 条生命周期行为测试） + Playwright 截图目检（静止/运动/连点/自定义背景标）"
 created_in_conversation: 3995c48d-499a-4c2d-b04f-e3581a3d3e28
 created_at: 2026-11-26
 from: [F20261124tbnav]
@@ -91,7 +91,7 @@ blurCenter/blurEdge 公式不变（由 frost 驱动，frost≈0.03 时近清晰�
 
 ## 验证
 
-- 单测：web 891/891 通过（新增 `glass-lens.test.tsx` 4 条行为测试：mock engine 驱动真实生命周期——初始常驻、value=null 退场、动态 reduced-motion 退场、RO 几何重对位；`material-v3.test.ts` 契约用例更新：锁 `frost=lerp(0.03,0,pc)`、`strength=lerp(0.5,1,pc)` 静止端点 + 兜底块禁纯白十六进制色回归）。
+- 单测：web 894/894 通过（新增 `glass-lens.test.tsx` 7 条行为测试：mock engine 驱动真实生命周期——初始常驻、value=null 退场、动态 reduced-motion 退场、RO 几何重对位、reduce 开→关往返恢复、按压释放重对位、离屏清空 value 后回视口清帧；`material-v3.test.ts` 契约用例更新：锁 `frost=lerp(0.03,0,pc)`、`strength=lerp(0.5,1,pc)` 静止端点 + 兜底块禁纯白十六进制色回归）。
 - 类型：`tsc --noEmit` 干净。
 - 截图自验（alpha 隔离实例 3162，2× Playwright，真实 WebGL2）：
   - 静止默认态/切项后：清玻璃胶囊（阴影+边缘光），无白色实心；`data-glass-moving` 在位、DOM 高亮 opacity=0、canvas 尺寸由 engine 接管（1272×192）。

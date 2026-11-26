@@ -259,4 +259,25 @@ describe('GlassLens 常驻生命周期', () => {
     expect(lens).not.toBeNull()
     expect(lens!.hx).toBeGreaterThan(80) // 新宽度 200/2 量级（含 swell/pad 换算）
   })
+
+  it('离屏清空 value 后回视口：IO arm 必须调度清帧，旧画布不得残留', () => {
+    const switcher = render(<HostSwitch initial="a" />)
+    harness.ioCallback?.([{ isIntersecting: true }])
+    view().drawn?.()
+
+    // 滚离屏（帧被 engine 跳过，canvas 上仍是旧玻璃帧）
+    harness.ioCallback?.([{ isIntersecting: false }])
+    // 离屏中清空 value：detach 生效但 dirty 无帧消费
+    act(() => {
+      hostSwitchSetter.current?.(null)
+    })
+    const host = switcher.getByTestId('host') as HTMLElement
+    expect('glassMoving' in host.dataset).toBe(false)
+
+    // 回视口：IO 的 arm 分支——active 已为 false，必须补 wake 消费 dirty 清帧
+    const wakeBefore = harness.wake
+    harness.ioCallback?.([{ isIntersecting: true }])
+    expect(harness.wake).toBeGreaterThan(wakeBefore)
+    expect(view().lens(false)).toBeNull()
+  })
 })

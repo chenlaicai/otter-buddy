@@ -410,7 +410,14 @@ export function GlassLens({ value, disabled = false }: GlassLensProps) {
       const next = measure()
       target = next
       if (!next || reduced.matches || !view.visible) {
-        if (active) detach()
+        if (active) {
+          detach()
+        } else {
+          // Already detached, but a prior frame may still sit on the canvas (it was skipped
+          // while off-screen): force one frame so the stale glass gets cleared.
+          view.dirty = true
+          engine.wake()
+        }
         return
       }
       active = true
