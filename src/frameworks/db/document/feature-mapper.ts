@@ -1,5 +1,5 @@
 import type { FeatureDocument, FeatureStatus, ChangeType } from "../../../entities/document/feature";
-import { isKnownChangeType, isKnownFeatureStatus, normalizeChangeType } from "../../../entities/document/known-values";
+import { isKnownChangeType, normalizeChangeType } from "../../../entities/document/known-values";
 
 /** Feature 表的 Row 类型 */
 export interface FeatureRow {
@@ -22,7 +22,6 @@ export interface FeatureRow {
 export function rowToEntity(row: FeatureRow): FeatureDocument {
   // 读取侧 isKnown 校验，防非 sync 路径写入的未知值绕过类型安全
   const ct = row.change_type;
-  const st = row.status;
   return {
     id: row.id,
     title: row.title,
@@ -30,7 +29,8 @@ export function rowToEntity(row: FeatureRow): FeatureDocument {
     bodyHash: row.body_hash,
     // 归一值落库（' fix '/'bugfix' 判合法后存规范值，DB 不进脏值）
     changeType: (isKnownChangeType(ct) ? normalizeChangeType(ct) : "feature") as ChangeType,
-    status: (isKnownFeatureStatus(st) ? st : "draft") as FeatureStatus,
+    // status 值域已收敛（#2050）：透传 DB 值（active/archived/历史遗留），不再归一到 draft
+    status: row.status as FeatureStatus,
     tags: JSON.parse(row.tags),
     modules: JSON.parse(row.modules),
     causalLinksFrom: JSON.parse(row.causal_links_from),

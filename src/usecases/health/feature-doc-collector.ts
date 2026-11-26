@@ -17,9 +17,7 @@ export interface CollectedFeatureDoc {
   title: string;
   /** 变更类型 */
   changeType: string | null;
-  /** 文档状态。值域契约：语义分组（在途/终态/未知）消费方统一用
-   *  @entities/document/doc-status 的 classifyDocStatus，勿在各消费点自行 has 判断。
-   *  本字段保留原始值（含行内注释已被 yaml 解析器剥离后的裸值），不做归一改写。 */
+  /** 文档状态。值域已退役（#2050）：frontmatter 不再含 status 字段，本字段恒 null（保留接口兼容，健康链自 #720 起零消费）。 */
   status: string | null;
   /** 子状态（段2）：目前仅 implemented: active（合入后又有新 commit = 迭代中，参与病态判定）。
    *  可选字段（undefined = 无子状态）——新增概念不破坏存量构造点。
@@ -130,7 +128,8 @@ async function parseFeatureDoc(
     id: frontmatter.id as string,
     title: (frontmatter.title as string) ?? "",
     changeType: (frontmatter.change_type as string) ?? null,
-    status: (frontmatter.status as string) ?? null,
+    // status 已退役（#2050）：frontmatter 不再含 status 字段，固定 null
+    status: null,
     substatus: (frontmatter.substatus as string) ?? null,
     tags: (frontmatter.tags as string[]) ?? [],
     modules: (frontmatter.modules as string[]) ?? [],

@@ -1,5 +1,5 @@
 import type { ResearchDocument, ResearchStatus, ExplorationType } from "../../../entities/document/research";
-import { isKnownResearchStatus, isKnownExplorationType } from "../../../entities/document/known-values";
+import { isKnownExplorationType } from "../../../entities/document/known-values";
 
 /** Research 表的 Row 类型 */
 export interface ResearchRow {
@@ -22,14 +22,14 @@ export interface ResearchRow {
 export function rowToEntity(row: ResearchRow): ResearchDocument {
   // 读取侧 isKnown 校验
   const et = row.exploration_type;
-  const st = row.status;
   return {
     id: row.id,
     title: row.title,
     summary: row.summary,
     bodyHash: row.body_hash,
     explorationType: (isKnownExplorationType(et) ? et : "technical") as ExplorationType,
-    status: (isKnownResearchStatus(st) ? st : "draft") as ResearchStatus,
+    // status 值域已收敛（#2050）：透传 DB 值（active/archived/历史遗留），不再归一到 draft
+    status: row.status as ResearchStatus,
     tags: JSON.parse(row.tags),
     conclusion: row.conclusion,
     causalLinksFrom: JSON.parse(row.causal_links_from),

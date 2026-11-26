@@ -11,8 +11,6 @@ import type { FeatureDocument, ChangeType, FeatureStatus } from "@entities/docum
 import type { ResearchDocument, ExplorationType, ResearchStatus } from "@entities/document/research";
 import {
   isKnownChangeType,
-  isKnownFeatureStatus,
-  isKnownResearchStatus,
   isKnownExplorationType,
   normalizeChangeType,
 } from "@entities/document/known-values";
@@ -419,7 +417,6 @@ export class SyncDocuments {
     const causalLinks = fm.causal_links as Record<string, unknown> | undefined;
     // 未知枚举值 fallback 到默认，防 as 强转使类型安全形同虚设
     const ct = (fm.change_type as string) || "feature";
-    const st = (fm.status as string) || "draft";
     return {
       id: fm.id as string,
       title: fm.title as string,
@@ -427,7 +424,8 @@ export class SyncDocuments {
       bodyHash: computeBodyHash(body),
       // 归一值落库（' fix '/'bugfix' 判合法后存规范值，DB 不进脏值）
       changeType: (isKnownChangeType(ct) ? normalizeChangeType(ct) : "feature") as ChangeType,
-      status: (isKnownFeatureStatus(st) ? st : "draft") as FeatureStatus,
+      // status 已脱离 frontmatter 输入（#2050）：活文档固定 active，archived 只由 sync 归档逻辑写入
+      status: "active" as FeatureStatus,
       tags: Array.isArray(fm.tags) ? (fm.tags as string[]) : [],
       modules: Array.isArray(fm.modules) ? (fm.modules as string[]) : [],
       causalLinksFrom: Array.isArray(causalLinks?.from)
@@ -449,14 +447,14 @@ export class SyncDocuments {
   ): ResearchDocument {
     const causalLinks = fm.causal_links as Record<string, unknown> | undefined;
     const et = (fm.exploration_type as string) || "technical";
-    const st = (fm.status as string) || "draft";
     return {
       id: fm.id as string,
       title: fm.title as string,
       summary: (fm.summary as string).trim(),
       bodyHash: computeBodyHash(body),
       explorationType: (isKnownExplorationType(et) ? et : "technical") as ExplorationType,
-      status: (isKnownResearchStatus(st) ? st : "draft") as ResearchStatus,
+      // status 已脱离 frontmatter 输入（#2050）：活文档固定 active，archived 只由 sync 归档逻辑写入
+      status: "active" as ResearchStatus,
       tags: Array.isArray(fm.tags) ? (fm.tags as string[]) : [],
       conclusion: (fm.conclusion as string) || null,
       causalLinksFrom: Array.isArray(causalLinks?.from)

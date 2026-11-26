@@ -15,23 +15,14 @@ export const KNOWN_CHANGE_TYPES = [
   "feature-update",
 ] as const;
 
-/** Feature 文档状态（工作流生命周期）。
- * active：补录——存量 33 篇在用（lint 长期误报 Unknown），
- *  语义为「已上线生效中」，介于 implemented 与 final 之间使用。 */
-export const KNOWN_FEATURE_STATUSES = [
-  "draft",
-  "proposed",
-  "design",
-  "development",
-  "active",
-  "locked",
-  "final",
-  "implemented",
-  "archived",
-] as const;
-
-/** Research 文档状态，与 Feature 共用生命周期。 */
-export const KNOWN_RESEARCH_STATUSES = KNOWN_FEATURE_STATUSES;
+/** Feature/Research 文档 DB status 列的值类型。
+ * 2026-11 语义收敛（#2050）：frontmatter 的 status 字段整体退役——
+ * 文档合入即不可变（lint-historical-docs 机械拦截），「生命周期状态」在机制上无法演进
+ * （每日推进器 F20260901dstat 已随 #720 删除，classifyDocStatus 零调用点）。
+ * DB 列唯一有效语义是 archived 标记（磁盘文档消失时 sync 自动写入，见 sync-documents 对账逻辑）；
+ * 新写入统一落 "active"，历史遗留值（locked/draft/implemented 等）无消费方、随下次 sync 自然收敛。 */
+export type FeatureStatus = string;
+export type ResearchStatus = string;
 
 /** Research 探索类型。 */
 export const KNOWN_EXPLORATION_TYPES = [
@@ -42,8 +33,6 @@ export const KNOWN_EXPLORATION_TYPES = [
 ] as const;
 
 export type ChangeType = (typeof KNOWN_CHANGE_TYPES)[number];
-export type FeatureStatus = (typeof KNOWN_FEATURE_STATUSES)[number];
-export type ResearchStatus = (typeof KNOWN_RESEARCH_STATUSES)[number];
 export type ExplorationType = (typeof KNOWN_EXPLORATION_TYPES)[number];
 
 /** 判定 change_type 是否为已知值（未知值进 SyncResult.warnings 上报，不阻断入库）。
@@ -63,16 +52,6 @@ export function normalizeChangeType(value: string): string {
 /** 判定 change_type 是否为已知值（归一后判定：`' fix '`/`'bugfix'` 均判合法） */
 export function isKnownChangeType(value: string): boolean {
   return (KNOWN_CHANGE_TYPES as readonly string[]).includes(normalizeChangeType(value));
-}
-
-/** 判定 feature status 是否为已知值。 */
-export function isKnownFeatureStatus(value: string): boolean {
-  return (KNOWN_FEATURE_STATUSES as readonly string[]).includes(value);
-}
-
-/** 判定 research status 是否为已知值。 */
-export function isKnownResearchStatus(value: string): boolean {
-  return (KNOWN_RESEARCH_STATUSES as readonly string[]).includes(value);
 }
 
 /** 判定 exploration_type 是否为已知值。 */

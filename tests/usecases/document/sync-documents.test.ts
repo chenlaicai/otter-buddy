@@ -22,7 +22,7 @@ function computeBodyHash(rawBody: string): string | null {
 }
 
 const FEATURE_FM = (id: string, summary: string, changeType = "feature", supersedes = "") =>
-  `---\nid: ${id}\ntitle: 测试文档\nsummary: ${summary}\nchange_type: ${changeType}\nstatus: draft\nsupersedes: [${supersedes ? `"${supersedes}"` : ""}]\ncreated_at: 2026-08-03\n---\n# 正文\n这是文档正文内容，用于测试分段索引。\n`;
+  `---\nid: ${id}\ntitle: 测试文档\nsummary: ${summary}\nchange_type: ${changeType}\nsupersedes: [${supersedes ? `"${supersedes}"` : ""}]\ncreated_at: 2026-08-03\n---\n# 正文\n这是文档正文内容，用于测试分段索引。\n`;
 
 function makeDoc(overrides: Partial<FeatureDocument> = {}): FeatureDocument {
   return {
@@ -31,7 +31,7 @@ function makeDoc(overrides: Partial<FeatureDocument> = {}): FeatureDocument {
     summary: "测试摘要",
     bodyHash: null,
     changeType: "feature",
-    status: "draft",
+    status: "active",
     tags: [],
     modules: [],
     causalLinksFrom: [],
@@ -127,7 +127,7 @@ describe("SyncDocuments - F20260803mval", () => {
   it("F20260803fbit: body 经 markdown 噪声清理后索引（chunkEntriesIndexed + feature 入库）", async () => {
     const featureRepo = makeStatefulFeatureRepo([]);
     const memoryIndex = { indexEntry: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}), indexAssistantDigest: vi.fn(async () => {}) };
-    const fm = `---\nid: F20260803tst1\ntitle: 测试\nsummary: 摘要\nchange_type: feature\nstatus: draft\ncreated_at: 2026-08-03\n---\n## 标题\n\n\`\`\`ts\nconst x = 1;\n\`\`\`\n`;
+    const fm = `---\nid: F20260803tst1\ntitle: 测试\nsummary: 摘要\nchange_type: feature\ncreated_at: 2026-08-03\n---\n## 标题\n\n\`\`\`ts\nconst x = 1;\n\`\`\`\n`;
     const fs = makeFs({ "F20260803tst1.md": fm });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, createTestLogger());
 
@@ -234,7 +234,7 @@ describe("SyncDocuments - F20260803mval", () => {
   });
 
   it("F20260901dsyn: id 对齐后（文档 id 改回 DB id）——走 upsert update 分支，不再报错", async () => {
-    // 修复后形态：文档 id 已改回 与 DB 一致，fingerprint 不同（status 不同）触发 update
+    // 修复后形态：文档 id 已改回 与 DB 一致，fingerprint 不同（status archived vs 落库 active）触发 update
     const dbDoc = makeDoc({
       id: "F20260803mmr1",
       filePath: "docs/features/2026/08/03/F20260803mmr1.md",
@@ -251,7 +251,34 @@ describe("SyncDocuments - F20260803mval", () => {
     expect(result.errors.length).toBe(0);
     expect(result.updated).toBe(1);
     expect(featureRepo.store[0].summary).toBe("新摘要");
-    expect(featureRepo.store[0].status).toBe("draft");
+    // #2050：落库 status 固定 active，与 frontmatter 输入无关
+    expect(featureRepo.store[0].status).toBe("active");
+  });
+
+  it("#2050: frontmatter 带 status 字段 → validator error，跳过不入库（存量清理前的拦截行为）", async () => {
+    const featureRepo = makeStatefulFeatureRepo([]);
+    const memoryIndex = { indexEntry: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}), indexAssistantDigest: vi.fn(async () => {}) };
+    const legacy = `---\nid: F20260803tst1\ntitle: 测试\nsummary: 摘要\nchange_type: feature\nstatus: locked\ncreated_at: 2026-08-03\n---\n# 正文\n`;
+    const fs = makeFs({ "F20260803tst1.md": legacy });
+    const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, createTestLogger());
+
+    const result = await sync.execute("/root");
+
+    expect(result.synced).toBe(0);
+    expect(result.errors.length).toBe(1);
+    expect(result.errors[0].error).toContain("status 字段已退役");
+    expect(featureRepo.insert).not.toHaveBeenCalled();
+  });
+
+  it("#2050: 不写 status 的文档落库固定 active，与作者输入无关", async () => {
+    const featureRepo = makeStatefulFeatureRepo([]);
+    const memoryIndex = { indexEntry: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}), indexAssistantDigest: vi.fn(async () => {}) };
+    const fs = makeFs({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "新摘要") });
+    const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, createTestLogger());
+
+    await sync.execute("/root");
+
+    expect(featureRepo.store[0].status).toBe("active");
   });
 });
 
@@ -301,7 +328,7 @@ describe("SyncDocuments - F20261110dsqy 归档守卫（canonical rootDir）", ()
     expect(result.archived).toBe(0);
     expect(result.archiveGuarded).toBe(1);
     expect(featureRepo.updateStatus).not.toHaveBeenCalled();
-    expect(featureRepo.store.find(d => d.id === "F20260803dbonly")?.status).toBe("draft");
+    expect(featureRepo.store.find(d => d.id === "F20260803dbonly")?.status).toBe("active");
   });
 
   it("rootDir === canonicalRootDir：归档照常（主仓视角权威判定）", async () => {
