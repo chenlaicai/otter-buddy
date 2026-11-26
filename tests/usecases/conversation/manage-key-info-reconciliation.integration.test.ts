@@ -249,7 +249,7 @@ describe("archiveResourceForReconciliation（#1835）", () => {
         artifactId: ids[0], operatorOtterId: "otter-operator", evidence: "gh pr view 1378 --json state → MERGED",
       })).rejects.toThrow("仅限「合入事实」");
 
-      // 合入事实但无 #N PR 号
+      // 合入事实但正文无 PR 号引用
       await linkFactArtifact(repo, { id: ids[1], title: "AI 雷达持久化入库完成（已合入）" });
       await expect(uc.archiveResourceForReconciliation({
         artifactId: ids[1], operatorOtterId: "otter-operator", evidence: "gh pr view 1378 --json state → MERGED",
