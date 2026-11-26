@@ -74,6 +74,8 @@ export interface InvokeFnParams {
   triggerMessageId?: string;
   /** 本次 yield 派工角色；由链引擎逐 hop 显式传递 */
   assignmentRole?: "reviewer";
+  /** 恢复链已有动作的原执行机；仅自动恢复注入，工具闸禁止换机。 */
+  requiredExecutionMachineIds?: string[];
 }
 
 export interface InvokeFnResult {
@@ -138,7 +140,7 @@ export class DispatchChainEngine {
       /** 链式派工的目标忙碌判定与同 session followUp 注入。
        *  factory 与 session 保持架构边界；旧测试/装配缺省时维持直接 invoke。 */
       isRunning?: (otterId: string) => boolean;
-      followUp?: (otterId: string, text: string, options?: { delegated?: boolean; conversationId?: string }) => Promise<boolean>;
+      followUp?: (otterId: string, text: string, options?: { delegated?: boolean; conversationId?: string; requiredExecutionMachineIds?: string[] }) => Promise<boolean>;
       /** 系统条目写入（单飞行拒绝的人话通知）。
        *  可选——未注入时通知降级为纯日志，拒绝仍由 rejected 结果通道承载。 */
       systemEntryRepo?: { createSystemEntry(input: { conversationId: string; body: string; yieldTargets?: string[]; senderName?: string }): Promise<unknown> };
@@ -183,6 +185,8 @@ export class DispatchChainEngine {
       ledgerSource?: "chain" | "router" | "retry";
       /** 恢复侧 steer 去重——已消化的 msg id 从未读注入剔除 */
       excludeMessageIds?: Set<string>;
+      /** 恢复链原执行机集合；逐 hop 透传到工具闸。 */
+      requiredExecutionMachineIds?: string[];
     },
   ): Promise<{ otterReply?: string }> {
     return runWithTrace({ traceId: newTraceId(), source: "chain" }, () => this.executeChainInner(params));
@@ -235,10 +239,10 @@ export class DispatchChainEngine {
       /** 台账账面来源（穿透到首 hop 记账行，缺省 'chain'） */
       ledgerSource?: "chain" | "router" | "retry";
       /** 恢复侧 steer 去重 */
-      excludeMessageIds?: Set<string>;
+      excludeMessageIds?: Set<string>; requiredExecutionMachineIds?: string[];
     },
   ): Promise<{ otterReply?: string }> {
-    const { conversationId, userMessageContent, senderId, externalProfile, initialTargets, invokeFn, images, triggerMessageId, triggerSenderType, triggerSequenceNum, triggerSenderName, ledgerSource, excludeMessageIds } = params;
+    const { conversationId, userMessageContent, senderId, externalProfile, initialTargets, invokeFn, images, triggerMessageId, triggerSenderType, triggerSequenceNum, triggerSenderName, ledgerSource, excludeMessageIds, requiredExecutionMachineIds } = params;
     let targets = initialTargets;
     let depth = 0;
     let lastOtterReply: string | undefined;
@@ -266,7 +270,7 @@ export class DispatchChainEngine {
     while (targets.length > 0) {
       depth++;
       const result = await this.executeOneHop({
-        conversationId, userMessageContent, senderId, externalProfile, targets, invokeFn, images, stopWordReminder,
+        conversationId, userMessageContent, senderId, externalProfile, targets, invokeFn, images, stopWordReminder, requiredExecutionMachineIds,
         // triggerMessageId 透传所有 hop（原先仅首 hop）——后续 hop 反复以
         // 同一 messageId 点火时，buildMessageWithContext 靠它识别已消费旧消息的重放并打「历史」标记；
         // executeOneHop 内 excludeIds.add(triggerMessageId) 同步保证 hop≥2 不双份。
@@ -336,9 +340,9 @@ export class DispatchChainEngine {
     /** 护栏 steer 文案：从上一 hop 传递，前置注入到本 hop 消息上下文（解决 session 已 dispose 的生命周期问题） */
     steerText?: string;
     /** 恢复侧 steer 去重——已消化的 msg id 从未读注入剔除 */
-    excludeMessageIds?: Set<string>;
+    excludeMessageIds?: Set<string>; requiredExecutionMachineIds?: string[];
   }): Promise<ChainHopResult> {
-    const { conversationId, userMessageContent, senderId, externalProfile, targets, invokeFn, images, stopWordReminder, triggerMessageId, ledgerSource: _ledgerSource, chainSourceMessageIds: _chainSourceMessageIds, assignmentRoles, steerText } = params;
+    const { conversationId, userMessageContent, senderId, externalProfile, targets, invokeFn, images, stopWordReminder, triggerMessageId, requiredExecutionMachineIds, ledgerSource: _ledgerSource, chainSourceMessageIds: _chainSourceMessageIds, assignmentRoles, steerText } = params;
     const roster = await this.buildRoster(conversationId, senderId);
 
     // 触发消息去重——触发 entry 以 userMessageContent 形态追加发言流末尾，
@@ -366,7 +370,7 @@ export class DispatchChainEngine {
       }
 
       // 受限外部消息绝不能借忙碌委托进入普通池 Session；必须继续走独立 restricted invoke。
-      const delegatedHop = externalProfile ? null : await this.delegateBusyHop(conversationId, otterId, fullMessage);
+      const delegatedHop = externalProfile ? null : await this.delegateBusyHop(conversationId, otterId, fullMessage, requiredExecutionMachineIds);
       if (delegatedHop) return delegatedHop;
 
       this.deps.logger.info('发言链调用', {
@@ -385,6 +389,7 @@ export class DispatchChainEngine {
         batchMaxSeq: messageWithContext.batchMaxSeq,
         triggerMessageId,
         assignmentRole: assignmentRoles?.get(otterId),
+        ...(requiredExecutionMachineIds && { requiredExecutionMachineIds }),
       });
     });
 
@@ -417,11 +422,11 @@ export class DispatchChainEngine {
   }
 
   /** 忙碌目标转 SDK 队列；仅真实 queued 才返回 delegated 进程内结果。 */
-  private async delegateBusyHop(conversationId: string, otterId: string, fullMessage: string): Promise<InvokeFnResult | null> {
+  private async delegateBusyHop(conversationId: string, otterId: string, fullMessage: string, requiredExecutionMachineIds?: string[]): Promise<InvokeFnResult | null> {
     if (!this.deps.isRunning?.(otterId) || !this.deps.followUp) return null;
     let delegated = false;
     try {
-      delegated = await this.deps.followUp(otterId, `## 链式派工\n${fullMessage}`, { delegated: true, conversationId });
+      delegated = await this.deps.followUp(otterId, `## 链式派工\n${fullMessage}`, { delegated: true, conversationId, ...(requiredExecutionMachineIds && { requiredExecutionMachineIds }) });
     } catch (err) {
       // 单飞行拒绝要快速失败，不能降级 invoke 再次制造并发委托。
       // 「快速失败」指被拒目标不重投（下方 throw

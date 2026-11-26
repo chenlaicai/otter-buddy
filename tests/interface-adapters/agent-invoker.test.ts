@@ -407,6 +407,28 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
     expect(events.find(e => e.event === "invoke.tick")).toBeUndefined();
   });
 
+  it("恢复链原执行机集合透传 SDK invoke，并写入 invoke 审计元数据", async () => {
+    const sendEntry = mockSendEntry();
+    let received: string[] | undefined;
+    const sdk = mockAgentInvoke({
+      invokeImpl: async (_otterId, _message, opts) => {
+        received = opts?.requiredExecutionMachineIds;
+        return { text: "", _guardAbortReason: "degenerate_output" };
+      },
+    });
+    const invoker = makeInvoker(sdk, sendEntry);
+    await invoker.invokeConversation({
+      otterId: "otter-1",
+      conversationId: "conv-1",
+      userMessageContent: "恢复",
+      senderId: "system",
+      requiredExecutionMachineIds: ["connector-original"],
+    });
+    expect(received).toEqual(["connector-original"]);
+    const invoke = [...sendEntry.store.invokes.values()][0]!;
+    expect(invoke.metadata?.requiredExecutionMachineIds).toEqual(["connector-original"]);
+  });
+
   it("正常流：yield 置 invoke completed → invoke.end + turn.complete（无 message.* 事件）", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const sendEntry = mockSendEntry();

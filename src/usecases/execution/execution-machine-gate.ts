@@ -1,4 +1,5 @@
 import type { ExecutionMachinePoolEntry, ExecutionMachinePoolSnapshot } from "@usecases/ports/execution-machine";
+import { otterInvokeStorage } from "@entities/execution/otter-invoke-context";
 
 /**
  * 执行机落点校验（动作级选择的 fail-closed 闸）。
@@ -83,6 +84,15 @@ function unknownMachineMessage(machineId: string, view: PoolView): string {
   ].join("\n");
 }
 
+function recoveryMachineMessage(machineId: string, required: string[], view: PoolView): string {
+  return [
+    `[执行机错误] 当前是恢复链续跑，指定机器 "${machineId}" 不是该链已有动作的原执行机（fail-closed，不换机重放）。`,
+    `本恢复链只允许原执行机：${required.join("、")}。`,
+    poolSection(view),
+    "请使用原执行机继续；原机离线时恢复服务会保持 pending，等待原机上线。",
+  ].join("\n");
+}
+
 function offlineMachineMessage(machineId: string, name: string | undefined, view: PoolView): string {
   const label = name && name !== machineId ? `（${name}）` : "";
   return [
@@ -106,6 +116,10 @@ export async function gateExecutionMachine(
     return { ok: false, message: missingMachineMessage(await readPool(pool)) };
   }
   const view = await readPool(pool);
+  const required = otterInvokeStorage.getStore()?.requiredExecutionMachineIds;
+  if (required && required.length > 0 && !required.includes(machineId)) {
+    return { ok: false, message: recoveryMachineMessage(machineId, required, view) };
+  }
   if (view.kind === "error") {
     return { ok: false, message: `[执行机错误] 机器池快照查询失败，本次调用不执行。\n${poolSection(view)}` };
   }

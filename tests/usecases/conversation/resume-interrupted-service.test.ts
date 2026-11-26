@@ -49,6 +49,7 @@ function stubChainEngine(behavior: { throwError?: Error } = {}) {
     initialTargets: string[];
     userMessageContent: string;
     triggerMessageId?: string;
+    requiredExecutionMachineIds?: string[];
   }> = [];
   const engine = {
     executeChain: vi.fn(async (params: {
@@ -56,6 +57,7 @@ function stubChainEngine(behavior: { throwError?: Error } = {}) {
       initialTargets: string[];
       userMessageContent: string;
       triggerMessageId?: string;
+      requiredExecutionMachineIds?: string[];
       invokeFn: (p: unknown) => Promise<unknown>;
     }) => {
       calls.push({
@@ -63,12 +65,15 @@ function stubChainEngine(behavior: { throwError?: Error } = {}) {
         initialTargets: params.initialTargets,
         userMessageContent: params.userMessageContent,
         triggerMessageId: params.triggerMessageId,
+        requiredExecutionMachineIds: params.requiredExecutionMachineIds,
       });
       if (behavior.throwError) throw behavior.throwError;
       // 模拟链引擎首 hop：对每个 initialTarget 调 invokeFn。
       // 链吞错语义（allSettled 不上抛）——拒绝被 captureInvokeFn 捕获，
       // 由 settleResumedOutcome 的 invoke 终态直读判定（F4）。
-      await Promise.allSettled(params.initialTargets.map(() => params.invokeFn({} as never)));
+      await Promise.allSettled(params.initialTargets.map(() => params.invokeFn({
+        requiredExecutionMachineIds: params.requiredExecutionMachineIds,
+      } as never)));
       return { otterReply: undefined };
     }),
     calls,
@@ -84,6 +89,20 @@ function stubHealingRepo() {
     created,
   };
   return repo as unknown as HealingEventRepository & { created: unknown[] };
+}
+
+function remoteActionAt(invokeId: string, deviceId: string): import("@entities/execution/remote-action-request").RemoteActionRequest {
+  return {
+    actionId: `action-${deviceId}`, onlineSessionId: `session-${deviceId}`, deviceId,
+    actionType: "shell.exec", status: "unknown", error: "hub restart before result", result: null,
+    createdAt: T0, settledAt: null, conversationId: "conv-1", invokeId,
+  };
+}
+
+function onlinePool(...ids: string[]): () => Promise<import("@usecases/ports/execution-machine").ExecutionMachinePoolSnapshot> {
+  return async () => ({
+    machines: ids.map(id => ({ id, name: id, online: true, lastSeenAt: null })),
+  });
 }
 
 /** 多会话容错用：conv-2 中断现场（otter-small + pending invoke） */
@@ -143,7 +162,8 @@ interface Harness {
       rateLimitBaseDelayMs?: number;
       invokeFn?: () => Promise<{ messageId: string }>;
       actionLedger?: { listByInvoke(invokeId: string, limit?: number): Promise<import("@entities/execution/action-record").ActionRecord[]> };
-      remoteActions?: { listByConversation(conversationId: string, limit?: number): Promise<import("@entities/execution/remote-action-request").RemoteActionRequest[]> };
+      remoteActions?: { listByInvoke(invokeId: string, limit?: number): Promise<import("@entities/execution/remote-action-request").RemoteActionRequest[]> };
+      machinePool?: () => Promise<import("@usecases/ports/execution-machine").ExecutionMachinePoolSnapshot>;
       bootEpoch?: number;
       pid?: number;
       isPidAlive?: (pid: number) => boolean;
@@ -204,6 +224,7 @@ function makeHarness(): Harness {
       delayMs: opts.delayMs ?? 0,
       rateLimitBaseDelayMs: opts.rateLimitBaseDelayMs,
       remoteActions: opts.remoteActions,
+      machinePool: opts.machinePool ?? onlinePool("hub-node", "conn-a"),
       bootEpoch: opts.bootEpoch ?? 42,
       pid: opts.pid,
       isPidAlive: opts.isPidAlive,
@@ -369,16 +390,20 @@ describe("ResumeInterruptedService（F20260916b1ea invoke 模型重建）", () =
     expect(h.queueStatus(invokeId)).toBe("done");
   });
 
-  it("attempts 达上限（跨重启无限重试守卫，S1 修复）：exhausted 闭环不再恢复", async () => {
+  it("attempts 达上限（跨重启无限重试守卫，S1 修复）：exhausted + healing 告警，不再恢复", async () => {
     const invokeId = await h.seedInterrupted();
-    // 模拟恢复中崩溃五次：attempts 已自增到上限（MAX_RESUME_ATTEMPTS=5），status 仍 pending
+    // 模拟恢复链已达上限（MAX_RESUME_ATTEMPTS=5），status 仍 pending
     h.db.prepare("UPDATE restart_pending_resumes SET attempts = 5 WHERE invoke_id = ?").run(invokeId);
 
     const chain = stubChainEngine();
-    await h.buildService(chain).resume();
+    const healing = stubHealingRepo();
+    await h.buildService(chain, { healingRepo: healing }).resume();
 
     expect(chain.calls).toHaveLength(0);
     expect(h.queueStatus(invokeId)).toBe("exhausted");
+    const capEvent = healing.created.find((event) => (event as { description: string }).description.includes("恢复链已达 5 次上限"));
+    expect(capEvent).toMatchObject({ severity: "high", errorType: "other", status: "open" });
+    expect((capEvent as { context?: { invokeId?: string; attempts?: number } }).context).toMatchObject({ invokeId, attempts: 5 });
   });
 
   it("healing 落账：服务重启事件按中断数分级落账", async () => {
@@ -464,7 +489,7 @@ it("台账摘要内嵌续跑指令：unknown 优先呈现 + 处置指引；恢�
     const chain = stubChainEngine();
     const service = h.buildService(chain, {
       remoteActions: {
-        listByConversation: async () => [
+        listByInvoke: async () => [
           { actionId: "a1", onlineSessionId: "s-1", deviceId: "hub-node", actionType: "shell.exec", status: "unknown", error: null, result: null, createdAt: T0, settledAt: null, conversationId: "conv-1", invokeId },
           { actionId: "a2", onlineSessionId: "s-1", deviceId: "hub-node", actionType: "file.write", status: "succeeded", error: null, result: null, createdAt: T0, settledAt: null, conversationId: "conv-1", invokeId },
         ],
@@ -480,6 +505,8 @@ it("台账摘要内嵌续跑指令：unknown 优先呈现 + 处置指引；恢�
     expect(content).toContain("禁止盲目重试");
     expect(content).toContain("[succeeded] file.write");
     expect(content).toContain("不要重做");
+    expect(content).toContain("原执行机：hub-node");
+    expect((chain.calls[0] as { requiredExecutionMachineIds?: string[] }).requiredExecutionMachineIds).toEqual(["hub-node"]);
     // 恢复轮 invoke 回填（审计链）
     const row = await h.resumeRepo.getByInvokeId(invokeId);
     expect(row?.recoveryInvokeId).toBe("new-invoke-1");
@@ -505,7 +532,7 @@ it("台账摘要内嵌续跑指令：unknown 优先呈现 + 处置指引；恢�
 });
 
 // ─── 修复与未覆盖点 ───
-describe("ResumeInterruptedService 检视轮修复（同 boot 认领冲突保持 pending / 摘要超限显性标注 / 台账查询失败退化）", () => {
+describe("ResumeInterruptedService 检视轮修复（同 boot 认领冲突保持 pending / 证据超限拒恢复 / 台账查询失败退化）", () => {
   let h: Harness;
 
   beforeEach(async () => {
@@ -531,12 +558,12 @@ describe("ResumeInterruptedService 检视轮修复（同 boot 认领冲突保持
     expect(row?.attempts).toBe(1); // 失败认领不自增 attempts
   });
 
-  it("台账行数达查询上限：摘要显性标注计数可能不完整〔minor-2〕", async () => {
+  it("台账行数达查询上限：证据不完整，保持 pending 且不带部分机器集恢复", async () => {
     const invokeId = await h.seedInterrupted();
     const chain = stubChainEngine();
     const service = h.buildService(chain, {
       remoteActions: {
-        listByConversation: async (_conversationId: string, limit?: number) =>
+        listByInvoke: async (_conversationId: string, limit?: number) =>
           Array.from({ length: limit ?? 1000 }, (_, i) => ({
             actionId: `a${i}`, onlineSessionId: "s-1", deviceId: "hub-node", actionType: "file.write",
             status: "succeeded", error: null, result: null, createdAt: T0, settledAt: null,
@@ -547,25 +574,23 @@ describe("ResumeInterruptedService 检视轮修复（同 boot 认领冲突保持
 
     await service.resume();
 
-    const content = (chain.calls[0] as { userMessageContent: string }).userMessageContent;
-    expect(content).toContain("远程动作");
-    expect(content).toContain("计数可能不完整");
-    expect(h.queueStatus(invokeId)).toBe("done");
+    expect(chain.calls).toHaveLength(0);
+    expect(h.queueStatus(invokeId)).toBe("pending");
+    expect((await h.resumeRepo.getByInvokeId(invokeId))?.attempts).toBe(0);
   });
 
-  it("台账查询抛错：退回旧版文案（无摘要块），恢复不受阻〔未覆盖点补测〕", async () => {
+  it("台账查询抛错：保持 pending 且不认领，不在缺证据时恢复", async () => {
     const invokeId = await h.seedInterrupted();
     const chain = stubChainEngine();
     const service = h.buildService(chain, {
-      remoteActions: { listByConversation: async () => { throw new Error("db locked"); } },
+      remoteActions: { listByInvoke: async () => { throw new Error("db locked"); } },
     });
 
     await service.resume();
 
-    expect(chain.calls).toHaveLength(1);
-    const content = (chain.calls[0] as { userMessageContent: string }).userMessageContent;
-    expect(content).not.toContain("远程动作");
-    expect(h.queueStatus(invokeId)).toBe("done");
+    expect(chain.calls).toHaveLength(0);
+    expect(h.queueStatus(invokeId)).toBe("pending");
+    expect((await h.resumeRepo.getByInvokeId(invokeId))?.attempts).toBe(0);
   });
 });
 
@@ -668,11 +693,11 @@ describe("ResumeInterruptedService 远程动作摘要并入（C2/R2）", () => {
   });
 
   it("远程动作段并入：本机台账段缺席时远程段独现，远程五态可裁决", async () => {
-    await h.seedInterrupted();
+    const invokeId = await h.seedInterrupted();
     const chain = stubChainEngine();
     const service = h.buildService(chain, {
       remoteActions: {
-        listByConversation: async (conversationId: string) => conversationId === "conv-1" ? [
+        listByInvoke: async (id: string) => id === invokeId ? [
           { actionId: "r-1", onlineSessionId: "s-1", deviceId: "conn-a", actionType: "workspace.write", status: "unknown", error: "timeout after 30000ms", result: null, createdAt: T0, settledAt: null, conversationId: "conv-1", invokeId: null },
           { actionId: "r-2", onlineSessionId: "s-1", deviceId: "conn-a", actionType: "workspace.read", status: "succeeded", error: null, result: null, createdAt: T0, settledAt: null, conversationId: "conv-1", invokeId: null },
         ] : [],
@@ -689,17 +714,139 @@ describe("ResumeInterruptedService 远程动作摘要并入（C2/R2）", () => {
     expect(content).not.toContain("机器台账"); // 本机台账缺席——只有远程段
   });
 
-  it("remoteActions 查询失败 → 远程段静默缺席（non-fatal，不阻断恢复）", async () => {
-    await h.seedInterrupted();
+  it("remoteActions 查询失败 → 保持 pending，不用旧版文案冒险恢复", async () => {
+    const invokeId = await h.seedInterrupted();
     const chain = stubChainEngine();
     const service = h.buildService(chain, {
-      remoteActions: { listByConversation: async () => { throw new Error("db locked"); } },
+      remoteActions: { listByInvoke: async () => { throw new Error("db locked"); } },
     });
 
     await service.resume();
 
-    expect(chain.calls).toHaveLength(1); // 恢复照常
-    const content = (chain.calls[0] as { userMessageContent: string }).userMessageContent;
-    expect(content).not.toContain("远程动作");
+    expect(chain.calls).toHaveLength(0);
+    expect(h.queueStatus(invokeId)).toBe("pending");
+    expect((await h.resumeRepo.getByInvokeId(invokeId))?.attempts).toBe(0);
+  });
+});
+
+describe("ResumeInterruptedService 原执行机恢复衔接", () => {
+  let h: Harness;
+
+  beforeEach(async () => { h = await setupHarness(); });
+  afterEach(() => { h.db.close(); });
+
+  it("恢复者无新动作时继承祖先原机；离线不认领，目标上线后才恢复", async () => {
+    const recoveryId = await h.seedInterrupted({ invokeId: "recovery-current" });
+    const current = await h.invokeRepo.getInvokeById(recoveryId);
+    h.db.prepare("INSERT INTO invokes (id, conversation_id, otter_id, status, trigger_entry_id, started_at) VALUES ('recovery-parent', 'conv-1', 'otter-big', 'failed', ?, ?)")
+      .run(current?.triggerEntryId, T0);
+    h.db.prepare("UPDATE invokes SET trigger_entry_id = 'recovery-parent' WHERE id = ?").run(recoveryId);
+    h.db.prepare("UPDATE restart_pending_resumes SET trigger_entry_id = 'recovery-parent' WHERE invoke_id = ?").run(recoveryId);
+
+    let originalOnline = false;
+    const chain = stubChainEngine();
+    const service = h.buildService(chain, {
+      remoteActions: {
+        listByInvoke: async id => id === "recovery-parent" ? [remoteActionAt(id, "connector-original")] : [],
+      },
+      machinePool: async () => ({ machines: [
+        { id: "connector-original", name: "原机", online: originalOnline, lastSeenAt: null },
+        { id: "connector-other", name: "其他机", online: true, lastSeenAt: null },
+      ] }),
+    });
+
+    await service.resume();
+    await service.resume({ deviceOnline: "connector-other" });
+    expect(chain.calls).toHaveLength(0);
+    expect(h.queueStatus(recoveryId)).toBe("pending");
+    expect((await h.resumeRepo.getByInvokeId(recoveryId))?.attempts).toBe(0);
+
+    originalOnline = true;
+    await service.resume({ deviceOnline: "connector-original" });
+    expect(chain.calls).toHaveLength(1);
+    expect(chain.calls[0]?.requiredExecutionMachineIds).toEqual(["connector-original"]);
+    expect(chain.calls[0]?.userMessageContent).toContain("原执行机：connector-original");
+    expect(h.queueStatus(recoveryId)).toBe("done");
+    expect((await h.resumeRepo.getByInvokeId(recoveryId))?.attempts).toBe(1);
+  });
+
+  it("原机记录缺失或机器池查询失败：均保持 pending，不换机", async () => {
+    const missingId = await h.seedInterrupted({ invokeId: "missing-machine" });
+    const chain = stubChainEngine();
+    const missing = h.buildService(chain, {
+      remoteActions: { listByInvoke: async id => [remoteActionAt(id, "deleted-device")] },
+      machinePool: onlinePool("connector-other"),
+    });
+    await missing.resume();
+    expect(chain.calls).toHaveLength(0);
+    expect(h.queueStatus(missingId)).toBe("pending");
+    expect((await h.resumeRepo.getByInvokeId(missingId))?.attempts).toBe(0);
+
+    const broken = h.buildService(chain, {
+      remoteActions: { listByInvoke: async id => [remoteActionAt(id, "connector-original")] },
+      machinePool: async () => { throw new Error("pool unavailable"); },
+    });
+    await broken.resume();
+    expect(chain.calls).toHaveLength(0);
+    expect(h.queueStatus(missingId)).toBe("pending");
+    expect((await h.resumeRepo.getByInvokeId(missingId))?.attempts).toBe(0);
+  });
+
+  it("原机离线告警可按 invoke 定位，并按原机集合去重", async () => {
+    const invokeId = await h.seedInterrupted();
+    const chain = stubChainEngine();
+    const healingRepo = stubHealingRepo();
+    const service = h.buildService(chain, {
+      healingRepo,
+      remoteActions: { listByInvoke: async id => [remoteActionAt(id, "connector-original")] },
+      machinePool: onlinePool("connector-other"),
+    });
+
+    await service.resume();
+    await service.resume();
+
+    const waits = healingRepo.created.filter(event =>
+      (event as { context?: { reason?: string } }).context?.reason === "resume-original-machines-unavailable");
+    expect(waits).toHaveLength(1);
+    expect(waits[0]).toMatchObject({
+      messageId: invokeId,
+      conversationId: "conv-1",
+      severity: "medium",
+      context: {
+        invokeId,
+        machineIds: ["connector-original"],
+        reason: "resume-original-machines-unavailable",
+      },
+    });
+    expect(chain.calls).toHaveLength(0);
+    expect(h.queueStatus(invokeId)).toBe("pending");
+    expect((await h.resumeRepo.getByInvokeId(invokeId))?.attempts).toBe(0);
+  });
+
+  it("当前 invoke 记录缺失：恢复证据不完整，保持 pending", async () => {
+    const invokeId = await h.seedInterrupted();
+    h.db.prepare("DELETE FROM invokes WHERE id = ?").run(invokeId);
+    const chain = stubChainEngine();
+    const service = h.buildService(chain, {
+      remoteActions: { listByInvoke: async id => [remoteActionAt(id, "connector-original")] },
+    });
+    await service.resume();
+    expect(chain.calls).toHaveLength(0);
+    expect(h.queueStatus(invokeId)).toBe("pending");
+  });
+
+  it("祖先 invoke 与入口记录同时缺失：当前无动作也不得点火或注入空约束", async () => {
+    const invokeId = await h.seedInterrupted({ invokeId: "recovery-missing-parent" });
+    h.db.prepare("UPDATE invokes SET trigger_entry_id = 'missing-parent' WHERE id = ?").run(invokeId);
+    const chain = stubChainEngine();
+    const service = h.buildService(chain, {
+      remoteActions: { listByInvoke: async () => [] },
+    });
+
+    await service.resume();
+
+    expect(chain.calls).toHaveLength(0);
+    expect(h.queueStatus(invokeId)).toBe("pending");
+    expect((await h.resumeRepo.getByInvokeId(invokeId))?.attempts).toBe(0);
   });
 });

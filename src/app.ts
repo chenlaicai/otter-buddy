@@ -908,10 +908,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       });
     },
   });
-  await hubConnectorSupervisor.start().catch((err) => {
-    logger.error("hub connector supervisor start failed (machine pool without hub machine until restart)", err instanceof Error ? err : new Error(String(err)));
-  });
-
   const app = buildHttpApp(
     controllers,
     logger,
@@ -985,9 +981,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       },
       healingRepo: repos.healingEvent,
       logger,
-      // 恢复摘要数据源（统一注册制：全部机器动作都在 central registry）
-      // 远程动作五态并入恢复摘要（remote_action_requests 只读面）
+      // 恢复路由与摘要共用 central registry；原机在线状态与工具 gate 同源。
       remoteActions: remoteActionRegistry,
+      machinePool: () => machinePoolSnapshot(() => connectorRepo.listDeviceOnlineStatus()),
+    });
+    connectorGateway.onDeviceOnline((deviceId) => {
+      void resumeService.resume({ deviceOnline: deviceId }).catch((err) => {
+        logger.error("Resume after connector online failed", err instanceof Error ? err : new Error(String(err)), { deviceId });
+      });
+    });
+    // 先挂上线重查再拉起受管 connector，避免首次 hello 早于监听器而丢恢复触发。
+    await hubConnectorSupervisor.start().catch((err) => {
+      logger.error("hub connector supervisor start failed (machine pool without hub machine until restart)", err instanceof Error ? err : new Error(String(err)));
     });
     resumeService.resume().catch((err) => {
       logger.error("Resume interrupted service failed", err instanceof Error ? err : new Error(String(err)));
