@@ -31,4 +31,9 @@ export function featureId(text: string | null | undefined): string | null;
 export function extractIssueNumbers(title: string, body?: string): number[];
 export function extractCommitIssueNumbers(message: string): number[];
 export function parseClaims(comments: ClaimComment[]): ClaimEntry[];
-export function checkClaim(pr: PrForClaim, issuesComments: Record<number, ClaimComment[]>): ClaimResult;
+export interface IssueReference {
+  state?: string;
+  pull_request?: unknown;
+}
+export function selectOpenIssueNumbers(issueNums: number[], references?: Record<number, IssueReference>): number[];
+export function checkClaim(pr: PrForClaim, issuesComments: Record<number, ClaimComment[]>, references?: Record<number, IssueReference>): ClaimResult;
