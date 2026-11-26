@@ -59,6 +59,11 @@ interface Args {
   hub?: string;
   pair?: string;
   name?: string;
+  /** 受管模式（中枢 supervisor spawn）：启用 ppid watch——父进程死亡自退，防孤儿 */
+  managed?: boolean;
+  /** 工作区根覆写（绝对路径；中枢 supervisor 同机场景指向中枢 dataDir，
+   *  让 workspace.* 落点与中枢原内置执行机同路径，存量对话工作区零迁移） */
+  workspaceRoot?: string;
 }
 
 /** 心跳半开判死：3 个间隔无 ack 即认为通道死（hub 侧 90s 判死，客户端侧更早自愈） */
@@ -67,14 +72,25 @@ const HEARTBEAT_ACK_TIMEOUT_MS = CONNECTOR_HEARTBEAT_INTERVAL_MS * 3;
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 
+/** 值参数与 flag 参数混扫（--managed 是无值 flag；其余键值成对） */
+const FLAG_ARGS = new Set(["managed"]);
+
 function parseArgs(argv: string[]): Args {
   const args: Partial<Args> = {};
-  for (let i = 2; i < argv.length; i += 2) {
+  for (let i = 2; i < argv.length;) {
     const key = argv[i]?.replace(/^--/, "");
+    if (!key) { i += 1; continue; }
+    if (FLAG_ARGS.has(key)) {
+      (args as Record<string, unknown>)[key] = true;
+      i += 1;
+      continue;
+    }
     const value = argv[i + 1];
     if (key === "hub") args.hub = value;
     if (key === "pair") args.pair = value;
     if (key === "name") args.name = value;
+    if (key === "workspace-root") args.workspaceRoot = value;
+    i += 2;
   }
   return args;
 }
@@ -255,7 +271,10 @@ function sendOutputFrame(data: Extract<ConnectorFrame, { type: "action.output" }
 
 /** 执行栈（数据目录 ~/.otter/connector/<deviceId>/）：workspace 网关 +
  *  本地台账（机器侧真相源）+ 公共执行器（六动作，与中枢 local 同一执行语义）+
- *  shell 执行器 + 文件执行器（协议 v2：file.* 族 + 读器句柄）+ 分发器 */
+ *  shell 执行器 + 文件执行器（协议 v2：file.* 族 + 读器句柄）+ 分发器。
+ *  workspaceRoot 可覆写（中枢 supervisor 同机场景指向中枢 dataDir，让 workspace.*
+ *  落点与中枢原内置执行机同路径——存量对话工作区零迁移；缺省 = 设备数据目录自身，
+ *  独立设备行为不变） */
 interface ConnectorRuntime {
   dispatcher: ConnectorActionDispatcher;
   shellExecutor: ShellActionExecutor;
@@ -263,9 +282,11 @@ interface ConnectorRuntime {
   ledger: SqliteActionLedger;
 }
 
-async function buildRuntime(identity: DeviceIdentity): Promise<ConnectorRuntime> {
+async function buildRuntime(identity: DeviceIdentity, workspaceRoot?: string): Promise<ConnectorRuntime> {
   const dataRoot = path.join(os.homedir(), ".otter", "connector", identity.deviceId);
   await mkdir(dataRoot, { recursive: true });
+  // workspace 根覆写仅影响 workspace.* 落点；身份/台账/实例锁仍走 homedir（HOME 隔离不变）
+  const workspaceGateway = new NodeWorkspaceGateway(workspaceRoot ?? dataRoot);
   const ledger = new SqliteActionLedger(path.join(dataRoot, "action-ledger.sqlite"), {
     deviceId: identity.deviceId, // 台账行归属设备（表结构预留的维度）
   });
@@ -276,7 +297,6 @@ async function buildRuntime(identity: DeviceIdentity): Promise<ConnectorRuntime>
     return null;
   });
   if (sweep) log("ledger boot sweep", { ...sweep });
-  const workspaceGateway = new NodeWorkspaceGateway(dataRoot);
   const executor = new WorkspaceActionExecutor(workspaceGateway, ledger, (message, meta) => log(message, meta));
   const shellExecutor = new ShellActionExecutor({
     ledger,
@@ -383,10 +403,26 @@ async function main(): Promise<void> {
     process.exit(4);
   }
 
-  const { identity, hub } = await establishIdentityAndHub(parseArgs(process.argv));
+  const args = parseArgs(process.argv);
+  const { identity, hub } = await establishIdentityAndHub(args);
+
+  // 受管模式 ppid watch：父进程（中枢 supervisor）死亡 → 本进程被 init 收养（ppid=1）
+  // → 自退（SIGTERM 走既有优雅退出链：取消 shell 进程组 + 台账 interrupted + offline 帧）。
+  // 仅 --managed 启用——手动 nohup/双击常驻场景父进程死亡不该带走 connector（语义不变）。
+  // 扫描间隔 200ms（spike 实测：父死后 200ms 内退出，扫描零残留）。
+  if (args.managed) {
+    const ppidWatch = setInterval(() => {
+      if (process.ppid === 1) {
+        log("parent supervisor died (orphaned) — self-terminating", { ppid: process.ppid });
+        clearInterval(ppidWatch);
+        process.kill(process.pid, "SIGTERM");
+      }
+    }, 200);
+    ppidWatch.unref();
+  }
 
   // 断线自动重连：指数退避，重连=新会话（hub 侧 sid 代际隔离跨会话重放）
-  const runtime = await buildRuntime(identity); // 执行栈（台账清扫后才开始执行动作）
+  const runtime = await buildRuntime(identity, args.workspaceRoot); // 执行栈（台账清扫后才开始执行动作）
   // 信号处理注册一次（runtime 后——自杀收尾读 dispatcher 在途集）。
   // 先取消 shell 进程组（不留孤儿进程），再落台账 interrupted 收尾。
   registerSignalHandlersOnce(async () => {

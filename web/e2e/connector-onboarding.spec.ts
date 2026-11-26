@@ -11,24 +11,22 @@ async function evidencePath(testInfo: { outputPath: (name: string) => string }, 
   return target
 }
 
-test('Web 添加设备：登录签发、公开核销、CLI 下载与可见几何证据', async ({ page }, testInfo) => {
+test('设置页 Web 添加设备：登录签发、公开核销、CLI 下载与可见几何证据', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 900 })
-  const created = await page.request.post('/api/conversations', {
-    data: { title: `connector onboarding ${Date.now()}` },
-  })
-  expect(created.ok()).toBe(true)
-  const conversation = await created.json() as { id: string }
-  await page.goto(`/conversation/${conversation.id}`)
-  await page.getByTitle(/执行机与远程动作/).click()
+  await page.goto('/settings')
 
+  const machineSettings = page.getByTestId('execution-machine-settings')
   const onboarding = page.getByTestId('connector-onboarding')
+  await expect(machineSettings).toBeVisible()
   await expect(onboarding).toBeVisible()
   await expect(onboarding.getByText(/开发态：需要 Node\.js 22\+、npm 和命令行/)).toBeVisible()
   await expect(onboarding.getByText(/开发态未签名：首次打开可能被 macOS 拦截/)).toBeVisible()
+  await page.getByTestId('download-connector').scrollIntoViewIfNeeded()
   const downloadRect = await page.getByTestId('download-connector').boundingBox()
   expect(downloadRect).not.toBeNull()
   expect(downloadRect!.y).toBeGreaterThanOrEqual(0)
   expect(downloadRect!.y + downloadRect!.height).toBeLessThanOrEqual(900)
+  await page.getByTestId('download-connector-app').scrollIntoViewIfNeeded()
   const appDownloadRect = await page.getByTestId('download-connector-app').boundingBox()
   expect(appDownloadRect).not.toBeNull()
   expect(appDownloadRect!.y).toBeGreaterThanOrEqual(0)
@@ -83,8 +81,8 @@ test('Web 添加设备：登录签发、公开核销、CLI 下载与可见几何
     data: { code, name: 'Playwright 重放设备' },
   })
   expect(replayed.status()).toBe(403)
-  await page.getByTitle('刷新', { exact: true }).click()
-  await expect(page.getByTestId(`machine-option-${device.deviceId}`)).toContainText('离线')
+  await page.getByTitle('刷新执行机列表', { exact: true }).click()
+  await expect(page.getByTestId(`execution-machine-${device.deviceId}`)).toContainText('离线')
 
   const downloadEvent = page.waitForEvent('download')
   await page.getByTestId('download-connector').click()
@@ -103,11 +101,11 @@ test('Web 添加设备：登录签发、公开核销、CLI 下载与可见几何
 
   await page.getByTestId('pairing-details').scrollIntoViewIfNeeded()
   const codeRect = await codeLocator.boundingBox()
-  const dialogRect = await page.getByRole('dialog').boundingBox()
+  const containerRect = await onboarding.boundingBox()
   expect(codeRect).not.toBeNull()
-  expect(dialogRect).not.toBeNull()
-  expect(codeRect!.x).toBeGreaterThanOrEqual(dialogRect!.x)
-  expect(codeRect!.x + codeRect!.width).toBeLessThanOrEqual(dialogRect!.x + dialogRect!.width)
+  expect(containerRect).not.toBeNull()
+  expect(codeRect!.x).toBeGreaterThanOrEqual(containerRect!.x)
+  expect(codeRect!.x + codeRect!.width).toBeLessThanOrEqual(containerRect!.x + containerRect!.width)
   expect(codeRect!.y).toBeGreaterThanOrEqual(0)
   expect(codeRect!.y + codeRect!.height).toBeLessThanOrEqual(900)
   await page.screenshot({ path: await evidencePath(testInfo, 'connector-onboarding-issued.png') })
@@ -128,6 +126,6 @@ test('Web 添加设备：登录签发、公开核销、CLI 下载与可见几何
     downloadRect,
     appDownloadRect,
     codeRect,
-    dialogRect,
+    containerRect,
   }, null, 2))
 })

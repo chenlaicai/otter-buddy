@@ -22,8 +22,7 @@ import type { OtterToolClient } from '@usecases/ports/otter-tool-client';
 import type { ExecutionEnv } from '@earendil-works/pi-durable/env';
 import { AttachmentUploadService } from '@usecases/conversation/attachment-upload-service';
 import { SqliteAttachmentRepository } from '@frameworks/db/attachment/sqlite-attachment-repository';
-import { LocalExecutionMachine } from '@frameworks/execution/local-execution-machine';
-import { NodeWorkspaceGateway } from '@frameworks/file-system/node-workspace-gateway';
+import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node';
 import { createRemoteLoopback } from '../../../../tests/helpers/remote-loopback';
 import { createTestDb } from '../../../../tests/helpers/db';
 import { createTestLogger } from '../../../../tests/helpers/logger';
@@ -60,6 +59,8 @@ function makeToolContext(overrides: Partial<ToolContext>): ToolContext {
     otterId: 'otter-1',
     conversationId: 'conv-1',
     currentMessageId: 'msg-1',
+    // 统一注册制：machine 必选 gate 的池数据源（node-a 恒在线）
+    listExecutionMachines: async () => ({ machines: [{ id: 'node-a', name: '中枢本机', online: true, lastSeenAt: null }] }),
     ...overrides,
   };
 }
@@ -75,8 +76,7 @@ describe('upload_device_file（显式上传通道）', () => {
   it('本地 env：字节一致 + 中枢可寻址（附件存储持有副本）', async () => {
     const workDir = await makeTempDir();
     const { service, storageRoot } = await makeAttachmentUploader();
-    const localMachine = new LocalExecutionMachine(new NodeWorkspaceGateway(workDir), null);
-    const env = localMachine.createExecutionEnvironment(workDir);
+    const env = new NodeExecutionEnv({ cwd: workDir });
 
     // 待上传文件：多 chunk 文本内容（>64KB，验证流式分块重组字节一致）
     const payload = Buffer.concat([
@@ -89,7 +89,7 @@ describe('upload_device_file（显式上传通道）', () => {
 
     const ctx = makeToolContext({ attachmentUpload: service, resolveExecutionEnv: async () => env });
     const tool = createUploadDeviceFileTool(ctx);
-    const { response, text } = await runTool(tool, { filePath, originalName: 'report.md' });
+    const { response, text } = await runTool(tool, { machine: 'node-a', filePath, originalName: 'report.md' });
 
     expect(response.isError).toBeFalsy();
     const meta = JSON.parse(text) as { id: string; sizeBytes: number; sha256: string; filePath: string };
@@ -106,14 +106,13 @@ describe('upload_device_file（显式上传通道）', () => {
   it('任意二进制（非附件白名单 kind）→ 明确拒绝——复用既有附件存储的 kind 边界，不盲扩存储语义', async () => {
     const workDir = await makeTempDir();
     const { service } = await makeAttachmentUploader();
-    const localMachine = new LocalExecutionMachine(new NodeWorkspaceGateway(workDir), null);
-    const env = localMachine.createExecutionEnvironment(workDir);
+    const env = new NodeExecutionEnv({ cwd: workDir });
     const filePath = path.join(workDir, 'artifact.bin');
     await writeFile(filePath, Buffer.alloc(256, 7));
 
     const ctx = makeToolContext({ attachmentUpload: service, resolveExecutionEnv: async () => env });
     const tool = createUploadDeviceFileTool(ctx);
-    const { response, text } = await runTool(tool, { filePath, originalName: 'artifact.bin' });
+    const { response, text } = await runTool(tool, { machine: 'node-a', filePath, originalName: 'artifact.bin' });
 
     expect(response.isError).toBe(true);
     expect(text).toContain('不支持的文件类型');
@@ -132,7 +131,7 @@ describe('upload_device_file（显式上传通道）', () => {
       const env = await stack.machine.createExecutionEnvironment(deviceWorkspace, 'conv-1');
       const ctx = makeToolContext({ attachmentUpload: service, resolveExecutionEnv: async () => env });
       const tool = createUploadDeviceFileTool(ctx);
-      const { response, text } = await runTool(tool, { filePath: deviceFile });
+      const { response, text } = await runTool(tool, { machine: 'node-a', filePath: deviceFile });
 
       expect(response.isError).toBeFalsy();
       const meta = JSON.parse(text) as { sizeBytes: number; filePath: string };
@@ -149,12 +148,11 @@ describe('upload_device_file（显式上传通道）', () => {
   it('文件不存在 → 明确错误（设备侧 not_found 分类透出）', async () => {
     const workDir = await makeTempDir();
     const { service } = await makeAttachmentUploader();
-    const localMachine = new LocalExecutionMachine(new NodeWorkspaceGateway(workDir), null);
-    const env = localMachine.createExecutionEnvironment(workDir);
+    const env = new NodeExecutionEnv({ cwd: workDir });
 
     const ctx = makeToolContext({ attachmentUpload: service, resolveExecutionEnv: async () => env });
     const tool = createUploadDeviceFileTool(ctx);
-    const { response, text } = await runTool(tool, { filePath: path.join(workDir, 'no-such-file.txt') });
+    const { response, text } = await runTool(tool, { machine: 'node-a', filePath: path.join(workDir, 'no-such-file.txt') });
 
     expect(response.isError).toBe(true);
     expect(text).toContain('打开文件失败');
@@ -163,14 +161,13 @@ describe('upload_device_file（显式上传通道）', () => {
   it('尺寸超附件上限 → 明确错误（既有管线闸生效）', async () => {
     const workDir = await makeTempDir();
     const { service } = await makeAttachmentUploader({ maxDocumentBytes: 16 });
-    const localMachine = new LocalExecutionMachine(new NodeWorkspaceGateway(workDir), null);
-    const env = localMachine.createExecutionEnvironment(workDir);
+    const env = new NodeExecutionEnv({ cwd: workDir });
     const filePath = path.join(workDir, 'big.bin');
     await writeFile(filePath, Buffer.alloc(1024, 1));
 
     const ctx = makeToolContext({ attachmentUpload: service, resolveExecutionEnv: async () => env });
     const tool = createUploadDeviceFileTool(ctx);
-    const { response, text } = await runTool(tool, { filePath });
+    const { response, text } = await runTool(tool, { machine: 'node-a', filePath });
 
     expect(response.isError).toBe(true);
     expect(text).toContain('上传失败');
@@ -183,10 +180,10 @@ describe('upload_device_file（显式上传通道）', () => {
       resolveExecutionEnv: async () => { throw new Error('设备离线'); },
     });
     const tool = createUploadDeviceFileTool(ctx);
-    const { response, text } = await runTool(tool, { filePath: '/any' });
+    const { response, text } = await runTool(tool, { machine: 'node-a', filePath: '/any' });
 
     expect(response.isError).toBe(true);
-    expect(text).toContain('解析对话执行机失败');
+    expect(text).toContain('解析执行机失败');
   });
 });
 
@@ -210,14 +207,13 @@ describe('upload_device_file 读器句柄收尾（检视回归：任何出口都
   it('本地成功上传 → reader.close 恰好 1 次', async () => {
     const workDir = await makeTempDir();
     const { service } = await makeAttachmentUploader();
-    const localMachine = new LocalExecutionMachine(new NodeWorkspaceGateway(workDir), null);
-    const env = localMachine.createExecutionEnvironment(workDir);
+    const env = new NodeExecutionEnv({ cwd: workDir });
     const spy = spyReaderClose(env);
     const filePath = path.join(workDir, 'note.md');
     await writeFile(filePath, '# hi');
 
     const ctx = makeToolContext({ attachmentUpload: service, resolveExecutionEnv: async () => env });
-    const { response } = await runTool(createUploadDeviceFileTool(ctx), { filePath });
+    const { response } = await runTool(createUploadDeviceFileTool(ctx), { machine: 'node-a', filePath });
 
     expect(response.isError).toBeFalsy();
     expect(spy.closes()).toBe(1);
@@ -226,14 +222,13 @@ describe('upload_device_file 读器句柄收尾（检视回归：任何出口都
   it('本地上传被尺寸闸拒绝（失败出口）→ reader.close 仍被调用，不泄漏', async () => {
     const workDir = await makeTempDir();
     const { service } = await makeAttachmentUploader({ maxDocumentBytes: 16 });
-    const localMachine = new LocalExecutionMachine(new NodeWorkspaceGateway(workDir), null);
-    const env = localMachine.createExecutionEnvironment(workDir);
+    const env = new NodeExecutionEnv({ cwd: workDir });
     const spy = spyReaderClose(env);
     const filePath = path.join(workDir, 'big.md');
     await writeFile(filePath, 'x'.repeat(1024));
 
     const ctx = makeToolContext({ attachmentUpload: service, resolveExecutionEnv: async () => env });
-    const { response } = await runTool(createUploadDeviceFileTool(ctx), { filePath });
+    const { response } = await runTool(createUploadDeviceFileTool(ctx), { machine: 'node-a', filePath });
 
     expect(response.isError).toBe(true);
     expect(spy.closes()).toBe(1);
@@ -250,7 +245,7 @@ describe('upload_device_file 读器句柄收尾（检视回归：任何出口都
       const env = await stack.machine.createExecutionEnvironment(deviceWorkspace, 'conv-1');
 
       const ctx = makeToolContext({ attachmentUpload: service, resolveExecutionEnv: async () => env });
-      const { response } = await runTool(createUploadDeviceFileTool(ctx), { filePath });
+      const { response } = await runTool(createUploadDeviceFileTool(ctx), { machine: 'node-a', filePath });
 
       expect(response.isError).toBeFalsy();
       expect(stack.fileExecutor.openHandleCount).toBe(0);
@@ -270,13 +265,13 @@ describe('upload_device_file 读器句柄收尾（检视回归：任何出口都
       const env = await stack.machine.createExecutionEnvironment(deviceWorkspace, 'conv-1');
 
       const ctx = makeToolContext({ attachmentUpload: service, resolveExecutionEnv: async () => env });
-      const { response } = await runTool(createUploadDeviceFileTool(ctx), { filePath });
+      const { response } = await runTool(createUploadDeviceFileTool(ctx), { machine: 'node-a', filePath });
 
       expect(response.isError).toBe(true);
       expect(stack.fileExecutor.openHandleCount).toBe(0);
 
       // not_found 路径：从未打开句柄，计数保持 0
-      const miss = await runTool(createUploadDeviceFileTool(ctx), { filePath: path.join(deviceWorkspace, 'ghost.md') });
+      const miss = await runTool(createUploadDeviceFileTool(ctx), { machine: 'node-a', filePath: path.join(deviceWorkspace, 'ghost.md') });
       expect(miss.response.isError).toBe(true);
       expect(stack.fileExecutor.openHandleCount).toBe(0);
     } finally {

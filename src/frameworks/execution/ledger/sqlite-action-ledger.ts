@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, statSync, existsSync, realpathSync, rmSync } from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
-import { LOCAL_EXECUTION_MACHINE_ID } from "@usecases/ports/execution-machine";
+import type { Logger } from "@usecases/ports/logger";
 import type {
   ActionRecord,
   ActionKind,
@@ -11,7 +11,6 @@ import type {
   SweepReport,
 } from "@entities/execution/action-record";
 import type { ActionLedger } from "@usecases/ports/action-ledger";
-import type { Logger } from "@usecases/ports/logger";
 
 /**
  * 本机动作台账 sqlite 实现。
@@ -27,7 +26,8 @@ import type { Logger } from "@usecases/ports/logger";
  * （开机修剪，best-effort）；unknown 留 30 天检查宽限窗后修剪；running 行永不修剪。
  */
 export interface SqliteActionLedgerOptions {
-  deviceId?: string;
+  /** 台账行归属设备（必填——统一注册制下无隐式默认机；connector 生产路径恒显式传入） */
+  deviceId: string;
   retentionDays?: number;
   maxRows?: number;
   logger?: Logger;
@@ -69,8 +69,8 @@ export class SqliteActionLedger implements ActionLedger {
   readonly bootEpoch: number;
   private mintSeq = 0;
 
-  constructor(readonly file: string, options: SqliteActionLedgerOptions = {}) {
-    this.deviceId = options.deviceId ?? LOCAL_EXECUTION_MACHINE_ID;
+  constructor(readonly file: string, options: SqliteActionLedgerOptions) {
+    this.deviceId = options.deviceId;
     this.retentionDays = options.retentionDays ?? 14;
     this.maxRows = options.maxRows ?? 100_000;
     this.logger = options.logger;

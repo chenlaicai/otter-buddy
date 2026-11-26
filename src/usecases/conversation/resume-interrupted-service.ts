@@ -6,8 +6,7 @@ import type { DispatchChainEngine, InvokeFn } from "./dispatch-chain-engine";
 import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { randomUUID } from "node:crypto";
-import { buildActionLedgerSummary, buildRemoteActionSummary } from "@usecases/execution/action-ledger-summary";
-import type { ActionRecord } from "@entities/execution/action-record";
+import { buildRemoteActionSummary } from "@usecases/execution/action-ledger-summary";
 import type { RemoteActionRequest } from "@entities/execution/remote-action-request";
 import {
   buildRestartResumeMsg,
@@ -71,10 +70,8 @@ export class ResumeInterruptedService {
       delayMs?: number;
       /** 429 限流退避基础延迟（ms），测试可注入小值 */
       rateLimitBaseDelayMs?: number;
-      /** 动作台账只读面（恢复摘要数据源；缺省无摘要——旧文案兼容） */
-      actionLedger?: { listByInvoke(invokeId: string, limit?: number): Promise<ActionRecord[]> };
-      /** 远程动作登记只读面（——远程动作五态并入恢复摘要；
-       *  缺省无远程段——无 connector 场景旧文案兼容） */
+      /** 远程动作登记只读面（统一注册制：全部机器动作的恢复摘要数据源——
+       *  local 动作并入后单一份 central registry；缺省无台账段——旧文案兼容） */
       remoteActions?: { listByConversation(conversationId: string, limit?: number): Promise<RemoteActionRequest[]> };
       /** 本进程 boot 纪元（认领绑定；测试可注入固定值） */
       bootEpoch?: number;
@@ -330,34 +327,25 @@ export class ResumeInterruptedService {
    *  查询上限远大于默认 200——listByInvoke 默认升序 LIMIT 截断会把崩溃时刻的最新动作
    *  （最可能 unknown）先截掉，计数静默失真；真超限时显性标注不完整。〔检视 minor-2〕 */
   private async buildLedgerSummary(invokeId: string, conversationId: string): Promise<string | null> {
-    const [localBlock, remoteBlock] = await Promise.all([
-      this.buildLocalLedgerBlock(invokeId),
-      this.buildRemoteActionBlock(conversationId),
-    ]);
-    return [localBlock, remoteBlock].filter((block): block is string => block !== null).join("\n") || null;
+    // 台账统一（统一注册制）：全部机器动作都进 central registry（remote_action_requests）
+    // ——本机旧独立台账（execution-machines/local/actions.db）已退役为只读历史存档，
+    // 恢复摘要数据源单一化。invokeId 参数保留（调用方语义与日志排障锚点）。
+    void invokeId;
+    return await this.buildRemoteActionBlock(conversationId);
   }
 
-  private async buildLocalLedgerBlock(invokeId: string): Promise<string | null> {
-    if (!this.deps.actionLedger) return null;
-    try {
-      const rows = await this.deps.actionLedger.listByInvoke(invokeId, ResumeInterruptedService.LEDGER_SUMMARY_FETCH_LIMIT);
-      const summary = buildActionLedgerSummary(rows);
-      if (summary && rows.length >= ResumeInterruptedService.LEDGER_SUMMARY_FETCH_LIMIT) {
-        return `${summary}\n- ⚠️ 台账行数达查询上限（${ResumeInterruptedService.LEDGER_SUMMARY_FETCH_LIMIT}），计数可能不完整`;
-      }
-      return summary;
-    } catch (err) {
-      this.deps.logger.warn("resume ledger summary fetch failed (non-fatal)", { invokeId, error: err instanceof Error ? err.message : String(err) });
-      return null;
-    }
-  }
-
-  /** 远程动作五态段（conversation 维度；registry 缺席/无行返回 null） */
+  /** 动作台账段（conversation 维度——统一注册制：全部机器动作都在 central
+   *  registry；registry 缺席/无行返回 null） */
   private async buildRemoteActionBlock(conversationId: string): Promise<string | null> {
     if (!this.deps.remoteActions) return null;
     try {
       const rows = await this.deps.remoteActions.listByConversation(conversationId, ResumeInterruptedService.LEDGER_SUMMARY_FETCH_LIMIT);
-      return buildRemoteActionSummary(rows);
+      const summary = buildRemoteActionSummary(rows);
+      // 查询上限显性标注（不静默截断——真超限时恢复摘要计数可能不完整）
+      if (summary && rows.length >= ResumeInterruptedService.LEDGER_SUMMARY_FETCH_LIMIT) {
+        return `${summary}\n- ⚠️ 台账行数达查询上限（${ResumeInterruptedService.LEDGER_SUMMARY_FETCH_LIMIT}），计数可能不完整`;
+      }
+      return summary;
     } catch (err) {
       this.deps.logger.warn("resume remote-action summary fetch failed (non-fatal)", { conversationId, error: err instanceof Error ? err.message : String(err) });
       return null;

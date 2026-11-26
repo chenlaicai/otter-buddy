@@ -3,6 +3,7 @@ import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import type { ExecutionEnv, BinaryReader } from "@earendil-works/pi-durable/env";
+import { gateExecutionMachine } from "@usecases/execution/execution-machine-gate";
 
 /** 上传分块大小（与 SDK read 工具一致——64KB 分块经回环/WS 全链传输） */
 const UPLOAD_CHUNK_BYTES = 64 * 1024;
@@ -43,6 +44,20 @@ function guessMimeType(filePath: string): string {
 export interface UploadChannelDeps {
   attachmentUpload: NonNullable<ToolContext["attachmentUpload"]>;
   resolveExecutionEnv: NonNullable<ToolContext["resolveExecutionEnv"]>;
+}
+
+/** 前置两查（缺参 filePath / 落点 gate）——独立函数保 execute 圈复杂度。 */
+async function preflightUpload(
+  ctx: ToolContext,
+  params: Record<string, unknown>,
+): Promise<{ error: string } | { machineId: string; filePath: string }> {
+  const filePath = params.filePath;
+  if (typeof filePath !== "string" || !filePath) {
+    return { error: "[错误] filePath 为必填（设备绝对路径 / ~/ / file://）" };
+  }
+  const gate = await gateExecutionMachine(params.machine, ctx.listExecutionMachines);
+  if (!gate.ok) return { error: gate.message };
+  return { machineId: gate.machineId, filePath };
 }
 
 /** 打开文件读器（设备侧 openBinaryReader；错误分类原样透出）。调用方负责 finally close。 */
@@ -96,25 +111,30 @@ async function streamUpload(deps: UploadChannelDeps, ctx: ToolContext, request: 
 }
 
 /**
- * upload_device_file：设备侧文件显式上传为中枢可寻址附件。
+ * upload_device_file：执行机侧文件显式上传为中枢可寻址附件。
  *
  * 三层数据边界的显式通道：设备产物默认留在设备，本工具是唯一「设备 → 中枢附件存储」
- * 上传动作。读通道与 SDK 会话同一执行机 env（远端设备经 binary reader 协议流式拉出，
- * 本地对话直读 hub 磁盘），落盘复用既有附件管线（内容寻址 + sha256 去重 + MIME 双路径
+ * 上传动作。读通道经显式 machine 落点的执行机 env（远端设备经 binary reader 协议流式拉出，
+ * 中枢 connector 同机直读），落盘复用既有附件管线（内容寻址 + sha256 去重 + MIME 双路径
  * 校验 + 尺寸闸——附件 kind 白名单边界同样生效，非白名单类型明确拒绝）。
+ * 统一注册制下无内置默认机：machine 必选（fail-closed gate，与 bash/workspace 系同款）。
  * 无默认设备盘同步；不自动登记 linked_resource（需要时显式
  * create_linked_resource 指向 /api/attachments/<id>）。
  */
 export function createUploadDeviceFileTool(ctx: ToolContext): AgentTool {
   return {
     name: "upload_device_file",
-    description: "把执行机（设备或 hub 本地）上的文件显式上传为中枢可寻址附件。When: 本地产物需要成为中枢可寻址副本（给人下载、随消息引用、登记产物）时——远端会话不默认上传附件或构建产物，必须经本显式动作。Not for: 设备到设备传输（无产品面）、自动同步设备目录。Output: 附件元数据（id/kind/sizeBytes/sha256/originalName/filePath）——id 经既有附件 API 可寻址。GOTCHA: filePath 走 SDK coding face 语义（设备绝对路径 / ~/ / file://）；附件存储 kind 白名单（png/jpeg/webp/gif、wav/mp3、mp4、pdf/txt/md/csv/json）外的类型会被拒；尺寸超上限同样明确报错。",
+    description: "把执行机上的文件显式上传为中枢可寻址附件。When: 本地产物需要成为中枢可寻址副本（给人下载、随消息引用、登记产物）时——远端会话不默认上传附件或构建产物，必须经本显式动作。Not for: 设备到设备传输（无产品面）、自动同步设备目录。Output: 附件元数据（id/kind/sizeBytes/sha256/originalName/filePath）——id 经既有附件 API 可寻址。GOTCHA: machine 必选（执行机池经 list_execution_machines 查询；缺参/离线报错含可用清单）；filePath 走 SDK coding face 语义（设备绝对路径 / ~/ / file://）；附件存储 kind 白名单（png/jpeg/webp/gif、wav/mp3、mp4、pdf/txt/md/csv/json）外的类型会被拒；尺寸超上限同样明确报错。",
     parameters: {
       type: "object",
       properties: {
         filePath: {
           type: "string",
           description: "执行机上的文件路径（设备绝对路径 / ~/ / file://；SDK coding face 语义，不碰 workspace 管理面）",
+        },
+        machine: {
+          type: "string",
+          description: "必选：文件所在执行机 id（读通道落点）。机器池可用 list_execution_machines 实时查询；缺参/机器不存在/离线会报错并附可用机器清单（fail-closed，不自动换机）。",
         },
         originalName: {
           type: "string",
@@ -128,23 +148,20 @@ export function createUploadDeviceFileTool(ctx: ToolContext): AgentTool {
       required: ["filePath"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      const filePath = params.filePath;
-      if (typeof filePath !== "string" || !filePath) {
-        return errorResponse("[错误] filePath 为必填（设备绝对路径 / ~/ / file://）");
-      }
-      const deps: UploadChannelDeps | null = ctx.attachmentUpload && ctx.resolveExecutionEnv
-        ? { attachmentUpload: ctx.attachmentUpload, resolveExecutionEnv: ctx.resolveExecutionEnv }
-        : null;
-      if (!deps) {
+      if (!ctx.attachmentUpload || !ctx.resolveExecutionEnv) {
         return errorResponse("[错误] 上传通道未装配（resolveExecutionEnv/attachmentUpload 缺失）——联系大獭检查装配");
       }
+      const deps: UploadChannelDeps = { attachmentUpload: ctx.attachmentUpload, resolveExecutionEnv: ctx.resolveExecutionEnv };
+      const pre = await preflightUpload(ctx, params);
+      if ("error" in pre) return errorResponse(pre.error);
+      const { machineId, filePath } = pre;
       const originalName = (params.originalName as string | undefined)
         || filePath.split("/").filter(Boolean).pop() || "upload.bin";
       let env: ExecutionEnv;
       try {
-        env = await deps.resolveExecutionEnv(ctx.conversationId);
+        env = await deps.resolveExecutionEnv(machineId, ctx.conversationId);
       } catch (err) {
-        return errorResponse(`[错误] 解析对话执行机失败: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResponse(`[错误] 解析执行机失败: ${err instanceof Error ? err.message : String(err)}`);
       }
       try {
         return textResponse(await streamUpload(deps, ctx, { env, filePath, originalName, mimeType: params.mimeType as string | undefined }));

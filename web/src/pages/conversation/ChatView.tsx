@@ -105,7 +105,7 @@ function loadInputHeight(overlayEl: HTMLElement): number {
 export function ChatView(props: ChatViewProps) {
   const { conversation: c } = props
   const staging = useAttachmentStaging(props.conversationId || null)
-  // 执行机选择器 + 远程动作状态
+  // 对话动作状态（全部执行机共用 central 台账）
   const [showMachineModal, setShowMachineModal] = useState(false)
   /** 输入覆盖层容器 ref——ResizeObserver 观测目标（实高含分割条+附件行+玻璃框+
    *  底部提示行），实高变化时同步 bottomSpacerPx 给 MessageList 做等高衬垫。首帧 mount 前
@@ -248,7 +248,7 @@ export function ChatView(props: ChatViewProps) {
             <button
               onClick={() => setShowMachineModal(true)}
               className="px-2.5 py-1 text-xs font-medium rounded-lg glass-card text-stone-600 hover:bg-white/50 transition flex items-center gap-1"
-              title="执行机与远程动作（对话级六动作路由 + 状态）"
+              title="动作状态（查看本对话在全部执行机上的动作）"
             >
               <Cpu className="w-3 h-3" />
             </button>

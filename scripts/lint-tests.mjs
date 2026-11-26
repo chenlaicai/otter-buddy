@@ -78,7 +78,7 @@ const allowDdlFiles = [];
 // search_query_logs 存量库补列三列（query_hash/query_length/log_mode）迁移回归：需手建
 // 无三列旧形态表验证 initSchema ALTER 补列幂等 + 存量行取默认值，被测对象就是
 // 「旧 schema → 新 schema」迁移本身（与 schema.test.ts healing_events 补列同类场景）
-const MAX_ALLOW_DDL_FILES = 19;
+const MAX_ALLOW_DDL_FILES = 20;
 // 16→17：tests/usecases/conversation/resume-claim-and-summary.test.ts——
 // restart_pending_resumes 存量库迁移回归（claim 三列 ALTER 幂等），需手建无 claim 列旧形态表；
 // 被测对象就是「旧 schema → 新 schema」迁移本身，与 migration.test.ts 同类场景
@@ -87,6 +87,11 @@ const MAX_ALLOW_DDL_FILES = 19;
 // （'big','small'）旧形态 otter_configs 表验证 rebuildOtterConfigsTypeCheck 表重建幂等——
 // otter_configs 未纳入 schema.ts（历史原因，仅 migration.ts 一处定义），initSchema 建不出该表，
 // 只能手写旧形态 DDL（与 attachments-kind-migration.test.ts 同类场景）。
+// 19→20：tests/frameworks/db/conversation-machine-column-removal.test.ts——
+// conversations.current_machine_id DROP 迁移专项测试：需手写 DDL 建含绑定列的
+// 前旧形状 conversations 表验证 initSchema 幂等 DROP——被测对象就是「旧 schema →
+// 新 schema」的删列迁移本身（生产 schema 建不出旧表形态），与 attachments-kind/
+// unfurl-draft/signal-repository 迁移测试同类场景。
 
 for (const file of walk(path.join(root, "tests"))) {
   const rel = path.relative(root, file);

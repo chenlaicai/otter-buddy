@@ -45,19 +45,13 @@ export interface RouterPlumbingOptions {
     controller: AuthController;
   };
   executionMachines?: {
-    list: () => Array<{ id: string; name: string }>;
-    currentId: () => string;
-    /** + （检视）：已配对设备全量状态（含离线——
-     *  人要看得见离线设备才能决定切回；缺省退化仅 local——旧装配/测试兼容） */
+    /** 设备全量状态（统一注册制：全部执行机均为 connector 注册设备，含离线——
+     *  人要看得见离线设备才能决定处置；缺省退化仅空池——旧装配/测试兼容） */
     deviceStatus?: () => Promise<Array<{ deviceId: string; name: string; online: boolean; lastSeenAt: string | null }>>;
-    /** 对话存在性校验（GET 404 口径对齐 PUT——不注入则不校验，测试桩兼容） */
+    /** 对话存在性校验（404 口径——不注入则不校验，测试桩兼容） */
     conversationExists?: (conversationId: string) => Promise<boolean>;
-    /** 对话当前执行机读（选择器回显用） */
-    getConversationMachine?: (conversationId: string) => Promise<string | null>;
-    /** 对话远程动作状态（执行状态展示） */
+    /** 对话动作状态（统一注册制：全机器动作都在 central registry，按对话查） */
     listConversationRemoteActions?: (conversationId: string, limit?: number) => Promise<Array<{ actionId: string; deviceId: string; actionType: string; status: string; error: string | null; createdAt: string; settledAt: string | null }>>;
-    /** 对话级切换（目标校验+写列；缺省 501） */
-    setConversationMachine?: (conversationId: string, machineId: string | null) => Promise<{ ok: true } | { ok: false; status: 400 | 404; error: string }>;
   };
   /** connector 配对端点（码即秘密，无登录态） */
   connectorPair?: ConnectorPairController;
@@ -324,33 +318,19 @@ function registerAuthRoutes(app: Hono, plumbing: RouterPlumbingOptions): void {
 
 /** 执行机端点组（拆出降 registerPlumbingRoutes 复杂度） */
 function registerExecutionMachineRoutes(app: Hono, plumbing: RouterPlumbingOptions): void {
-  // Web 执行机列表：local（Registry 恒在）+ 已配对设备全量（含离线——Registry
-  // 投影下线即注销，离线设备只有 devices 表可见；「已配对设备含在线状态点」）。
+  // Web 执行机列表（统一注册制：全部为 connector 注册设备，含离线——
+  // Registry 投影下线即注销，离线设备只有 devices 表可见）。
   if (plumbing?.executionMachines) {
     app.get("/api/execution-machines", async (ctx) => {
       // 单一投影：与 agent list_execution_machines 工具共用 machinePoolSnapshot
       // （两处独立拼装会漂移）。
       const snapshot = await machinePoolSnapshot(
-        { list: () => plumbing.executionMachines!.list(), currentMachineId: () => plumbing.executionMachines!.currentId() },
-        plumbing.executionMachines!.deviceStatus,
+        plumbing.executionMachines!.deviceStatus ?? (async () => []),
       );
       return ctx.json(snapshot);
     });
   }
 
-  // 对话当前执行机 + 远程动作状态（执行状态展示）。
-  //  GET 404 口径对齐 PUT——不存在对话显式 404「conversation not found」。
-  if (plumbing?.executionMachines?.getConversationMachine) {
-    app.get("/api/conversations/:id/execution-machine", async (ctx) => {
-      const conversationId = ctx.req.param("id");
-      if (plumbing.executionMachines!.conversationExists
-        && !(await plumbing.executionMachines!.conversationExists(conversationId))) {
-        return ctx.json({ error: "conversation not found" }, 404);
-      }
-      const machineId = await plumbing.executionMachines!.getConversationMachine!(conversationId);
-      return ctx.json({ machineId });
-    });
-  }
   if (plumbing?.executionMachines?.listConversationRemoteActions) {
     app.get("/api/conversations/:id/remote-actions", async (ctx) => {
       const conversationId = ctx.req.param("id");
@@ -363,19 +343,6 @@ function registerExecutionMachineRoutes(app: Hono, plumbing: RouterPlumbingOptio
       const limit = Number.isInteger(limitParam) && limitParam > 0 && limitParam <= 200 ? limitParam : 50;
       const actions = await plumbing.executionMachines!.listConversationRemoteActions!(conversationId, limit);
       return ctx.json({ actions });
-    });
-  }
-
-  // 对话级当前执行机切换（owner session）
-  if (plumbing?.executionMachines?.setConversationMachine) {
-    app.put("/api/conversations/:id/execution-machine", async (ctx) => {
-      const machineId = (await ctx.req.json().catch(() => null) as { machineId?: unknown } | null)?.machineId;
-      if (machineId !== null && typeof machineId !== "string") {
-        return ctx.json({ error: "machineId must be a string or null" }, 400);
-      }
-      const result = await plumbing.executionMachines!.setConversationMachine!(ctx.req.param("id"), machineId);
-      if (!result.ok) return ctx.json({ error: result.error }, result.status);
-      return ctx.json({ ok: true });
     });
   }
 }

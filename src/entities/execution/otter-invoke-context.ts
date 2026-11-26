@@ -4,8 +4,7 @@ import type { OtterPromptConfig } from "@contract/api/otter";
 /**
  * （搬家）：per-invoke 上下文自 model-runtime-registry
  * 抽出为独立小模块——原位置头部拖 pi-ai/pi-coding-agent 全家桶依赖，而 execution 侧
- * （local-execution-machine / recording-node-execution-env）只用它 getStore() 读
- * invokeId 归因，公共执行器抽包（connector 复用）闭包因此不干净。本模块纯
+ * 只用它 getStore() 读 invokeId 归因，公共执行器抽包（connector 复用）闭包因此不干净。本模块纯
  * AsyncLocalStorage + 类型（唯一外部依赖 contract 层），entities 是 agent 与
  * execution 两族 frameworks 的共同底层。model-runtime-registry 转发导出保持
  * agent 侧既有 import 点零改动。
@@ -15,7 +14,7 @@ import type { OtterPromptConfig } from "@contract/api/otter";
 export interface OtterInvokeContext {
   /** 当前 invoke id——动作台账归属用。 */
   currentInvokeId?: string;
-  /** 当前业务对话 id——执行机按对话选择解析；与 durable 内部会话 id 不同。 */
+  /** 当前业务对话 id——动作台账归因与恢复摘要使用；不再参与执行机选择。 */
   currentConversationId?: string;
   /** 当前正在执行的工具调用 id（DurableSession.beforeTool 写入、
    * 下一枚 beforeTool 覆盖）——动作台账按 toolCallId 铸造 actionId。 */

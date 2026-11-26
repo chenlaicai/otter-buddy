@@ -3,6 +3,7 @@ import { useBlocker } from 'react-router-dom'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
 
 import { showToast } from '../../components/Toast'
+import { ExecutionMachineSettings } from './ExecutionMachineSettings'
 import * as api from '../../api/client'
 import type { ModelInfoDTO } from '@contract/api'
 import {
@@ -141,6 +142,9 @@ export default function SettingsPage() {
                 <p className="text-[11px] text-stone-400 mt-1">留空则使用默认称呼"搭档"；设置后海獭会在对话中用你的名字称呼你</p>
               </div>
             </section>
+
+            {/* Execution machines：系统级资源池，不归属于单个对话 */}
+            <ExecutionMachineSettings />
 
             {/* Appearance */}
             <section className="mb-8">

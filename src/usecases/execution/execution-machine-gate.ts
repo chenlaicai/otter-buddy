@@ -50,9 +50,8 @@ function formatPool(machines: ExecutionMachinePoolEntry[]): string {
   if (!machines.length) return "（机器池为空）";
   return machines
     .map(m => {
-      const local = m.local ? "，本机中枢" : "";
       const seen = m.lastSeenAt ? `，lastSeen ${m.lastSeenAt}` : "";
-      return `- ${m.id}（${m.name}，${m.online ? "在线" : "离线"}${local}${seen}）`;
+      return `- ${m.id}（${m.name}，${m.online ? "在线" : "离线"}${seen}）`;
     })
     .join("\n");
 }

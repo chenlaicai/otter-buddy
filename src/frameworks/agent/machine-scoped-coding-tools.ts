@@ -97,11 +97,21 @@ export interface MachineScopedCodingToolsDeps {
 
 type AnyArgs = Record<string, unknown>;
 
-/** 单个 SDK 工具的执行机壳：schema 重组 + gate + env 重建 + 代理委托。 */
+/** 单个 SDK 工具的执行机壳：schema 重组 + gate + env 重建 + 代理委托。
+ *
+ * schema 重组语义：inner.parameters 是 JSON Schema 形态（type/properties/required），
+ * 重组进 pi-schema obj() 时**非 opt() 的属性一律隐式必选**——原 required 列表外的
+ * 字段（如 read 的 offset/limit）必须 opt() 包装保可选性，否则升级必选杀掉合法调用
+ * （现场：read 缺 offset/limit 校验失败）。required 内字段保持原形态（必选语义不变）。 */
 function machineScopedTool(inner: ToolRegistration<any>, deps: MachineScopedCodingToolsDeps): ToolRegistration<any> {
-  const innerParams = inner.parameters as { properties?: Record<string, unknown> };
+  const innerParams = inner.parameters as { properties?: Record<string, unknown>; required?: string[] };
+  const innerRequired = new Set(innerParams.required ?? []);
+  const recomposed: Record<string, unknown> = {};
+  for (const [name, schema] of Object.entries(innerParams.properties ?? {})) {
+    recomposed[name] = innerRequired.has(name) ? schema : opt(schema as never);
+  }
   const parameters = obj(
-    { ...(innerParams.properties ?? {}), machine: machineParam } as never,
+    { ...recomposed, machine: machineParam } as never,
     { open: true },
   );
   return defineTool<any>({
