@@ -18,6 +18,7 @@ import type { ModelPool } from "@frameworks/llm/model-pool";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import { readEmbeddingHealth } from "@usecases/memory/embedding-health";
+import { auditMemoryVec } from "@frameworks/db/memory/memory-vec-hygiene";
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { SchedulerService } from "@usecases/scheduler/scheduler-service";
@@ -232,6 +233,7 @@ function createRhiScanWorker(deps: {
   return new RhiScanWorker(getRepoRoot(), pipeline, healingSource, deps.logger, {
     snapshotSink, signalRepo, costOutputSink, sessionsDir, agentSessionSource, costOutputDb: deps.db,
     costOutputInvalidateAll,
+    memoryVecAudit: () => auditMemoryVec(deps.db),
   });
 }
 // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- Composition Root 集中装配逻辑

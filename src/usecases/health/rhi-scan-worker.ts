@@ -66,6 +66,8 @@ export interface RhiScanWorkerOptions {
   /** 指标快照落库端口（Fix A）：注入后 scanOnce 会计算指标并写入 health_snapshots。
    *  未注入时跳过（向后兼容，旧测试/CLI 直调不受影响）。 */
   snapshotSink?: SnapshotSink;
+  /** 复用本轮 RHI 扫描采集 vec 卫生；不在 HTTP 请求路径全扫 vec0。 */
+  memoryVecAudit?: () => { total: number; live: number; orphan: number; orphanRatio: number };
   /** 成本/产出快照落库端口：注入后 scanOnce 采集成本/产出数据写入 health_snapshots。
    *  与 overview snapshotSink 分离，避免类型冲突。未注入时跳过。
    * @param metricType 可选，指定后只删除该 metric_type 的行（修复：全局行按历史日期分批写入需类型限定）。 */
@@ -331,6 +333,29 @@ export class RhiScanWorker {
     }
   }
 
+  /** vec 卫生是独立传感器：审计失败只缺席本项，不丢弃其它快照。 */
+  private memoryVecSnapshotRows(snapshotDate: string): CreateSnapshotRow[] {
+    if (!this.options.memoryVecAudit) return [];
+    try {
+      const audit = this.options.memoryVecAudit();
+      return [
+        { snapshotDate, metricType: "memory_vec", metricKey: "memory_vec_total", metricValue: audit.total },
+        { snapshotDate, metricType: "memory_vec", metricKey: "memory_vec_live", metricValue: audit.live },
+        { snapshotDate, metricType: "memory_vec", metricKey: "memory_vec_orphan", metricValue: audit.orphan },
+        {
+          snapshotDate, metricType: "memory_vec", metricKey: "memory_vec_orphan_ratio", metricValue: audit.orphanRatio,
+          metadata: JSON.stringify({ warningThreshold: 0.05, alertThreshold: 0.2 }),
+        },
+      ];
+    } catch (err) {
+      this.logger.warn("memory_vec audit failed; other snapshots continue", {
+        action: "rhi_worker_memory_vec_audit_error",
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
+  }
+
   /** 指标快照写入：60 天滚动窗口重算 + 11 标准行 + chain_states 行，同日覆盖。
    *  与链/信号共用 signalInputs 采集结果但窗口独立（metricsWindowDays）。 */
   private persistSnapshot(
@@ -367,6 +392,7 @@ export class RhiScanWorker {
         metrics,
         extraRows: [chainStatesRow],
       });
+      rows.push(...this.memoryVecSnapshotRows(snapshotDate));
 
       this.appendDerivedRows(rows, { snapshotDate, windowDays, windowInputs, metrics, stateCounts });
       sink(snapshotDate, rows);

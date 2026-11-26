@@ -116,6 +116,16 @@ describe("buildApp 组装根启动", () => {
     expect(res.status).toBe(200);
     const body = await res.json() as { result: { commitCount: number } };
     expect(body.result.commitCount).toBeGreaterThan(0);
+
+    const overview = await built.app.request("/api/health/overview");
+    expect(overview.status).toBe(200);
+    const overviewBody = await overview.json() as { metrics: Record<string, number> };
+    expect(overviewBody.metrics).toMatchObject({
+      memoryVecTotal: 0,
+      memoryVecLive: 0,
+      memoryVecOrphan: 0,
+      memoryVecOrphanRatio: 0,
+    });
   }, 60_000);
 
   it("建獭全链路：POST /api/otters → 真 sqlite 落行 → GET 可取回", async () => {
