@@ -89,6 +89,31 @@ describe("checkClaim 认领谓词", () => {
     expect(r.status).toBe("exempt_docs_only");
   });
 
+  it("叙述性引用另一 PR → 不当 issue 认领对象，放行（#2001）", () => {
+    const r = checkClaim(PR({ title: "重构提交", body: "上一轮 #1974 的后续整理" }), {}, {
+      1974: { state: "closed", pull_request: { url: "https://api.github.com/repos/chenlaicai/otter-buddy/pulls/1974" } },
+    });
+    expect(r.ok).toBe(true);
+    expect(r.status).toBe("no_issue_reference");
+  });
+
+  it("PR 引用放行但真实未认领 OPEN issue 仍阻断（#2001 双向闸）", () => {
+    const r = checkClaim(PR({ title: "修复 #2001", body: "上一轮 #1974，本轮处理 #2001" }), { 2001: [] }, {
+      1974: { state: "closed", pull_request: { url: "https://api.github.com/repos/chenlaicai/otter-buddy/pulls/1974" } },
+      2001: { state: "open" },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reasons).toHaveLength(1);
+    expect(r.reasons[0]).toContain("issue #2001");
+    expect(r.reasons[0]).not.toContain("issue #1974");
+  });
+
+  it("已关闭 issue 引用也不再要求认领（#2001 OPEN-only 边界）", () => {
+    const r = checkClaim(PR({ title: "复盘提交", body: "复盘 #1999" }), {}, { 1999: { state: "closed" } });
+    expect(r.ok).toBe(true);
+    expect(r.status).toBe("no_issue_reference");
+  });
+
   it("非 OPEN → 跳过", () => {
     const r = checkClaim(PR({ state: "MERGED" }), {});
     expect(r.ok).toBe(true);

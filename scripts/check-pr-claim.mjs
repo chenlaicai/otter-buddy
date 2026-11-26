@@ -87,13 +87,23 @@ export function parseClaims(comments) {
   return [...state.values()].filter(Boolean);
 }
 
-/** 认领谓词（纯函数，测试入口）：pr + 各 issue 的评论列表。 */
-export function checkClaim(pr, issuesComments) {
+/** 只保留仍需认领的 OPEN issue；GitHub PR 引用与已关闭对象不是本闸的工作对象。 */
+export function selectOpenIssueNumbers(issueNums, references = {}) {
+  return issueNums.filter(n => {
+    const ref = references[n];
+    if (ref?.pull_request) return false;
+    if (ref?.state && String(ref.state).toUpperCase() !== "OPEN") return false;
+    return true;
+  });
+}
+
+/** 认领谓词（纯函数，测试入口）：pr + 各 issue 的评论列表 + 可选的 GitHub 引用类型/状态。 */
+export function checkClaim(pr, issuesComments, references = {}) {
   const reasons = [];
   if ((pr.state ?? "OPEN") !== "OPEN") return { ok: true, status: "skipped_not_open", reasons: [] };
   const nonDocs = (pr.files ?? []).filter(f => !isDocOnlyPath(f.path));
   if (nonDocs.length === 0) return { ok: true, status: "exempt_docs_only", reasons: [] };
-  const issueNums = extractIssueNumbers(pr.title, pr.body);
+  const issueNums = selectOpenIssueNumbers(extractIssueNumbers(pr.title, pr.body), references);
   if (issueNums.length === 0) return { ok: true, status: "no_issue_reference", reasons: [] };
   const branchFid = featureId(pr.headRefName);
   const claimsByIssue = {};
@@ -135,7 +145,17 @@ function main() {
       console.error(`拒判：PR 查询失败（${String(e.message).split("\n")[0]}）`); process.exit(2);
     }
   }
-  const issueNums = extractIssueNumbers(pr.title, pr.body);
+  const referencedNums = extractIssueNumbers(pr.title, pr.body);
+  const references = {};
+  for (const n of referencedNums) {
+    try {
+      const raw = execFileSync("gh", ["api", `repos/{owner}/{repo}/issues/${n}`], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+      references[n] = JSON.parse(raw);
+    } catch (e) {
+      console.error(`拒判：引用 #${n} 类型/状态查询失败（${String(e.message).split("\n")[0]}）`); process.exit(2);
+    }
+  }
+  const issueNums = selectOpenIssueNumbers(referencedNums, references);
   const issuesComments = {};
   for (const n of issueNums) {
     try {
@@ -145,10 +165,10 @@ function main() {
       console.error(`拒判：issue #${n} 查询失败（${String(e.message).split("\n")[0]}）`); process.exit(2);
     }
   }
-  const result = checkClaim(pr, issuesComments);
+  const result = checkClaim(pr, issuesComments, references);
   if (result.status === "skipped_not_open") { console.log("✅ 认领闸：PR 非 OPEN，跳过"); process.exit(0); }
   if (result.status === "exempt_docs_only") { console.log("✅ 认领闸：docs-only PR 豁免"); process.exit(0); }
-  if (result.status === "no_issue_reference") { console.log("✅ 认领闸：PR 未引用 issue（非 issue 驱动改动），放行"); process.exit(0); }
+  if (result.status === "no_issue_reference") { console.log("✅ 认领闸：无待认领 OPEN issue（无引用或 PR/closed 引用已跳过），放行"); process.exit(0); }
   if (!result.ok) {
     console.error(`❌ 认领闸（${result.status}）：`);
     for (const r of result.reasons) console.error(`   - ${r}`);
