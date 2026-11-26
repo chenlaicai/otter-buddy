@@ -1,5 +1,5 @@
 /**
- * #2010 回归：SSE/流式响应关闭竞态致进程崩溃（undici ReadableStream already closed）。
+ * 回归：SSE/流式响应关闭竞态致进程崩溃（undici ReadableStream already closed）。
  *
  * 根因：GET /api/attachments/:id 曾把 Node fs.ReadStream（async iterable）以类型
  * 欺骗喂给 new Response()——undici extractBody 落入 ReadableStreamFrom 包装
@@ -83,7 +83,7 @@ async function runRaceAttack(port: number, route: string): Promise<ChildResult> 
   return result;
 }
 
-describe("#2010 流式响应关闭竞态（undici ReadableStream already closed）", () => {
+describe("流式响应关闭竞态（undici ReadableStream already closed）", () => {
   it("元验证（红基线）：legacy 形态 new Response(nodeStream) 在竞态下必须崩", { timeout: 20_000 }, async () => {
     const r = await runRaceAttack(3987, "/legacy");
     // 修复前失败证据固化：legacy 形态命中 ERR_INVALID_STATE → exit(42)
@@ -99,7 +99,7 @@ describe("#2010 流式响应关闭竞态（undici ReadableStream already closed�
   });
 });
 
-describe("#2010 真实 AttachmentController.getById 断开攻击", () => {
+describe("真实 AttachmentController.getById 断开攻击", () => {
   let db: Database.Database;
   let attachmentRepo: SqliteAttachmentRepository;
   let tmpRoot: string;

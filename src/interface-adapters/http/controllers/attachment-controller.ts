@@ -169,7 +169,7 @@ export class AttachmentController {
         }),
       };
 
-      // #2010：fs.ReadStream 是 Node async iterable——直接喂 new Response() 会落入
+      // fs.ReadStream 是 Node async iterable——直接喂 new Response() 会落入
       // undici ReadableStreamFrom 包装（node v24 deps/undici/undici.js:1562-1590）：
       // pull 的 iterator.next() resolve done 后 queueMicrotask(controller.close())，
       // 若客户端断开（@hono/node-server writable close → reader.cancel()）恰落在

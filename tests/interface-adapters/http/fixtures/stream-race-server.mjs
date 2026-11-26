@@ -1,6 +1,6 @@
 /* global process, setTimeout, Buffer, Response */
 /**
- * #2010 竞态复现 fixture（子进程服务器）。
+ * 竞态复现 fixture（子进程服务器）。
  *
  * 用受控 Node Readable 构造确定性时序：chunk1 → 挂起（pull pending）→
  * 客户端 abort（writable close → reader.cancel()）→ EOF 迟到到达。
