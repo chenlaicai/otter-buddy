@@ -11,6 +11,7 @@ import type {
   SweepReport,
 } from "@entities/execution/action-record";
 import type { ActionLedger } from "@usecases/ports/action-ledger";
+import { readProcessStart } from "../process-identity";
 
 /**
  * 本机动作台账 sqlite 实现。
@@ -50,6 +51,7 @@ interface ActionRow {
   result_summary: string | null;
   boot_epoch: number;
   pid: number | null;
+  process_started_at: string | null;
   started_at: string;
   settled_at: string | null;
 }
@@ -107,6 +109,7 @@ export class SqliteActionLedger implements ActionLedger {
         result_summary TEXT,
         boot_epoch    INTEGER NOT NULL,
         pid           INTEGER,
+        process_started_at TEXT,
         started_at    TEXT NOT NULL,
         settled_at    TEXT
       );
@@ -117,6 +120,10 @@ export class SqliteActionLedger implements ActionLedger {
         value TEXT NOT NULL
       );
     `);
+    const columns = this.db.prepare("PRAGMA table_info(execution_actions)").all() as Array<{ name: string }>;
+    if (!columns.some(column => column.name === "process_started_at")) {
+      this.db.exec("ALTER TABLE execution_actions ADD COLUMN process_started_at TEXT");
+    }
   }
 
   private bumpBootEpoch(): number {
@@ -149,8 +156,8 @@ export class SqliteActionLedger implements ActionLedger {
       INSERT INTO execution_actions (
         action_id, device_id, online_session_id, invoke_id, conversation_id, tool_call_id,
         source, kind, target, content_hash, content_bytes, status, error, result_summary,
-        boot_epoch, pid, started_at, settled_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', NULL, NULL, ?, ?, ?, NULL)
+        boot_epoch, pid, process_started_at, started_at, settled_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', NULL, NULL, ?, ?, ?, ?, NULL)
       ON CONFLICT(action_id) DO UPDATE SET
         invoke_id = excluded.invoke_id,
         conversation_id = excluded.conversation_id,
@@ -160,6 +167,7 @@ export class SqliteActionLedger implements ActionLedger {
         content_bytes = excluded.content_bytes,
         boot_epoch = excluded.boot_epoch,
         pid = excluded.pid,
+        process_started_at = excluded.process_started_at,
         started_at = excluded.started_at,
         status = 'running',
         error = NULL,
@@ -169,7 +177,9 @@ export class SqliteActionLedger implements ActionLedger {
       actionId, input.deviceId ?? this.deviceId, input.onlineSessionId ?? null,
       input.invokeId ?? null, input.conversationId ?? null, input.toolCallId ?? null,
       input.source, input.kind, truncate(input.target), input.contentHash ?? null,
-      input.contentBytes ?? null, this.bootEpoch, input.pid ?? process.pid ?? null, now,
+      input.contentBytes ?? null, this.bootEpoch,
+      input.pid === undefined ? process.pid ?? null : input.pid,
+      input.processStartedAt ?? null, now,
     );
     const row = this.db.prepare("SELECT * FROM execution_actions WHERE action_id = ?").get(actionId) as ActionRow;
     return { record: rowToRecord(row), deduped: false };
@@ -186,6 +196,13 @@ export class SqliteActionLedger implements ActionLedger {
       return { record: rowToRecord(existing), deduped: true };
     }
     return null;
+  }
+
+  async recordProcessGroup(actionId: string, identity: { pgid: number; processStartedAt: string | null }): Promise<void> {
+    this.db.prepare(`
+      UPDATE execution_actions SET pid = ?, process_started_at = ?
+      WHERE action_id = ? AND status = 'running' AND boot_epoch = ?
+    `).run(identity.pgid, identity.processStartedAt, actionId, this.bootEpoch);
   }
 
   async settle(actionId: string, verdict: SettleVerdict, settledAt?: string): Promise<void> {
@@ -262,8 +279,13 @@ export class SqliteActionLedger implements ActionLedger {
       return { upgradedToSucceeded: 0, markedInterrupted: 1, markedUnknown: 0 };
     }
     if (kind === "shell.exec") {
-      // 崩溃时命令正在跑：连「跑没跑完」都不知道——unknown 转检查，禁止猜测重试
-      settle("unknown", "interrupted by crash; side effects unverifiable", null);
+      // 进程组回收只解决「还在不在跑」，不能把不可验证的副作用改写成确定结局。
+      const recovery = this.recoverStaleProcessGroup(row);
+      settle(
+        "unknown",
+        `interrupted by crash; side effects unverifiable; process group recovery=${recovery.status}`,
+        { receiptRecovered: false, processGroupRecovery: recovery },
+      );
       return { upgradedToSucceeded: 0, markedInterrupted: 0, markedUnknown: 1 };
     }
     if (INTERRUPTIBLE_KINDS.has(kind)) {
@@ -272,6 +294,29 @@ export class SqliteActionLedger implements ActionLedger {
     }
     settle("unknown", "unrecognized kind after crash", null);
     return { upgradedToSucceeded: 0, markedInterrupted: 0, markedUnknown: 1 };
+  }
+
+  private recoverStaleProcessGroup(row: ActionRow): Record<string, unknown> {
+    const pgid = row.pid;
+    if (!Number.isInteger(pgid) || pgid === null || pgid <= 1) {
+      return { status: "missing_pgid", pgid: null };
+    }
+    if (!row.process_started_at) return { status: "missing_start_time", pgid };
+    if (process.platform === "win32") return { status: "unsupported_platform", pgid };
+    if (pgid === process.pid) return { status: "identity_mismatch", pgid };
+    const observedStartedAt = readProcessStart(pgid);
+    if (!observedStartedAt) return { status: "leader_not_found", pgid };
+    if (observedStartedAt !== row.process_started_at) {
+      return { status: "identity_mismatch", pgid, expectedProcessStartedAt: row.process_started_at, observedStartedAt };
+    }
+    try {
+      process.kill(-pgid, "SIGKILL");
+      return { status: "signaled", pgid, processStartedAt: observedStartedAt };
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ESRCH") return { status: "process_not_found", pgid };
+      return { status: "signal_failed", pgid, error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   /**
@@ -350,6 +395,7 @@ function rowToRecord(row: ActionRow): ActionRecord {
     resultSummary: row.result_summary,
     bootEpoch: row.boot_epoch,
     pid: row.pid,
+    processStartedAt: row.process_started_at,
     startedAt: row.started_at,
     settledAt: row.settled_at,
   };

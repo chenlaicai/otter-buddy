@@ -24,6 +24,7 @@ import path from "node:path";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
 import type { ActionLedger } from "@usecases/ports/action-ledger";
+import { readProcessStart } from "@frameworks/execution/process-identity";
 import type {
   ShellExecActionInput,
   ShellExecActionResult,
@@ -127,6 +128,7 @@ export class ShellActionExecutor implements ShellExecutorLike {
         ...(input.env !== undefined ? { env: input.env } : {}),
         ...(input.inheritEnv !== undefined ? { inheritEnv: input.inheritEnv } : {}),
         ...(input.timeout !== undefined ? { timeout: input.timeout } : {}),
+        onSpawn: pid => this.recordSpawnedProcess(actionId, pid),
         onOutput: (text, _context, info) => {
           // onOutput 抛出会被 SDK 记 callback_error 并杀进程——发帧失败绝不断送动作
           try {
@@ -152,6 +154,21 @@ export class ShellActionExecutor implements ShellExecutorLike {
       // 本动作 env 收尾：杀残留进程组成员（如持有 stdio 的后台子孙——正常完成后是 no-op）
       await env.cleanup(BACKGROUND_CONTEXT).catch(() => undefined);
     }
+  }
+
+  /** 崩溃恢复需要动作自己的 PGID，不是 connector PID。回调返回后 SDK 才接驳 stdout，
+   *  因此 PGID 与启动时间都在动作输出前落账；启动时间不可用时宁可后续不回收也不猜杀。 */
+  private recordSpawnedProcess(actionId: string, pgid: number): void {
+    const ledger = this.deps.ledger;
+    if (!ledger?.recordProcessGroup) return;
+    void ledger.recordProcessGroup(actionId, { pgid, processStartedAt: null }).catch(error => {
+      this.deps.log?.("action process group record failed (non-fatal)", { actionId, error: errorMessage(error) });
+    });
+    const processStartedAt = readProcessStart(pgid);
+    if (!processStartedAt) return;
+    void ledger.recordProcessGroup(actionId, { pgid, processStartedAt }).catch(error => {
+      this.deps.log?.("action process start record failed (non-fatal)", { actionId, error: errorMessage(error) });
+    });
   }
 
   /** SDK Result → 结局 + 台账裁决（五态映射的唯一点） */
@@ -214,6 +231,8 @@ export class ShellActionExecutor implements ShellExecutorLike {
         source: "sdk-env", // hub 侧 SDK bash 面的远程投影——与中枢执行环境的 exec 入账同源
         kind: "shell.exec",
         target: display,
+        pid: null,
+        processStartedAt: null,
       });
     } catch (error) {
       this.deps.log?.("action ledger record failed (non-fatal)", { kind: "shell.exec", error: errorMessage(error) });

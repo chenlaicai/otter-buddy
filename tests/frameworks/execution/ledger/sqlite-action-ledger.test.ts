@@ -1,7 +1,10 @@
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.setConfig({ testTimeout: 20_000 });
 import { SqliteActionLedger, sha256 } from "@frameworks/execution/ledger/sqlite-action-ledger";
 import { WorkspaceActionExecutor } from "@frameworks/execution/workspace-action-executor";
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
@@ -9,6 +12,40 @@ import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gat
 /** 本机动作台账 sqlite 实现单测。 */
 
 let dirs: string[] = [];
+let spawnedGroups: number[] = [];
+
+function spawnProcessGroup(): { child: ChildProcess; pgid: number; startedAt: string } {
+  const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], {
+    detached: true,
+    stdio: "ignore",
+  });
+  if (!child.pid) throw new Error("test child did not expose a pid");
+  spawnedGroups.push(child.pid);
+  const startedAt = readProcessStart(child.pid);
+  return { child, pgid: child.pid, startedAt };
+}
+
+function readProcessStart(pid: number): string {
+  const result = spawnSync("ps", ["-p", String(pid), "-o", "lstart="], {
+    encoding: "utf8",
+    env: { ...process.env, LC_ALL: "C" },
+  });
+  if (result.status !== 0 || !result.stdout.trim()) throw new Error(`cannot read test process start: ${result.stderr}`);
+  return new Date(result.stdout.trim()).toISOString();
+}
+
+function isGroupAlive(pgid: number): boolean {
+  try { process.kill(-pgid, 0); return true; } catch { return false; }
+}
+
+async function waitForGroupDeath(pgid: number): Promise<boolean> {
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
+    if (!isGroupAlive(pgid)) return true;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  return !isGroupAlive(pgid);
+}
 
 function tempDir(): string {
   const dir = mkdtempSync(path.join(tmpdir(), "action-ledger-test-"));
@@ -21,6 +58,10 @@ function ledgerFile(): string {
 }
 
 afterEach(() => {
+  for (const pgid of spawnedGroups) {
+    try { process.kill(-pgid, "SIGKILL"); } catch { /* already reaped */ }
+  }
+  spawnedGroups = [];
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
   dirs = [];
 });
@@ -207,6 +248,66 @@ describe("开机清扫（旧纪元 running 行裁决）", () => {
     expect(report2.markedUnknown).toBe(1); // dspro minor：尾不匹配不能证明没追加上——重做会重复，转检查
     expect((await ledgerD.getByActionId("sweep-append-miss"))?.status).toBe("unknown");
     ledgerD.close();
+  });
+
+  it("shell.exec 旧纪元：PGID 与启动时间匹配时先回收进程组，再落 unknown 审计", async () => {
+    const { pgid, startedAt } = spawnProcessGroup();
+    const file = ledgerFile();
+    const ledgerA = new SqliteActionLedger(file, { deviceId: "ledger-test" });
+    const input = {
+      actionId: "sweep-exec-recover", source: "sdk-env" as const, kind: "shell.exec" as const,
+      target: "long-running-test", pid: pgid, processStartedAt: startedAt,
+    };
+    await ledgerA.start(input);
+    ledgerA.close();
+
+    const ledgerB = new SqliteActionLedger(file, { deviceId: "ledger-test" });
+    const report = await ledgerB.open();
+    expect(report.markedUnknown).toBe(1);
+    expect(await waitForGroupDeath(pgid)).toBe(true);
+    const row = await ledgerB.getByActionId("sweep-exec-recover");
+    expect(row).toMatchObject({ status: "unknown", pid: pgid, processStartedAt: startedAt });
+    expect(JSON.parse(row?.resultSummary ?? "{}")).toMatchObject({
+      processGroupRecovery: { status: "signaled", pgid },
+    });
+    ledgerB.close();
+  });
+
+  it("shell.exec 旧纪元：启动时间不匹配视为 PGID 复用，不杀无关进程", async () => {
+    const { pgid } = spawnProcessGroup();
+    const file = ledgerFile();
+    const ledgerA = new SqliteActionLedger(file, { deviceId: "ledger-test" });
+    await ledgerA.start({
+      actionId: "sweep-exec-reused", source: "sdk-env", kind: "shell.exec",
+      pid: pgid, processStartedAt: new Date(0).toISOString(),
+    });
+    ledgerA.close();
+
+    const ledgerB = new SqliteActionLedger(file, { deviceId: "ledger-test" });
+    await ledgerB.open();
+    expect(isGroupAlive(pgid)).toBe(true);
+    const row = await ledgerB.getByActionId("sweep-exec-reused");
+    expect(JSON.parse(row?.resultSummary ?? "{}")).toMatchObject({
+      processGroupRecovery: { status: "identity_mismatch", pgid },
+    });
+    ledgerB.close();
+  });
+
+  it("shell.exec 旧版行缺启动时间：宁可不回收也不猜杀，留下明确处置信息", async () => {
+    const { pgid } = spawnProcessGroup();
+    const file = ledgerFile();
+    const ledgerA = new SqliteActionLedger(file, { deviceId: "ledger-test" });
+    await ledgerA.start({ actionId: "sweep-exec-legacy", source: "sdk-env", kind: "shell.exec", pid: pgid });
+    ledgerA.close();
+
+    const ledgerB = new SqliteActionLedger(file, { deviceId: "ledger-test" });
+    await ledgerB.open();
+    expect(isGroupAlive(pgid)).toBe(true);
+    const row = await ledgerB.getByActionId("sweep-exec-legacy");
+    expect(JSON.parse(row?.resultSummary ?? "{}")).toMatchObject({
+      processGroupRecovery: { status: "missing_start_time", pgid },
+    });
+    ledgerB.close();
   });
 
   it("shell.exec 旧纪元 running → unknown（转检查，禁止猜测重试）", async () => {
