@@ -19,10 +19,6 @@ export interface CollectedFeatureDoc {
   changeType: string | null;
   /** 文档状态。值域已退役（#2050）：frontmatter 不再含 status 字段，本字段恒 null（保留接口兼容，健康链自 #720 起零消费）。 */
   status: string | null;
-  /** 子状态（段2）：目前仅 implemented: active（合入后又有新 commit = 迭代中，参与病态判定）。
-   *  可选字段（undefined = 无子状态）——新增概念不破坏存量构造点。
- *  独立字段而非复合字面值（implemented:active 会炸 known-values 枚举）。 */
-  substatus?: string | null;
   /** 标签 */
   tags: string[];
   /** 模块 */
@@ -128,9 +124,9 @@ async function parseFeatureDoc(
     id: frontmatter.id as string,
     title: (frontmatter.title as string) ?? "",
     changeType: (frontmatter.change_type as string) ?? null,
-    // status 已退役（#2050）：frontmatter 不再含 status 字段，固定 null
+    // status 已退役（#2050）：frontmatter 不再含 status 字段，固定 null；
+    // substatus 同步退役：唯一消费方 classifyDocStatusWithSubstatus 已随 doc-status.ts 删除，全仓零消费
     status: null,
-    substatus: (frontmatter.substatus as string) ?? null,
     tags: (frontmatter.tags as string[]) ?? [],
     modules: (frontmatter.modules as string[]) ?? [],
     causalLinksFrom: (frontmatter.from as string[]) ?? [],

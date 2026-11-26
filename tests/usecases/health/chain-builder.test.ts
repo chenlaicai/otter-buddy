@@ -30,7 +30,6 @@ function doc(id: string, status: string, createdDaysAgo = 40): CollectedFeatureD
     title: `doc ${id}`,
     changeType: "feature",
     status,
-    substatus: null,
     tags: [],
     modules: [],
     causalLinksFrom: [],
