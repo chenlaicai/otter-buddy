@@ -139,7 +139,7 @@ export function checkReviewClosure(pr) {
 
 /** 从 gh CLI 拉 PR 数据（headRefOid / baseRefName / reviews）。查询失败抛错——调用方 fail-closed。
  *  --repo：目标仓库（owner/name）——跨仓 PR 合入时 tool-factory 传入，gh 显式按仓解析 PR 号；
- *  缺省 = gh 进程 cwd 所属仓（本仓 CI/本地调用零变化，#2037）。 */
+ *  缺省 = gh 进程 cwd 所属仓（本仓 CI/本地调用零变化）。 */
 export function fetchPrReviewData(prNumber, repo) {
   const stdout = execFileSync(
     "gh",
