@@ -114,3 +114,32 @@
 7. `node scripts/check-pr-tests.mjs --base origin/main` 本地复现发现 1 的闸判定
 
 🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 检视獭-mrprs
+
+---
+
+# Delta 复核报告（第一轮处置，commit 7572766db）
+
+## 审查结论
+**通过（delta 复核）**——五条发现处置终态全部达成（单账号环境，approve 物理不可达，以 --comment 留痕，结论以本行为准）
+
+## 上轮处置确认
+| 上轮发现 | 处置终态 | 证据（本獭独立验证） |
+|---------|---------|------|
+| 发现 1（CI 声明闸） | 修复+delta 确认 | PR body「测试改动声明」段已补「方向：收紧 + 理由」；本地 `node scripts/check-pr-tests.mjs --base origin/main --pr-body-file` → 「OK（测试/验收装置改动声明已登记）」 |
+| 发现 2（审计 title 缺 repo） | 修复+delta 确认 | tool-factory.ts:1246/:1252 title 两处补 `${repoDesc}` @ 7572766db；新增用例 d3 断言 `linkArg.title` 含 repo（merge-pr-tool.test.ts:835-843） |
+| 发现 3（URL 号静默丢失） | 修复+delta 确认 | 正则收紧 @ tool-factory.ts:1034-1039：攻击复跑（函数体逐字提取复刻 34 用例）实证 pull/abc、pulls/abc、pull//123、pull/-5、pulls/ 空号五形态全部显式拒绝；pulls/123 复数形态号可解析走核对（处置强于初轮主张）；基线形态（PR URL/后缀/大小写/前导零/查询参数）零回归；判别用例 d1 三形态钉住 |
+| 发现 4（跨仓 docs-only 豁免不对称） | 登记+不修裁决（残留表收编） | 特性文档残留表新增行（diff @ 7572766db），fail-closed 方向理由如实 |
+| 发现 5（裸 URL 被拒） | 修复+delta 确认 | 正则放宽 @ tool-factory.ts:1034：`https://github.com/o/n` → `{repo:"o/n"}`、`https://github.com/colink-group/CoLink` → 合法；`https://github.com/o`（仅 owner）→ url[2] 守卫拒绝；用例 d2 钉住 |
+
+## Delta 独立验证清单
+1. `npx vitest run tests/.../merge-pr-tool.test.ts` → 49/49 ✅
+2. `npx tsc --noEmit` → 0 错误 ✅；eslint 改动文件 0 错误 ✅
+3. resolveTargetRepo delta 版边界攻击 34 用例（逐字复刻自 :1030-1042 @ 7572766db）→ 处置形态全符合声明，无基线回归
+4. check-pr-tests 本地闸复跑 → 声明已登记 ✅
+
+## Delta 观察（不构成新发现，如实记录）
+- `issues/456` 形态行为未变（repo 接受、号丢弃、无提示）——归类修正：issues 号无 PR 号语义，属宽容接受族，不在发现 3「PR URL 捎带号」主张域内（初轮报告将其列入证据清单属归类扩大化，本獭修正）；`pulls123`（粘连）、裸 `pull` 段同族，形态极怪
+- CI check 红（run 45813628480）= **behind main** freshness 闸：main HEAD 2bc17e6cb > merge base 533598278——需作者 rebase/merge main 重推后 CI 重跑，非发现 1 回归、非 delta 处置缺陷；guard-macos/golden-selftest 已绿，e2e pending
+- `.review/review-2065.md`（初轮报告）随 delta commit 进入分支历史——无功能影响，作者侧知悉即可
+
+🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 检视獭-mrprs
