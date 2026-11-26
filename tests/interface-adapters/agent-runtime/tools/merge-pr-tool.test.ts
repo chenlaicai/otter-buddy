@@ -770,7 +770,7 @@ describe('F20261126mrprs merge_pr 跨仓解析（repo 入参 + gh 显式 --repo�
 
     const mismatch = await tool.execute('r3', { prNumber: 1095, partnerApproval: '1095合入', repo: 'https://github.com/colink-group/CoLink/pull/4052' });
     expect(JSON.stringify(mismatch)).toContain('4052');
-    expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(1); // 只剩 r2 那次
+    expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(1); // 只剩 URL 形态那一次成功合入
   });
 
   it('非法 repo 格式 → 参数校验拒绝，不触发 gh', async () => {

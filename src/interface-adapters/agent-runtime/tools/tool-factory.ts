@@ -1023,18 +1023,18 @@ function createWaitTool(): AgentTool {
 
 /** merge_pr 子步骤：目标仓库解析——repo 入参（owner/name 或整条 PR URL）。
  *  Why：gh 不带 --repo 时用进程 cwd 所属仓解析 PR 号，服务进程 cwd 是 otter-buddy 主仓，
- *  被管理项目（CoLink 等）上的调用必然 "Could not resolve to a PullRequest"（#2037：100% 失效 +
+ *  被管理项目（CoLink 等）上的调用必然 "Could not resolve to a PullRequest"（100% 失效 +
  *  授权审计随之断链，诱使绕闸）。ToolContext 无工作区路径数据源，「工作区 remote 回退」层不存在，
  *  缺省保持 gh 进程 cwd 行为（本仓调用零变化），跨仓由入参显式声明。
  *  返回 repo（owner/name 形态）与 urlPrNumber（URL 形态捎带的 PR 号，供与 prNumber 核对）。 */
 export function resolveTargetRepo(raw: unknown): { repo?: string; urlPrNumber?: number; error?: string } {
   if (raw == null || raw === "") return {};
   const text = String(raw).trim();
-  // 裸仓库主页 URL（github.com/o/n，无尾斜杠）同样合法——浏览器复制常态（检视发现 5，PR #2065）
+  // 裸仓库主页 URL（github.com/o/n，无尾斜杠）同样合法——浏览器复制常态
   const url = /^https?:\/\/(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)?(?:\/(?:pull(?:s)?\/((?:\d+)?)))?/i.exec(text);
   if (url && url[2]) {
     // PR 路径形态但号不可解析（pulls/123 复数 typo、pull/abc、pull// 等）→ 显式拒绝：
-    // 号核对防线不能在捕获失败时静默消失（检视发现 3，PR #2065）
+    // 号核对防线不能在捕获失败时静默消失
     if (/\/pulls?\//i.test(text) && !url[3]) {
       return { error: `[错误] repo 参数中的 PR 路径无法解析出编号：「${text.slice(0, 80)}」。请传完整 PR URL（https://github.com/owner/name/pull/123）或 owner/name + prNumber。` };
     }
@@ -1227,7 +1227,7 @@ function buildMergeAuditRecord(
   otterId: string,
 ): { title: string; content: string } {
   const { prNumber, strategy, partnerApproval, approvalAnchor, rejected, repo } = info;
-  // 跨仓标识（#2037）：同号 PR 在不同仓库同名，审计不含 repo 则授权语境无法唯一回查
+  // 跨仓标识：同号 PR 在不同仓库同名，审计不含 repo 则授权语境无法唯一回查
   const repoDesc = repo ? `，repo=${repo}` : "";
   const hitExcerpt = approvalAnchor?.body ? `原文「${approvalAnchor.body.slice(0, 80)}」` : "";
   const anchorDesc = approvalAnchor
@@ -1430,7 +1430,7 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
       if (!prNumber || prNumber <= 0) {
         return errorResponse("[错误] prNumber 必须是正整数");
       }
-      // 跨仓解析（#2037）：owner/name 或整条 PR URL；URL 形态带号时与 prNumber 核对防错配
+      // 跨仓解析：owner/name 或整条 PR URL；URL 形态带号时与 prNumber 核对防错配
       const { repo, terminal: repoTerminal } = resolveMergeTarget(params, prNumber);
       if (repoTerminal) return repoTerminal;
       if (!partnerApproval) {
