@@ -61,7 +61,7 @@ export function createListArtifactsTool(ctx: ToolContext): AgentTool {
 export function createArchiveArtifactForReconciliationTool(ctx: ToolContext): AgentTool {
   return {
     name: "archive_artifact_for_reconciliation",
-    description: "受控对账归档：把其他对话的机械终态产物（pr/worktree/branch）归档的唯一合法入口。When: 每日产物清单对账段——跨对话 list_artifacts/sqlite3 扫到 active 且 gh pr view 判 MERGED/CLOSED / worktree 路径不存在 / branch PR 已合入时。Not for: fact/file/url/game 资源（非机械可判，拒绝）；当前对话自己的产物（用 update_artifact_status 更直接）；superseded 状态变更. GOTCHA: 必须附机器证据（evidence 参数，写审计三列）；operator 由系统按当前獭注入；普通 update_artifact_status 对非所属对话仍 404，本工具不放开归属闸——只收口对账场景.",
+    description: "受控对账归档：把其他对话的机械终态产物归档的唯一合法入口。可归档：pr/worktree/branch（gh pr view 判 MERGED/CLOSED / worktree 路径不存在 / branch PR 已合入）；合入事实 fact（title 含「合入」+ 正文含 #N PR 号 + evidence 含 MERGED/CLOSED 终态词且提及对应号）——与日报产物清单对账段口径一致. When: 每日产物清单对账段——跨对话 list_artifacts/sqlite3 扫到 active 且机器证据在手的终态产物. Not for: 非合入事实/无 PR 号/无终态证据的 fact（fail-closed，报分类错误）；file/url/game 资源；当前对话自己的产物（用 update_artifact_status 更直接）；superseded 状态变更. GOTCHA: 必须附机器证据（evidence 参数，写审计三列）；operator 由系统按当前獭注入；普通 update_artifact_status 对非所属对话仍 404，本工具不放开归属闸——只收口对账场景.",
     parameters: {
       type: "object",
       properties: {

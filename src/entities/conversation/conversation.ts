@@ -150,11 +150,39 @@ export function canTransitionArtifactStatus(
  * 受控对账归档的资源类型白名单。
  * 机械终态可判的资源类型 = 有明确外部机器证据的交付物：
  * pr（PR MERGED/CLOSED）、worktree（路径不存在/PR 已合入）、branch（PR 已合入）。
- * fact/file/url/game 不在此列——归档判定依赖人工判断，不得经对账路径跨对话归档。
+ * fact 不在此列但可走 merge-fact 判据（isMergeFactResource——日报对账段真相源口径：
+ * title 含「合入」+ PR 号可解析 + evidence 含终态词与对应号）；file/url/game 一律拒绝。
  */
 export const RECONCILIATION_ARCHIVABLE_RESOURCE_TYPES: ReadonlySet<string> = new Set(["pr", "worktree", "branch"]);
 
 /** 资源类型是否可经受控对账路径归档。 */
+
+export type MergeFactCheck =
+  | { ok: true; prNums: string[] }
+  | { ok: false; reason: "not_merge_fact" | "no_pr_number" | "no_terminal_evidence" };
+
+/**
+ * 「合入事实」类 fact 的结构判据（对账归档扩展，统一工具与日报对账段契约）。
+ * 与 pr/worktree/branch 同信任模型：工具做结构校验（title 含「合入」+ PR 号可解析 +
+ * evidence 含 MERGED/CLOSED 终态词且含对应 PR 号），PR 终态的真实性由调用方核实、
+ * evidence 全文落审计三列事后可查——工具不执行外部命令。
+ * 三类结构缺陷分别对应日报关闭标准的拒绝面：非合入事实 / 无法解析 PR / 非终态证据缺失。
+ */
+export function checkMergeFactResource(
+  resource: { resourceType: string; title?: string | null; content?: string | null },
+  evidence: string,
+): MergeFactCheck {
+  if (resource.resourceType !== "fact") return { ok: false, reason: "not_merge_fact" };
+  const title = resource.title ?? "";
+  if (!title.includes("合入")) return { ok: false, reason: "not_merge_fact" };
+  const body = `${title} ${resource.content ?? ""}`;
+  const prNums = [...body.matchAll(/#(\d+)/g)].map(m => m[1]);
+  if (prNums.length === 0) return { ok: false, reason: "no_pr_number" };
+  if (!/\b(MERGED|CLOSED)\b/i.test(evidence)) return { ok: false, reason: "no_terminal_evidence" };
+  const evidenceNums = new Set([...evidence.matchAll(/\b(\d+)\b/g)].map(m => m[1]));
+  if (!prNums.some(n => evidenceNums.has(n))) return { ok: false, reason: "no_terminal_evidence" };
+  return { ok: true, prNums };
+}
 export function isReconciliationArchivableType(resourceType: string): boolean {
   return RECONCILIATION_ARCHIVABLE_RESOURCE_TYPES.has(resourceType);
 }

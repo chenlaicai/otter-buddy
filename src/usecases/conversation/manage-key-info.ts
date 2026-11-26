@@ -3,7 +3,7 @@ import type {
   ArtifactStatus,
   LinkedResource,
 } from "@entities/conversation/conversation";
-import { canTransitionArtifactStatus, isReconciliationArchivableType } from "@entities/conversation/conversation";
+import { canTransitionArtifactStatus, checkMergeFactResource, isReconciliationArchivableType } from "@entities/conversation/conversation";
 import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "./conversation-repository";
 import type { MemoryIndexGateway } from "./memory-index-gateway";
@@ -213,11 +213,24 @@ export class ManageKeyInfo {
     if (!resource) {
       throw new DomainError(`LinkedResource ${params.artifactId} not found`, "not_found");
     }
-    if (!isReconciliationArchivableType(resource.resourceType)) {
+    // 类型闸（契约统一，日报对账段真相源口径）：pr/worktree/branch 直接过；fact 走
+    // merge-fact 结构判据（判据单一真相源在实体层 checkMergeFactResource）；file/url/game 拒绝。
+    if (!isReconciliationArchivableType(resource.resourceType) && resource.resourceType !== "fact") {
       throw new DomainError(
         `非机械可判资源（${resource.resourceType}）不能经对账路径归档；仅 pr/worktree/branch 允许`,
         "validation",
       );
+    }
+    if (resource.resourceType === "fact") {
+      const mergeFact = checkMergeFactResource(resource, params.evidence.trim());
+      if (!mergeFact.ok) {
+        const reasons: Record<string, string> = {
+          not_merge_fact: "fact 归档仅限「合入事实」（title 须含「合入」）；非合入事实仍走原对话的 update_artifact_status",
+          no_pr_number: "合入事实无法解析 PR 号（title/content 须含 #N 引用）——无法机械核对，拒绝归档",
+          no_terminal_evidence: "合入事实的证据须含 PR 终态（MERGED/CLOSED）且提及对应 PR 号（如 gh pr view <N> --json state → MERGED）",
+        };
+        throw new DomainError(reasons[mergeFact.reason], "validation");
+      }
     }
     if (!canTransitionArtifactStatus(resource.status, "archived")) {
       throw new DomainError(`Cannot archive resource in status '${resource.status}'`, "conflict");

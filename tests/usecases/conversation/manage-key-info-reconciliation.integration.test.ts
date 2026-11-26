@@ -92,15 +92,103 @@ describe("archiveResourceForReconciliation（#1835）", () => {
     }
   });
 
-  it("非机械可判资源类型（fact）一律拒绝，不写库", async () => {
+  it("非机械可判资源类型（file）一律拒绝，不写库", async () => {
     const { db, repo, uc } = buildFixture();
     try {
-      await linkArtifact(repo, "fact");
+      await linkArtifact(repo, "file");
 
       await expect(uc.archiveResourceForReconciliation({
-        artifactId: RESOURCE_ID, operatorOtterId: "otter-operator", evidence: "gh pr view 1801 --json state → MERGED",
+        artifactId: RESOURCE_ID, operatorOtterId: "otter-operator", evidence: "path gone",
       })).rejects.toMatchObject({ kind: "validation" });
       expect(db.prepare("SELECT status FROM linked_resources WHERE id = ?").pluck().get(RESOURCE_ID)).toBe("active");
+    } finally {
+      db.close();
+    }
+  });
+
+  // ── #2046：合入事实 fact 经对账路径归档（与日报对账段契约统一）──
+
+  function linkFactArtifact(repo: SqliteConversationRepository, overrides: { id?: string; title?: string; content?: string | null } = {}) {
+    return repo.linkResource({
+      id: overrides.id ?? RESOURCE_ID,
+      conversationId: TARGET_CONVERSATION,
+      resourceType: "fact",
+      url: null,
+      title: overrides.title ?? "AI 雷达持久化入库完成（PR #1378 已合入）",
+      content: overrides.content ?? null,
+      category: null,
+      userFlagged: false,
+      metadata: null,
+      linkedBy: "test",
+      otterId: null,
+      autoLinked: false,
+      createdAt: new Date().toISOString(),
+      status: "active",
+      groupId: null,
+      supersededBy: null,
+      archivedByOtterId: null,
+      archivedAt: null,
+      archiveEvidence: null,
+    });
+  }
+
+  it("#2046 现场：跨对话合入事实 fact（title 含合入 + #N + evidence 终态含对应号）可归档，审计三列留痕", async () => {
+    const { db, repo, uc } = buildFixture();
+    try {
+      await linkFactArtifact(repo);
+
+      const result = await uc.archiveResourceForReconciliation({
+        artifactId: RESOURCE_ID,
+        operatorOtterId: "otter-operator",
+        evidence: "gh pr view 1378 --json state → MERGED",
+      });
+
+      expect(result.status).toBe("archived");
+      expect(result.archiveEvidence).toContain("1378");
+      const row = db.prepare(
+        "SELECT status, archived_by_otter_id, archive_evidence FROM linked_resources WHERE id = ?",
+      ).get(RESOURCE_ID) as { status: string; archived_by_otter_id: string | null; archive_evidence: string | null };
+      expect(row.status).toBe("archived");
+      expect(row.archived_by_otter_id).toBe("otter-operator");
+      expect(row.archive_evidence).toContain("MERGED");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("#2046 拒绝面：非合入事实 / 无法解析 PR 号 / 无终态证据 / 号不匹配，四类均 fail-closed 不写库", async () => {
+    const { db, repo, uc } = buildFixture();
+    try {
+      // 每个子场景独立资源 ID（避免 UNIQUE 冲突），最后统一断言全部仍 active
+      const ids = ["fact-a", "fact-b", "fact-c", "fact-d"];
+
+      // 非合入事实（title 无「合入」）
+      await linkFactArtifact(repo, { id: ids[0], title: "AI 雷达调研结论存档" });
+      await expect(uc.archiveResourceForReconciliation({
+        artifactId: ids[0], operatorOtterId: "otter-operator", evidence: "gh pr view 1378 --json state → MERGED",
+      })).rejects.toThrow("仅限「合入事实」");
+
+      // 合入事实但无 #N PR 号
+      await linkFactArtifact(repo, { id: ids[1], title: "AI 雷达持久化入库完成（已合入）" });
+      await expect(uc.archiveResourceForReconciliation({
+        artifactId: ids[1], operatorOtterId: "otter-operator", evidence: "gh pr view 1378 --json state → MERGED",
+      })).rejects.toThrow("无法解析 PR 号");
+
+      // 合入事实 + #N 但 evidence 无终态词
+      await linkFactArtifact(repo, { id: ids[2] });
+      await expect(uc.archiveResourceForReconciliation({
+        artifactId: ids[2], operatorOtterId: "otter-operator", evidence: "看过了，没问题",
+      })).rejects.toThrow("PR 终态");
+
+      // evidence 终态词在但号不匹配（#1378 vs evidence 只提 9999）
+      await linkFactArtifact(repo, { id: ids[3] });
+      await expect(uc.archiveResourceForReconciliation({
+        artifactId: ids[3], operatorOtterId: "otter-operator", evidence: "gh pr view 9999 --json state → MERGED",
+      })).rejects.toThrow("PR 终态");
+
+      for (const id of ids) {
+        expect(db.prepare("SELECT status FROM linked_resources WHERE id = ?").pluck().get(id)).toBe("active");
+      }
     } finally {
       db.close();
     }
