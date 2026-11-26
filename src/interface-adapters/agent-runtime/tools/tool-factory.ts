@@ -1311,7 +1311,7 @@ async function queryMergeFailureDiagnostics(prNumber: number): Promise<{ mergeSt
     mergeStateStatus?: string;
     statusCheckRollup?: Array<Record<string, unknown>>;
   };
-  const failedConclusions = new Set(["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "ERROR"]);
+  const failedConclusions = new Set(["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "ERROR", "STARTUP_FAILURE", "STALE"]);
   const failedChecks = (pr.statusCheckRollup ?? []).flatMap(check => {
     const conclusion = String(check.conclusion ?? check.state ?? "").toUpperCase();
     if (!failedConclusions.has(conclusion)) return [];

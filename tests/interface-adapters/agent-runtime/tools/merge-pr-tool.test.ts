@@ -225,6 +225,8 @@ describe('F20260922pmgd merge_pr 工具（PR 合入搭档授权闸）', () => {
           mergeStateStatus: 'BLOCKED',
           statusCheckRollup: [
             { __typename: 'CheckRun', name: 'check', conclusion: 'FAILURE', detailsUrl: 'https://github.com/chenlaicai/otter-buddy/actions/runs/123/job/456' },
+            { __typename: 'CheckRun', name: 'startup', conclusion: 'STARTUP_FAILURE', detailsUrl: 'https://example.test/startup-failure' },
+            { __typename: 'StatusContext', context: 'legacy-required', state: 'STALE', targetUrl: 'https://example.test/stale' },
             { __typename: 'CheckRun', name: 'e2e', conclusion: 'SUCCESS', detailsUrl: 'https://example.test/success' },
           ],
         }), stderr: '' });
@@ -240,6 +242,8 @@ describe('F20260922pmgd merge_pr 工具（PR 合入搭档授权闸）', () => {
     expect(result.details.mergeStateStatus).toBe('BLOCKED');
     expect(result.details.failedChecks).toEqual([
       { name: 'check', url: 'https://github.com/chenlaicai/otter-buddy/actions/runs/123/job/456', conclusion: 'FAILURE' },
+      { name: 'startup', url: 'https://example.test/startup-failure', conclusion: 'STARTUP_FAILURE' },
+      { name: 'legacy-required', url: 'https://example.test/stale', conclusion: 'STALE' },
     ]);
     expect(JSON.stringify(result)).toContain('base branch policy prohibits merging');
     expect(JSON.stringify(result)).toContain('mergeStateStatus=BLOCKED');

@@ -39,7 +39,7 @@ healing `18401348-1d73-49b2-b5bd-8d799cf8ee00`：同 HEAD 因 PR body 编辑触�
 
 - `details.mergeStateStatus` 提供机器可读合并状态。
 - `details.failedChecks[]` 提供失败检查 `{name, url, conclusion}`；文本同步列出，保留原始错误。
-- 兼容 CheckRun 的 `detailsUrl` 与 StatusContext 的 `targetUrl`，覆盖 FAILURE/TIMED_OUT/CANCELLED/ACTION_REQUIRED/ERROR。
+- 兼容 CheckRun 的 `detailsUrl` 与 StatusContext 的 `targetUrl`，覆盖 FAILURE/TIMED_OUT/CANCELLED/ACTION_REQUIRED/ERROR/STARTUP_FAILURE/STALE；后两个值由独立检视按 GraphQL CheckConclusionState 全集补齐。
 - 诊断查询失败时返回 `UNKNOWN` 与 `diagnosticError`，绝不覆盖原始合入错误。
 
 被否替代：只匹配 GitHub 错误文案猜原因——同型 policy 错误可能来自落后分支、pending 或失败检查，关键词分类不可靠；只返回原始 `statusCheckRollup` 全量——噪音大，违背定位目的。
@@ -57,7 +57,7 @@ healing `18401348-1d73-49b2-b5bd-8d799cf8ee00`：同 HEAD 因 PR body 编辑触�
 同一命令 → **41/41 passed**；`npx vitest run tests/interface-adapters/agent-runtime/tools/` → **32/32 文件、295/295 tests passed**；`npm run build`、`npm run lint:intent` 与 `git diff --check` 均通过。失败 fixture 断言：
 
 - `details.mergeStateStatus === "BLOCKED"`。
-- `details.failedChecks` 仅含失败的 `check`，含 Actions job URL，不含成功的 e2e。
+- `details.failedChecks` 含 CheckRun 的 FAILURE/STARTUP_FAILURE 与 StatusContext 的 STALE，分别验证 `detailsUrl`、`targetUrl` 和 `context` 回退；不含成功的 e2e。
 - 错误文本同时含 `mergeStateStatus=BLOCKED`、失败检查 URL 和原始 `base branch policy prohibits merging`。
 - 诊断查询超时 fixture 返回 `mergeStateStatus=UNKNOWN` 与 `diagnosticError`，且原始合入错误仍保留。
 
