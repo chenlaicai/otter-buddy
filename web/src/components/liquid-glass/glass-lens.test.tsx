@@ -6,7 +6,7 @@
 //   ③运行中开启 prefers-reduced-motion 时透镜立即退场（引擎静止无帧，必须显式监听）
 //   ④选中项几何变化（RO 触发）时静止透镜重新对位
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, act } from '@testing-library/react'
+import { render, act, fireEvent } from '@testing-library/react'
 import { useState } from 'react'
 
 type LensViewLike = {
@@ -216,5 +216,47 @@ describe('GlassLens 常驻生命周期', () => {
     // 透镜中心跟随新盒子（x=20+140/2=90，lens cx 含 padX 偏移，这里断言它离开旧中心 60）
     expect(lens!.cx).toBeGreaterThan(70)
     expect(lens!.hx).toBeGreaterThan(40)
+  })
+
+  it('prefers-reduced-motion 开→关往返：关闭后透镜恢复常驻', () => {
+    const { getByTestId } = render(<Host value="a" />)
+    harness.ioCallback?.([{ isIntersecting: true }])
+    view().drawn?.()
+    const host = getByTestId('host') as HTMLElement
+
+    // 开启：退场
+    harness.reducedMatches = true
+    for (const cb of harness.reducedListeners) cb({ matches: true })
+    expect('glassMoving' in host.dataset).toBe(false)
+    expect(view().lens(false)).toBeNull()
+
+    // 关闭：重新常驻（detach 保留了 target，不能被 sync 的 same 判断拦住）
+    harness.reducedMatches = false
+    for (const cb of harness.reducedListeners) cb({ matches: false })
+    expect(view().lens(false)).not.toBeNull()
+    // 引擎画完首帧后（drawn 回调）DOM 高亮才隐藏
+    view().drawn?.()
+    expect('glassMoving' in host.dataset).toBe(true)
+  })
+
+  it('按压中 RO 被跳过，释放后透镜重对位新几何', async () => {
+    const { getByTestId } = render(<Host value="a" />)
+    harness.ioCallback?.([{ isIntersecting: true }])
+    view().drawn?.()
+    const optA = getByTestId('opt-a')
+
+    // 按压选中项（onDown：pressed=true）
+    fireEvent.pointerDown(optA, { button: 0 })
+
+    // 按压中几何变化：RO 被忽略
+    harness.boxes.a = { left: 20, top: 4, width: 200, height: 40, right: 220, bottom: 44, x: 20, y: 4 }
+    harness.roCallback?.()
+    expect(view().lens(false)!.hx).toBeLessThan(80) // 仍是旧宽度（80/2 附近）
+
+    // 释放：onUp 里 sync(false) 重读几何
+    fireEvent.pointerUp(optA)
+    const lens = view().lens(false)
+    expect(lens).not.toBeNull()
+    expect(lens!.hx).toBeGreaterThan(80) // 新宽度 200/2 量级（含 swell/pad 换算）
   })
 })

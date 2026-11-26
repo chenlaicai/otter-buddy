@@ -8,7 +8,7 @@ intent:
   expected_effect: "静止选中块由 WebGL 清玻璃透镜常驻绘制（frost=0.03、静止端 strength=0.5、可见折射），DOM 高亮块仅在降级路径可见且不再使用纯白十六进制色；液滴流动动画端点参数零变化；透镜生命周期闭环（无选中退场、reduced-motion 动态切换退场、几何变化重对位）"
   verify_by:
     type: behavior_check
-capability_test: "n/a: 视觉效果类改动——机器验收 = material-v3.test.ts 契约断言（锁 frost/strength 端点与兜底样式）+ 887 单测 + Playwright 截图目检（静止/运动/连点/自定义背景标）"
+capability_test: "n/a: 视觉效果类改动——机器验收 = material-v3.test.ts 契约断言（锁 frost/strength 端点与兜底样式）+ 893 单测（含 6 条生命周期行为测试） + Playwright 截图目检（静止/运动/连点/自定义背景标）"
 created_in_conversation: 3995c48d-499a-4c2d-b04f-e3581a3d3e28
 created_at: 2026-11-26
 from: [F20261124tbnav]

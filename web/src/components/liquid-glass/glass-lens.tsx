@@ -405,6 +405,19 @@ export function GlassLens({ value, disabled = false }: GlassLensProps) {
       target = next
       engine.wake()
     }
+    /** Re-arm the persistent lens after a detach: measure fresh and snap, no `same` short-cut. */
+    const arm = () => {
+      const next = measure()
+      target = next
+      if (!next || reduced.matches || !view.visible) {
+        if (active) detach()
+        return
+      }
+      active = true
+      place(next)
+      view.dirty = true
+      engine.wake()
+    }
     syncRef.current = sync
     sync(false)
 
@@ -432,6 +445,8 @@ export function GlassLens({ value, disabled = false }: GlassLensProps) {
         }
       }
       dragX = null
+      // RO skips resizes while pressed, so the release must re-read geometry itself.
+      sync(false)
       engine.wake()
     }
     const onDown = (e: PointerEvent) => {
@@ -454,7 +469,12 @@ export function GlassLens({ value, disabled = false }: GlassLensProps) {
       view.visible = entry.isIntersecting
       // The persistent resting lens needs its first paint once it is on screen: the wake
       // from `add` ran while `visible` was still false, and that frame skipped the view.
-      if (!was && view.visible) engine.wake()
+      // A lens detached while off-screen (reduced motion) re-arms here instead: waking an
+      // inactive view draws nothing.
+      if (!was && view.visible) {
+        if (active) engine.wake()
+        else arm()
+      }
     })
     io.observe(root)
     const ro = new ResizeObserver(() => {
@@ -474,7 +494,9 @@ export function GlassLens({ value, disabled = false }: GlassLensProps) {
       if (e.matches) {
         detach()
       } else {
-        sync(false)
+        // detach kept `target`, so sync's `same` check would early-return before re-arming:
+        // arm explicitly, re-measuring in case geometry moved while detached.
+        arm()
       }
     }
     reduced.addEventListener?.('change', onReducedChange)
