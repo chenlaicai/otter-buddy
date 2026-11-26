@@ -11,18 +11,9 @@ import { createRouter, type Controllers, type RouterPlumbingOptions } from "../.
 
 const OWNER_PASSWORD = "test-owner-password";
 
-interface ExecutionMachineFixture {
-  id: string;
-  name: string;
-}
-
 function rawApp(executionMachines?: {
-  list: () => ExecutionMachineFixture[];
-  currentId: () => string;
   deviceStatus?: () => Promise<Array<{ deviceId: string; name: string; online: boolean; lastSeenAt: string | null }>>;
   conversationExists?: (conversationId: string) => Promise<boolean>;
-  setConversationMachine?: (conversationId: string, machineId: string | null) => Promise<{ ok: true } | { ok: false; status: 400 | 404; error: string }>;
-  getConversationMachine?: (conversationId: string) => Promise<string | null>;
   listConversationRemoteActions?: (conversationId: string, limit?: number) => Promise<Array<{ actionId: string; deviceId: string; actionType: string; status: string; error: string | null; createdAt: string; settledAt: string | null }>>;
 }): Hono {
   const signer = createSessionSigner(OWNER_PASSWORD);
@@ -158,34 +149,32 @@ describe("统一接入登录（auth 三端点）", () => {
   });
 });
 
-describe("执行机投影端点（/api/execution-machines）", () => {
-  const app = rawApp({
-    list: () => [{ id: "local", name: "本机" }],
-    currentId: () => "local",
-  });
-
+describe("执行机投影端点（/api/execution-machines，统一注册制）", () => {
   it("未登录 → 401（fail-closed，非 public 端点一律要求会话）", async () => {
+    const app = rawApp({});
     const res = await app.request("/api/execution-machines");
     expect(res.status).toBe(401);
   });
 
-  it("登录后 → 200 返回 { machines, currentMachineId } 契约", async () => {
+  it("登录后 → 200 返回 { machines } 契约（全部为 connector 设备；无 currentMachineId/local 特条目）", async () => {
+    const app = rawApp({
+      deviceStatus: async () => [
+        { deviceId: "hub-node", name: "中枢本机", online: true, lastSeenAt: "2026-11-25T15:00:00Z" },
+      ],
+    });
     const login = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: OWNER_PASSWORD }) });
     const cookie = cookieOf(login);
     const res = await app.request("/api/execution-machines", { headers: { Cookie: `otter_session=${cookie}` } });
     expect(res.status).toBe(200);
-    const body = await res.json() as { machines: Array<{ id: string; name: string; online: boolean; lastSeenAt: string | null }>; currentMachineId: string };
-    // local 补齐 online/lastSeenAt（与设备条目同构；共享投影给 agent 感知工具）
+    const body = await res.json() as { machines: Array<{ id: string; name: string; online: boolean; lastSeenAt: string | null }>; currentMachineId?: unknown };
     expect(body).toEqual({
-      machines: [{ id: "local", name: "本机", online: true, lastSeenAt: null, local: true }],
-      currentMachineId: "local",
+      machines: [{ id: "hub-node", name: "中枢本机", online: true, lastSeenAt: "2026-11-25T15:00:00Z" }],
     });
+    expect("currentMachineId" in body).toBe(false);
   });
 
-  it("阶段 5 + M2（检视）：GET 全量设备列表——离线已配对设备可见 + 在线状态点", async () => {
+  it("GET 设备全量（含离线——人要看得见离线设备才能决定处置）；无内置 local 特条目", async () => {
     const appJoin = rawApp({
-      list: () => [{ id: "local", name: "本机" }],
-      currentId: () => "local",
       deviceStatus: async () => [
         { deviceId: "connector-b", name: "B 机", online: true, lastSeenAt: "2026-11-18T06:00:00Z" },
         { deviceId: "connector-c", name: "C 机（离线）", online: false, lastSeenAt: "2026-11-17T00:00:00Z" },
@@ -194,82 +183,42 @@ describe("执行机投影端点（/api/execution-machines）", () => {
     const login = await appJoin.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: OWNER_PASSWORD }) });
     const cookie = cookieOf(login);
     const res = await appJoin.request("/api/execution-machines", { headers: { Cookie: `otter_session=${cookie}` } });
-    const body = await res.json() as { machines: Array<{ id: string; name: string; online?: boolean; lastSeenAt?: string }>; currentMachineId: string };
-    // local 恒在首位（Registry）；已配对设备全量（含离线——人要看得见才能决定切回）
-    expect(body.machines.map(m => m.id)).toEqual(["local", "connector-b", "connector-c"]);
+    const body = await res.json() as { machines: Array<{ id: string; name: string; online?: boolean; lastSeenAt?: string }> };
+    expect(body.machines.map(m => m.id)).toEqual(["connector-b", "connector-c"]);
     expect(body.machines.find(m => m.id === "connector-b")).toMatchObject({ online: true, lastSeenAt: "2026-11-18T06:00:00Z" });
     expect(body.machines.find(m => m.id === "connector-c")).toMatchObject({ online: false, lastSeenAt: "2026-11-17T00:00:00Z" });
-    expect(body.machines.find(m => m.id === "local")).toMatchObject({ online: true, lastSeenAt: null, local: true }); // local 恒在线 + local:true 显式信号（isDevice 判别不靠字段缺省）
+    expect(body.machines.some(m => (m as { local?: boolean }).local)).toBe(false); // 无 local 特条目（统一注册制）
   });
 
-  it("阶段 5：deviceStatus 缺省 → 仅 local（旧装配兼容退化）", async () => {
-    const appNoStatus = rawApp({ list: () => [{ id: "local", name: "本机" }], currentId: () => "local" });
+  it("deviceStatus 缺省 → 空池（旧装配兼容退化）", async () => {
+    const appNoStatus = rawApp({});
     const login = await appNoStatus.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: OWNER_PASSWORD }) });
     const cookie = cookieOf(login);
     const res = await appNoStatus.request("/api/execution-machines", { headers: { Cookie: `otter_session=${cookie}` } });
-    const body = await res.json() as { machines: Array<{ id: string; online: boolean; lastSeenAt: string | null }> };
-    expect(body.machines).toEqual([{ id: "local", name: "本机", online: true, lastSeenAt: null, local: true }]);
+    const body = await res.json() as { machines: unknown[] };
+    expect(body.machines).toEqual([]);
   });
 });
 
-describe("对话级执行机切换端点（阶段 5 PR-A：PUT /api/conversations/:id/execution-machine）", () => {
-  function appWith(setter: NonNullable<Parameters<typeof rawApp>[0]>["setConversationMachine"]): Hono {
-    return rawApp({
-      list: () => [{ id: "local", name: "本机" }, { id: "connector-b", name: "B 机" }],
-      currentId: () => "local",
-      setConversationMachine: setter,
-    });
-  }
+describe("对话级执行机切换端点（已随对话绑定移除——负向契约）", () => {
   async function cookieOfApp(app: Hono): Promise<string> {
     const login = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: OWNER_PASSWORD }) });
     return cookieOf(login);
   }
 
-  it("未登录 → 401（fail-closed）", async () => {
-    const res = await appWith(async () => ({ ok: true })).request("/api/conversations/c-1/execution-machine", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ machineId: "connector-b" }) });
-    expect(res.status).toBe(401);
-  });
-
-  it("非法 body（machineId 非字符串/非 null）→ 400", async () => {
-    const app = appWith(async () => ({ ok: true }));
+  it("PUT /api/conversations/:id/execution-machine → 404（端点已移除）", async () => {
+    const app = rawApp({});
     const cookie = await cookieOfApp(app);
-    const res = await app.request("/api/conversations/c-1/execution-machine", { method: "PUT", headers: { "Content-Type": "application/json", Cookie: `otter_session=${cookie}` }, body: JSON.stringify({ machineId: 42 }) });
-    expect(res.status).toBe(400);
-  });
-
-  it("目标未注册 → 400（setter 收到校验后的调用）；对话不存在 → 404；成功 → {ok:true}", async () => {
-    const calls: Array<[string, string | null]> = [];
-    const app = appWith(async (conversationId, machineId) => {
-      calls.push([conversationId, machineId]);
-      if (machineId === "ghost") return { ok: false as const, status: 400 as const, error: "machine not registered" };
-      if (conversationId === "c-missing") return { ok: false as const, status: 404 as const, error: "conversation not found" };
-      return { ok: true as const };
-    });
-    const cookie = await cookieOfApp(app);
-    const put = (cid: string, machineId: string | null) =>
-      app.request(`/api/conversations/${cid}/execution-machine`, { method: "PUT", headers: { "Content-Type": "application/json", Cookie: `otter_session=${cookie}` }, body: JSON.stringify({ machineId }) });
-
-    expect((await put("c-1", "ghost")).status).toBe(400);
-    expect((await put("c-missing", "connector-b")).status).toBe(404);
-    const ok = await put("c-1", "connector-b");
-    expect(ok.status).toBe(200);
-    expect(await ok.json()).toEqual({ ok: true });
-    expect(calls).toEqual([["c-1", "ghost"], ["c-missing", "connector-b"], ["c-1", "connector-b"]]);
-
-    // machineId=null 回默认 local
-    expect((await put("c-1", null)).status).toBe(200);
-    expect(calls[3]).toEqual(["c-1", null]);
+    const res = await app.request("/api/conversations/c-1/execution-machine", { method: "PUT", headers: { "Content-Type": "application/json", Cookie: `otter_session=${cookie}` }, body: JSON.stringify({ machineId: "connector-b" }) });
+    expect(res.status).toBe(404);
   });
 });
 
-// ─── ：对话当前机 + 远程动作状态端点 ───
-describe("执行状态端点（GET execution-machine / remote-actions）", () => {
-  function statusApp(current: string | null, actions: Array<{ actionId: string; status: string }>, exists?: () => Promise<boolean>): Hono {
+// ─── 对话动作状态端点（统一注册制：全机器动作都在 central registry） ───
+describe("动作状态端点（GET remote-actions；execution-machine GET 已移除）", () => {
+  function statusApp(actions: Array<{ actionId: string; status: string }>, exists?: () => Promise<boolean>): Hono {
     return rawApp({
-      list: () => [{ id: "local", name: "本机" }],
-      currentId: () => "local",
       ...(exists ? { conversationExists: exists } : {}),
-      getConversationMachine: async () => current,
       listConversationRemoteActions: async (_cid, limit) =>
         actions.slice(-(limit ?? 50)).reverse().map(a => ({
           actionId: a.actionId, deviceId: "connector-b", actionType: "workspace.write",
@@ -282,16 +231,15 @@ describe("执行状态端点（GET execution-machine / remote-actions）", () =>
     return cookieOf(login);
   }
 
-  it("GET /execution-machine：返回对话当前机（null=默认 local）", async () => {
-    const app = statusApp(null, []);
+  it("GET /execution-machine → 404（端点已随对话绑定移除）", async () => {
+    const app = statusApp([]);
     const cookie = await cookieOfApp(app);
     const res = await app.request("/api/conversations/c-1/execution-machine", { headers: { Cookie: `otter_session=${cookie}` } });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ machineId: null });
+    expect(res.status).toBe(404);
   });
 
   it("GET /remote-actions：最近优先（倒序）+ limit 收口（>200 归 50）", async () => {
-    const app = statusApp("connector-b", [
+    const app = statusApp([
       { actionId: "a-1", status: "succeeded" },
       { actionId: "a-2", status: "unknown" },
       { actionId: "a-3", status: "interrupted" },
@@ -306,28 +254,23 @@ describe("执行状态端点（GET execution-machine / remote-actions）", () =>
   });
 
   it("未登录 → 401（fail-closed）", async () => {
-    const app = statusApp(null, []);
+    const app = statusApp([]);
     expect((await app.request("/api/conversations/c-1/execution-machine")).status).toBe(401);
     expect((await app.request("/api/conversations/c-1/remote-actions")).status).toBe(401);
   });
 
-  // GET 404 口径对齐 PUT——不存在对话不再混作「默认 local」
-  it("GET 两端点：不存在对话 → 404 conversation not found（对齐 PUT 口径）", async () => {
-    const app = statusApp(null, [], async () => false);
+  it("remote-actions：不存在对话 → 404 conversation not found", async () => {
+    const app = statusApp([], async () => false);
     const cookie = await cookieOfApp(app);
-    const res1 = await app.request("/api/conversations/ghost/execution-machine", { headers: { Cookie: `otter_session=${cookie}` } });
-    expect(res1.status).toBe(404);
-    expect(await res1.json()).toEqual({ error: "conversation not found" });
     const res2 = await app.request("/api/conversations/ghost/remote-actions", { headers: { Cookie: `otter_session=${cookie}` } });
     expect(res2.status).toBe(404);
     expect(await res2.json()).toEqual({ error: "conversation not found" });
   });
 
-  it("存在对话 → 200 正常（存在性校验不误伤）", async () => {
-    const app = statusApp("connector-b", [], async () => true);
+  it("remote-actions：存在对话 → 200 正常（存在性校验不误伤）", async () => {
+    const app = statusApp([], async () => true);
     const cookie = await cookieOfApp(app);
-    const res = await app.request("/api/conversations/c-1/execution-machine", { headers: { Cookie: `otter_session=${cookie}` } });
+    const res = await app.request("/api/conversations/c-1/remote-actions", { headers: { Cookie: `otter_session=${cookie}` } });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ machineId: "connector-b" });
   });
 });

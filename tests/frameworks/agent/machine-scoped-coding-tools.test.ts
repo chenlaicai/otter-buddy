@@ -3,7 +3,7 @@
  * schema 面（machine 字段）、三失败路径、env 重建 + 代理委托真链、代理守卫、
  * prepareArguments 的 machine 保全。
  *
- * 真链走 LocalExecutionMachine + NodeWorkspaceGateway（tmpdir），bash 真跑子进程
+ * 真链走 tests/helpers 的内联 node 执行机 + NodeWorkspaceGateway（tmpdir），bash 真跑子进程
  * ——env 重建是否真实生效由「echo 输出经代理 env 流回 api.output」兑付。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -13,18 +13,17 @@ import * as os from "node:os";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ToolDiagnostic, ToolExecutionApi } from "@earendil-works/pi-durable";
 import { createMachineScopedCodingTools } from "@frameworks/agent/machine-scoped-coding-tools";
-import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
-import { LocalExecutionMachine } from "@frameworks/execution/local-execution-machine";
+import { inlineNodeMachine } from "../../helpers/execution-machine";
 import { ExecutionMachineRegistry } from "@usecases/execution/execution-machine-registry";
 import type { ExecutionMachinePoolSnapshot } from "@usecases/ports/execution-machine";
 
-function poolWithOnline(localOnline: boolean): () => Promise<ExecutionMachinePoolSnapshot> {
+/** 内联 node 测试机器（统一注册制：真跑 env，不经 connector）——替代已删除的内置 local。 */
+function poolWithOnline(nodeOnline: boolean): () => Promise<ExecutionMachinePoolSnapshot> {
   return async () => ({
     machines: [
-      { id: "local", name: "中枢本机", online: localOnline, lastSeenAt: null, local: true },
+      { id: "node-a", name: "中枢本机", online: nodeOnline, lastSeenAt: null },
       { id: "dev-box", name: "开发机", online: false, lastSeenAt: "2026-11-25T14:02:00Z" },
     ],
-    currentMachineId: "local",
   });
 }
 
@@ -67,7 +66,7 @@ describe("machine-scoped-coding-tools", () => {
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "machine-scoped-tools-"));
     runner = new ExecutionMachineRegistry();
-    runner.register(new LocalExecutionMachine(new NodeWorkspaceGateway(tmpDir)));
+    runner.register(inlineNodeMachine("node-a"));
   });
 
   afterEach(async () => {
@@ -112,7 +111,7 @@ describe("machine-scoped-coding-tools", () => {
     expect(result.isError).toBe(true);
     const text = ((result as { output?: Array<{ text?: string }> }).output ?? []).map(b => b.text ?? "").join("");
     expect(text).toContain("缺少必选参数 machine");
-    expect(text).toContain("- local（中枢本机，在线");
+    expect(text).toContain("- node-a（中枢本机，在线");
     expect(text).toContain("- dev-box（开发机，离线");
   });
 
@@ -136,12 +135,12 @@ describe("machine-scoped-coding-tools", () => {
   it("在线机器：env 重建 + 代理委托真链生效——bash 在目标机 env 跑出输出，落点 diagnostic 记录", async () => {
     const bash = findTool("bash");
     const api = fakeApi();
-    const result = await bash.execute({ command: "echo machine-scoped-ok", machine: "local" } as never, api, BACKGROUND_CONTEXT);
+    const result = await bash.execute({ command: "echo machine-scoped-ok", machine: "node-a" } as never, api, BACKGROUND_CONTEXT);
     expect(result.isError).toBeFalsy();
     const structured = (result as { structuredOutput?: { output?: string; exitCode?: number } }).structuredOutput;
     expect(structured?.output).toContain("machine-scoped-ok");
     expect(structured?.exitCode).toBe(0);
-    expect(api.diagnostics.some(d => d.code === "execution_machine" && d.message.includes("local"))).toBe(true);
+    expect(api.diagnostics.some(d => d.code === "execution_machine" && d.message.includes("node-a"))).toBe(true);
   });
 
   it("resolveMachine 抛错（校验后机器恰好下线的 TOCTOU 窗口）：异常向上传播（fail-closed 吵闹失败）", async () => {
@@ -152,7 +151,7 @@ describe("machine-scoped-coding-tools", () => {
     const extension = createMachineScopedCodingTools(deps);
     const bash = (extension.tools ?? []).find(t => t.name === "bash")!;
     await expect(
-      bash.execute({ command: "echo hi", machine: "local" } as never, fakeApi(), BACKGROUND_CONTEXT),
+      bash.execute({ command: "echo hi", machine: "node-a" } as never, fakeApi(), BACKGROUND_CONTEXT),
     ).rejects.toThrow("not registered");
   });
 
@@ -161,14 +160,14 @@ describe("machine-scoped-coding-tools", () => {
     const api = fakeApi();
     delete (api as unknown as Record<string, unknown>).commit; // 模拟 SDK 改形态后 spread 丢成员
     await expect(
-      bash.execute({ command: "echo hi", machine: "local" } as never, api, BACKGROUND_CONTEXT),
+      bash.execute({ command: "echo hi", machine: "node-a" } as never, api, BACKGROUND_CONTEXT),
     ).rejects.toThrow("lost api members");
   });
 
   it("write 真链：machine 落点写文件成功（文件变更队列经代理 env 正常工作）", async () => {
     const write = findTool("write");
     const result = await write.execute(
-      { path: path.join(tmpDir, "scoped-write.txt"), content: "written-via-machine-scoped-shell", machine: "local" } as never,
+      { path: path.join(tmpDir, "scoped-write.txt"), content: "written-via-machine-scoped-shell", machine: "node-a" } as never,
       fakeApi(),
       BACKGROUND_CONTEXT,
     );
@@ -179,9 +178,9 @@ describe("machine-scoped-coding-tools", () => {
   it("edit 的 prepareArguments 透传：单 edit 形态修复后 machine 字段保全", () => {
     const edit = findTool("edit") as unknown as { prepareArguments?: (raw: unknown) => Record<string, unknown> };
     expect(edit.prepareArguments).toBeDefined();
-    const repaired = edit.prepareArguments!({ path: "a.md", oldText: "x", newText: "y", machine: "local" });
+    const repaired = edit.prepareArguments!({ path: "a.md", oldText: "x", newText: "y", machine: "node-a" });
     expect(Array.isArray(repaired.edits)).toBe(true);
-    expect(repaired.machine).toBe("local");
+    expect(repaired.machine).toBe("node-a");
   });
 
   it("edit 的 prepareArguments：多 edit 形态原样通过且 machine 保全", () => {

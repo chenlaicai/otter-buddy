@@ -88,6 +88,10 @@ export class ConnectorWsGateway {
        *  未配置（空）= fail-closed 拒所有带 Origin 请求——connector 是 node 客户端不发
        *  Origin 不受影响；防浏览器 CSWSH 与公网跨站探测。 */
       allowedOrigins?: string[];
+      /** 设备离线回调（每一次 online → offline，含原因）——统一注册制下的
+       *  最高优先级掉线告警挂点：中枢本机 connector 掉线时装配层在此落 high healing
+       *  （不等动作 fail 才暴露）。其余设备由装配层自行决定是否上报。 */
+      onDeviceOffline?: (deviceId: string, reason: ConnectorSessionDownReason) => void;
     } = {},
   ) {
     // noServer 模式：upgrade 事件由宿主 HTTP server 路由进来（同端口）；
@@ -289,6 +293,11 @@ export class ConnectorWsGateway {
     }
     this.machineRegistry.unregister(live.deviceId);
     this.logger.info("connector device offline", { deviceId: live.deviceId, sessionId: live.sessionId, reason });
+    try {
+      this.deps.onDeviceOffline?.(live.deviceId, reason);
+    } catch (err) {
+      this.logger.warn("onDeviceOffline callback failed (non-fatal)", { deviceId: live.deviceId, error: String(err) });
+    }
     if (live.socket.readyState === live.socket.OPEN) live.socket.close(code, message);
   }
 

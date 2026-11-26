@@ -6,6 +6,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as os from "node:os";
 import type Database from "better-sqlite3";
 import type { Hono } from "hono";
 
@@ -27,13 +28,10 @@ import type { SignalRouterSessionFactory } from "@usecases/conversation/signal-r
 import { ResumeInterruptedService } from "@usecases/conversation/resume-interrupted-service";
 
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
-import { LocalExecutionMachine } from "@frameworks/execution/local-execution-machine";
-import { SqliteActionLedger } from "@frameworks/execution/ledger/sqlite-action-ledger";
-import { LOCAL_EXECUTION_MACHINE_ID } from "@usecases/ports/execution-machine";
 import { ExecutionMachineRegistry } from "@usecases/execution/execution-machine-registry";
-import { ConversationActionRouter } from "@usecases/execution/conversation-action-router";
 import { machinePoolSnapshot } from "@usecases/execution/execution-machine-pool";
 import type { ExecutionMachine } from "@usecases/ports/execution-machine";
+import { HubConnectorSupervisor } from "@frameworks/execution/hub-connector-supervisor";
 import { SqliteConnectorRegistryRepository } from "@frameworks/db/execution/sqlite-connector-registry-repository";
 import { ConnectorWsGateway } from "@frameworks/execution/connector-ws-gateway";
 import { RemoteExecutionMachine } from "@frameworks/execution/remote-execution-machine";
@@ -421,43 +419,27 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // initAgentAndScheduler 之后（见下）消除 schedulerService TDZ。
   if (modelPool) validateModelAliases(db, modelPool, logger);
   
-  // ── 对话工作区与内置本机执行机 ──
+  // ── 对话工作区与执行机注册表 ──
+  // 统一注册制：中枢机器无内置特例——本机执行能力由 supervisor 拉起本机 connector
+  // 注册（见 connector 装配段），Registry 初始为空、只收 connector 投影。
+  // workspaceGateway 仍服务中枢侧对话工作区管理（对话创建/路径解析）；
+  // 动作执行面全部经 connector 通道（workspace.* 由设备侧解析到 dataDir/workspaces 同路径）。
   const workspaceGateway = new NodeWorkspaceGateway(dataDir);
-  // 本机动作台账——每机一库（执行机本地真相：副作用
-  // 五态 + hash + 结果位置）。open() 内完成开机清扫（旧纪元 running 裁决）+ 终态修剪；
-  // 失败降级为无台账运行（记录关闭，动作照常执行），不阻断启动。
-  let actionLedger: SqliteActionLedger | null = null;
-  try {
-    actionLedger = new SqliteActionLedger(
-      path.join(dataDir, "execution-machines", LOCAL_EXECUTION_MACHINE_ID, "actions.db"),
-      { logger },
-    );
-    // 清扫旧纪元残留（await：恢复链读台账前完成裁决）
-    await actionLedger.open();
-  } catch (err) {
-    logger.warn("action ledger open failed; running without action recording (non-fatal)", { error: err instanceof Error ? err.message : String(err) });
-  }
   const executionMachines = new ExecutionMachineRegistry();
-  executionMachines.register(
-    new LocalExecutionMachine(
-      workspaceGateway,
-      actionLedger,
-      (message, meta) => logger.warn(message, meta),
-    ),
-  );
 
   // ── Agent + UseCases（解决 OtterToolClient 循环依赖）──
-  // 工具与 SDK env 共用对话级路由，执行目标只认 conversations 当前选择。
-  const toolActionRouter = new ConversationActionRouter(executionMachines, repos.conversation);
+  // 工具动作面直接走 Registry（统一注册制：无对话级回退路由——显式目标必填，
+  // fail-closed 报错含机器池清单）。
+  const toolActionRunner = executionMachines;
   const { agentGateway, resolveOtterToolClient, resolveManageScheduledTask, resolveAttachmentUpload } = await createAgentGateway({
     repos, otterConfigProvider, model, modelPool, db, logger,
     sessionDir: options.sessionDir ?? path.join(dataDir, "sessions"),
     identityPromptDir: options.identityPromptDir,
     // 执行机池感知数据源：与 /api/execution-machines 同源
-    // （Registry local + connectorRegistry 设备全量含离线），单一投影实现在 usecases 层。
-    machinePool: () => machinePoolSnapshot(executionMachines, () => connectorRepo.listDeviceOnlineStatus()),
-    executionMachines: toolActionRouter,
-    toolActionRunner: toolActionRouter,
+    // （connectorRegistry 设备全量含离线），单一投影实现在 usecases 层。
+    machinePool: () => machinePoolSnapshot(() => connectorRepo.listDeviceOnlineStatus()),
+    executionMachines: toolActionRunner,
+    toolActionRunner,
     dataDir,
   });
   const uc = initUseCases({
@@ -834,8 +816,39 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   /** 投影单例缓存（重连=同 device 新会话：同实例 replace 幂等；wireChannel 只接一次，
    *  避免 gateway handler 数组随重连累积——空转 handler 也是泄漏） */
   const remoteMachines = new Map<string, RemoteExecutionMachine>();
+  // 统一注册制的最高优先级掉线告警挂点：中枢本机 connector 会话下线即 high healing
+  // （不等动作 fail 才暴露）。判定：offline 设备 id 与 supervisor 管理的身份文件一致。
+  // 其余设备掉线保持既有语义（仅日志，不入 open 池）。
+  const hubConnectorIdentityFile = path.join(dataDir, "hub-connector-home", ".otter", "connector", "device.json");
+  const reportHubConnectorOffline = (deviceId: string, reason: string): void => {
+    void (async () => {
+      try {
+        const identity = JSON.parse(await fs.promises.readFile(hubConnectorIdentityFile, "utf8")) as { deviceId?: string };
+        if (identity.deviceId !== deviceId) return; // 非中枢本机 connector，不告警
+        await repos.healingEvent.create({
+          id: crypto.randomUUID(),
+          // 系统级事件：messageId 列语义锚 invoke——无 invoke 上下文用固定占位（TEXT 列无约束）
+          messageId: "system",
+          conversationId: "system",
+          otterId: "system",
+          errorType: "tool_failure",
+          severity: "high",
+          description: `中枢本机 connector 会话下线（reason=${reason}）——统一注册制下中枢机器执行能力受影响（supervisor 自动重启兑底；重启窗口内动作 fail-closed 报错含机器池清单）`,
+          suggestion: "查看中枢日志 hub-connector 段；反复掉线时排查端口可达性/凭据撤销/子进程崩溃原因（连败 ≥5 另有 supervisor 告警）",
+          context: { deviceId, reason, layer: "hub-connector-supervisor" },
+          status: "open",
+          resolution: null,
+          createdAt: new Date().toISOString(),
+          resolvedAt: null,
+        }).catch(() => { /* 告警落账失败不阻断通道收尾 */ });
+      } catch {
+        // 身份文件不存在（connector 未首次配对完成）——静默（此时不可能有会话下线误报）
+      }
+    })();
+  };
   const connectorGateway = new ConnectorWsGateway(connectorRepo, executionMachines, logger, {
     allowedOrigins: wsAllowedOrigins,
+    onDeviceOffline: reportHubConnectorOffline,
     makeMachineProjection: (deviceId: string, deviceName: string): ExecutionMachine => {
       const existing = remoteMachines.get(deviceId);
       if (existing) return existing;
@@ -861,6 +874,44 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     logger.warn("remote action request sweep failed (non-fatal)", { error: err instanceof Error ? err.message : String(err) });
   });
 
+  // ── 统一注册制：中枢本机 connector supervisor ──
+  // 中枢机器无内置特例——自动拉起本机 connector 子进程注册（首启自动配对/
+  // 凭据自愈/掉线重启退避/连败 high 告警/停止级联；孤儿双保险：--managed ppid watch）。
+  // workspace root 指回 dataDir：中枢 connector 的 workspace.* 落点与原内置执行机
+  // 同路径，存量对话工作区零迁移；HOME 隔离身份/锁/设备台账（<dataDir>/hub-connector-home）。
+  // 启动时序：中枢 HTTP 未 listen 前子进程连不上属预期——connector 自带退避重连，
+  // listen 后自然上线（与「启动窗口内按目标机器离线同构处理」的设计一致）。
+  const hubConnectorSupervisor = new HubConnectorSupervisor({
+    repo: connectorRepo,
+    issuePairingCode: new IssueConnectorPairingCode(connectorRepo),
+    hubUrl: `http://127.0.0.1:${String(config.server.port)}`,
+    connectorEntry: path.resolve(import.meta.dirname, "connector", "main.js"),
+    homeDir: path.join(dataDir, "hub-connector-home"),
+    workspaceRoot: dataDir,
+    deviceName: `hub-${os.hostname()}`,
+    logger,
+    onSustainedFailure: async (description, context) => {
+      await repos.healingEvent.create({
+        id: crypto.randomUUID(),
+        messageId: "system",
+        conversationId: "system",
+        otterId: "system",
+        errorType: "tool_failure",
+        severity: "high",
+        description,
+        suggestion: "排查 hub-connector 子进程秒退原因（入口路径/Node 环境/端口占用/身份目录权限）；恢复后 supervisor 自动重置退避",
+        context: { ...context, layer: "hub-connector-supervisor" },
+        status: "open",
+        resolution: null,
+        createdAt: new Date().toISOString(),
+        resolvedAt: null,
+      });
+    },
+  });
+  await hubConnectorSupervisor.start().catch((err) => {
+    logger.error("hub connector supervisor start failed (machine pool without hub machine until restart)", err instanceof Error ? err : new Error(String(err)));
+  });
+
   const app = buildHttpApp(
     controllers,
     logger,
@@ -873,14 +924,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
         controller: authController,
       },
       executionMachines: {
-        list: () => executionMachines.list(),
-        currentId: () => executionMachines.currentMachineId(),
-        // + /（检视）：设备全量状态收口 repo（含离线设备）
+        // 设备全量状态收口 repo（统一注册制：含中枢本机 connector 与全部外部设备）
         deviceStatus: async () => connectorRepo.listDeviceOnlineStatus(),
-        // GET 404 口径对齐 PUT（不存在对话显式 404，不再混作「默认 local」）
         conversationExists: async (conversationId) => (await repos.conversation.getById(conversationId)) !== null,
-        // 对话当前机 + 远程动作状态
-        getConversationMachine: (conversationId) => repos.conversation.getExecutionMachineId(conversationId),
+        // 对话动作状态（统一注册制：全机器动作都在 central registry）
         listConversationRemoteActions: async (conversationId, limit) => {
           // 最近优先（DESC——ASC LIMIT 会截掉最新动作）；列裁剪到展示面
           const rows = await remoteActionRegistry.listByConversation(conversationId, limit ?? 50, "desc");
@@ -888,16 +935,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
             actionId: r.actionId, deviceId: r.deviceId, actionType: r.actionType,
             status: r.status, error: r.error, createdAt: r.createdAt, settledAt: r.settledAt,
           }));
-        },
-        setConversationMachine: async (conversationId, machineId) => {
-          // （检视）："local" 归一化为 null（列语义唯一——默认只有 NULL 一种表示）
-          const normalized = machineId === executionMachines.currentMachineId() ? null : machineId;
-          if (normalized !== null && !executionMachines.list().some(m => m.id === normalized)) {
-            return { ok: false as const, status: 400 as const, error: `machine not registered: ${String(normalized)}（设备未上线或未配对——目标必须当前在册；离线设备重连后可切）` };
-          }
-          const updated = await repos.conversation.setExecutionMachineId(conversationId, normalized);
-          if (!updated) return { ok: false as const, status: 404 as const, error: "conversation not found" };
-          return { ok: true as const };
         },
       },
       connectorPair: new ConnectorPairController(connectorRepo, logger),
@@ -948,8 +985,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       },
       healingRepo: repos.healingEvent,
       logger,
-      // 恢复摘要数据源（本机动作台账只读面；台账缺席时恢复文案退回旧版）
-      actionLedger: actionLedger ?? undefined,
+      // 恢复摘要数据源（统一注册制：全部机器动作都在 central registry）
       // 远程动作五态并入恢复摘要（remote_action_requests 只读面）
       remoteActions: remoteActionRegistry,
     });
@@ -973,8 +1009,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       disposed = true;
       // 停延迟 reconcile 定时器（防进程退出后回调炸）
       if (delayedReconcileTimer) clearTimeout(delayedReconcileTimer);
-      // 关动作台账（WAL checkpoint 落盘）；关 connector WSS 网关（在途连接 hub-restart 收尾 + 停扫描定时器）
-      try { actionLedger?.close(); connectorGateway.dispose(); } catch { /* best-effort */ }
+      // 停中枢本机 connector supervisor（级联终止子进程——正常退出路径的孤儿保险）
+      await hubConnectorSupervisor.stop().catch(() => { /* 子进程兜底走 ppid watch */ });
+      // 关 connector WSS 网关（在途连接 hub-restart 收尾 + 停扫描定时器）
+      try { connectorGateway.dispose(); } catch { /* best-effort */ }
       // 停飞书长连接 WSClient（重连机制会阻止退出，根因之四）
       feishuScan.disposeAll(); // 扫码线持有全部飞书 WS 句柄，dispose 时统一停（原 feishuStop 随静态线退役）
       // 停微信长轮询通道——否则 SIGINT/SIGTERM 时

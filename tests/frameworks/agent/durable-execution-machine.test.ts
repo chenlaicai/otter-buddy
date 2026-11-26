@@ -8,26 +8,37 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import { DurableSession } from "@frameworks/agent/durable-session";
 import { DurableEventStream } from "@frameworks/agent/durable-event-stream";
 import { createInvokeRegister } from "@frameworks/agent/tool-builder";
-import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
-import { SqliteActionLedger } from "@frameworks/execution/ledger/sqlite-action-ledger";
+import { createTestExecutionMachineRegistry, inlineNodeMachine } from "../../helpers/execution-machine";
 import type { Logger } from "@usecases/ports/logger";
-import { ConversationActionRouter } from "@usecases/execution/conversation-action-router";
-import type { ExecutionMachine } from "@usecases/ports/execution-machine";
+import type { ExecutionMachine, ExecutionMachinePoolSnapshot } from "@usecases/ports/execution-machine";
 
 const logger: Logger = { debug() {}, info() {}, warn() {}, error() {}, child() { return this; } };
 
-describe("durable coding tools through LocalExecutionMachine", () => {
-  it("真实 write/bash/read 均在本机执行且保持结果可观察", { timeout: 20_000 }, async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "durable-local-machine-"));
+/**
+ * 统一注册制下的 SDK 工具链集成（真链）：
+ * - machine 壳形态：SDK 四工具带必选 machine 参数 → gate → 显式 resolve → env 重建真跑
+ * - 默认 env 是占位（方法调用 fail-closed）——真执行全部经壳重建，占位 env 从不被执行
+ * - 远程机器 env 的 conversationId 传递（invoke 级 ALS 上下文）
+ */
+
+function poolWith(machines: Array<{ id: string; online?: boolean }>): () => Promise<ExecutionMachinePoolSnapshot> {
+  return async () => ({
+    machines: machines.map(m => ({ id: m.id, name: m.id, online: m.online ?? true, lastSeenAt: null })),
+  });
+}
+
+describe("durable coding tools through machine-scoped shells (uniform registration)", () => {
+  it("真实 write/bash/read 经 machine 壳落显式机器执行且结果可观察（默认 env 为占位不被执行）", { timeout: 20_000 }, async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "durable-scoped-machine-"));
     const file = path.join(dir, "nested", "result.txt");
     const faux = fauxProvider({});
     const models = createModels();
     models.setProvider(faux.provider);
     faux.setResponses([
-      fauxAssistantMessage(fauxToolCall("write", { path: file, content: "local-file-ok" }, { id: "write-call" }), { stopReason: "toolUse" }),
-      fauxAssistantMessage(fauxToolCall("bash", { command: "printf local-bash-ok", timeout: 5 }, { id: "bash-call" }), { stopReason: "toolUse" }),
-      fauxAssistantMessage(fauxToolCall("read", { path: file }, { id: "read-call" }), { stopReason: "toolUse" }),
-      fauxAssistantMessage("local-tools-complete"),
+      fauxAssistantMessage(fauxToolCall("write", { path: file, content: "scoped-file-ok", machine: "test-node" }, { id: "write-call" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("bash", { command: "printf scoped-bash-ok", timeout: 5, machine: "test-node" }, { id: "bash-call" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("read", { path: file, machine: "test-node" }, { id: "read-call" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage("scoped-tools-complete"),
     ]);
     const session = await DurableSession.open({
       otterId: "otter",
@@ -35,104 +46,90 @@ describe("durable coding tools through LocalExecutionMachine", () => {
       models,
       model: faux.getModel(),
       cwd: dir,
-      executionMachines: createTestExecutionMachineRegistry(dir),
+      executionMachines: createTestExecutionMachineRegistry(inlineNodeMachine("test-node")),
+      machinePool: poolWith([{ id: "test-node" }]),
       logger,
       register: createInvokeRegister(),
-      invokeId: "invoke-local-machine",
+      invokeId: "invoke-scoped-machine",
       context: BACKGROUND_CONTEXT,
       tools: { codingTools: ["write", "bash", "read"], customTools: [] },
     });
 
     try {
       const events: unknown[] = [];
-      await session.prompt("exercise local tools", undefined, new DurableEventStream(event => events.push(event)), BACKGROUND_CONTEXT);
+      await session.prompt("exercise machine-scoped tools", undefined, new DurableEventStream(event => events.push(event)), BACKGROUND_CONTEXT);
 
-      expect(await readFile(file, "utf8")).toBe("local-file-ok");
-      expect(session.turnText).toBe("local-tools-complete");
+      expect(await readFile(file, "utf8")).toBe("scoped-file-ok");
+      expect(session.turnText).toBe("scoped-tools-complete");
       const toolResults = JSON.stringify(events.filter(event => (event as { type?: string }).type === "tool_execution_end"));
-      expect(toolResults).toContain("local-bash-ok");
-      expect(toolResults).toContain("local-file-ok");
+      expect(toolResults).toContain("scoped-bash-ok");
+      expect(toolResults).toContain("scoped-file-ok");
+      // 落点标记（diagnostic）：model-visible 通道可见实际执行机器
+      expect(JSON.stringify(events)).toContain("execution machine: test-node");
     } finally {
       await session.close(BACKGROUND_CONTEXT);
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  it("F20261116actlg：真实 write/bash 副作用入账（invoke/toolCall 归属经 ALS 穿透 SDK 执行链）", { timeout: 20_000 }, async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "durable-ledger-"));
-    const file = path.join(dir, "ledger-attrib.txt");
+  it("缺 machine 的 SDK 工具调用 fail-closed 报错（占位 env 不兜底）", { timeout: 20_000 }, async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "durable-scoped-gate-"));
     const faux = fauxProvider({});
     const models = createModels();
     models.setProvider(faux.provider);
     faux.setResponses([
-      fauxAssistantMessage(fauxToolCall("write", { path: file, content: "ledger-content" }, { id: "ledger-write-call" }), { stopReason: "toolUse" }),
-      fauxAssistantMessage(fauxToolCall("bash", { command: "printf ledger-bash", timeout: 5 }, { id: "ledger-bash-call" }), { stopReason: "toolUse" }),
-      fauxAssistantMessage("done"),
+      fauxAssistantMessage(fauxToolCall("bash", { command: "printf should-not-run", timeout: 5 }, { id: "bash-no-machine" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage("gate-complete"),
     ]);
-    const ledger = new SqliteActionLedger(path.join(dir, "actions.db"));
     const session = await DurableSession.open({
-      otterId: "otter-ledger",
+      otterId: "otter-gate",
       file: path.join(dir, "session.sqlite"),
       models,
       model: faux.getModel(),
       cwd: dir,
-      executionMachines: createTestExecutionMachineRegistry(dir, ledger),
+      executionMachines: createTestExecutionMachineRegistry(inlineNodeMachine("test-node")),
+      machinePool: poolWith([{ id: "test-node" }]),
       logger,
       register: createInvokeRegister(),
-      invokeId: "invoke-ledger-1",
+      invokeId: "invoke-scoped-gate",
       context: BACKGROUND_CONTEXT,
-      tools: { codingTools: ["write", "bash"], customTools: [] },
+      tools: { codingTools: ["bash"], customTools: [] },
       haltRegistry: { takeForBlock: () => [], isHalted: () => false },
     });
-
     try {
-      // 生产路径：pi-session-factory execute 包 otterInvokeStorage.run 后调 prompt；
-      // 直呼测试需同样包作用域，invoke/toolCall 归属才能穿透 SDK 执行链进台账。
-      const { otterInvokeStorage } = await import("@frameworks/agent/model-runtime-registry");
-      await otterInvokeStorage.run({ otterId: "otter-ledger", otterPromptConfig: "", identityPrefix: "" } as never, () =>
-        session.prompt("exercise ledger attribution", undefined, new DurableEventStream(() => undefined), BACKGROUND_CONTEXT),
-      );
-      const rows = await ledger.listByInvoke("invoke-ledger-1");
-      expect(rows).toHaveLength(2);
-      const writeRow = rows.find(r => r.kind === "file.write");
-      const execRow = rows.find(r => r.kind === "shell.exec");
-      expect(writeRow?.toolCallId).toBe("ledger-write-call");
-      expect(writeRow?.status).toBe("succeeded");
-      expect(writeRow?.actionId).toBe(`ledger-write-call:${ledger.bootEpoch}:1`);
-      expect(execRow?.toolCallId).toBe("ledger-bash-call");
-      expect(execRow?.status).toBe("succeeded");
-      expect(JSON.parse(execRow?.resultSummary ?? "{}")).toMatchObject({ exitCode: 0 });
-      expect(await readFile(file, "utf8")).toBe("ledger-content");
+      const events: unknown[] = [];
+      await session.prompt("bash without machine", undefined, new DurableEventStream(event => events.push(event)), BACKGROUND_CONTEXT);
+      const toolResults = JSON.stringify(events.filter(event => (event as { type?: string }).type === "tool_execution_end"));
+      expect(toolResults).toContain("缺少必选参数 machine");
+      expect(toolResults).toContain("test-node");
+      expect(toolResults).not.toContain("should-not-run");
     } finally {
       await session.close(BACKGROUND_CONTEXT);
-      ledger.close();
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  it("SDK bash 按 ALS 业务对话选择执行机，物理写入设备侧目录", { timeout: 20_000 }, async () => {
+  it("SDK bash 按显式 machine 选择执行机，物理写入目标机器目录（conversationId 传递远程 env）", { timeout: 20_000 }, async () => {
     const hubDir = await mkdtemp(path.join(tmpdir(), "durable-hub-"));
     const deviceDir = await mkdtemp(path.join(tmpdir(), "durable-device-"));
-    const registry = createTestExecutionMachineRegistry(hubDir);
-    const deviceLocal = createTestExecutionMachineRegistry(deviceDir);
+    const registry = createTestExecutionMachineRegistry(inlineNodeMachine("hub-node"));
+    const deviceEnv = inlineNodeMachine("connector-b");
     let envConversationId: string | undefined;
     const remote: ExecutionMachine = {
       id: "connector-b",
-      run: (action, target, options) => deviceLocal.run(action, target, options),
+      name: "connector-b",
+      run: deviceEnv.run.bind(deviceEnv),
       createExecutionEnvironment: (_cwd, conversationId) => {
         envConversationId = conversationId;
-        return deviceLocal.resolve().createExecutionEnvironment(deviceDir, conversationId);
+        return deviceEnv.createExecutionEnvironment(deviceDir, conversationId);
       },
     };
     registry.register(remote);
-    const router = new ConversationActionRouter(registry, {
-      getExecutionMachineId: async id => id === "business-c" ? "connector-b" : null,
-    });
     const faux = fauxProvider({});
     const models = createModels();
     models.setProvider(faux.provider);
     faux.setResponses([
-      fauxAssistantMessage(fauxToolCall("bash", { command: "printf remote-sdk > proof.txt", timeout: 5 }, { id: "remote-bash-call" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("bash", { command: "printf remote-sdk > proof.txt", timeout: 5, machine: "connector-b" }, { id: "remote-bash-call" }), { stopReason: "toolUse" }),
       fauxAssistantMessage("remote-complete"),
     ]);
     const session = await DurableSession.open({
@@ -141,7 +138,8 @@ describe("durable coding tools through LocalExecutionMachine", () => {
       models,
       model: faux.getModel(),
       cwd: hubDir,
-      executionMachines: router,
+      executionMachines: registry,
+      machinePool: poolWith([{ id: "hub-node" }, { id: "connector-b" }]),
       logger,
       register: createInvokeRegister(),
       invokeId: "invoke-remote-machine",

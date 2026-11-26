@@ -8,7 +8,7 @@
  * 读类动作不入账（与中枢 local 一致：只读幂等不写台账）。
  *
  * 写保持原子写（同目录临时文件 rename、symlink 跟随、mode 保留、broken link
- * 逐级解析）——与中枢 RecordingNodeExecutionEnv 同语义（闭包铁律不引用该模块：
+ * 逐级解析）——与中枢执行环境同语义（闭包铁律不引用中枢模块：
  * 其 ALS 依赖拖 api-contract；本文件自含同规实现）。
  *
  * 读器句柄族委派 ReaderHandleTable（file-reader-handles.ts）。
@@ -294,7 +294,7 @@ export class FileActionExecutor implements FileExecutorLike {
     return { status: "succeeded", result: { handle: this.readers.register("line", result.value) } };
   }
 
-  // ── 原子写（与中枢 RecordingNodeExecutionEnv 同语义的自含实现） ──
+  // ── 原子写（与中枢执行环境同语义的自含实现） ──
 
   private async atomicWriteResult(env: NodeExecutionEnv, target: string, content: Buffer): Promise<Result<void, FileError>> {
     const resolved = await env.absolutePath(target, BACKGROUND_CONTEXT);
@@ -415,7 +415,7 @@ function outcomeFromFileError(error: FileError): FileActionOutcome {
   return error.code === "aborted" ? { status: "interrupted", ...base } : { status: "failed", ...base };
 }
 
-/** FileError → 台账裁决（与中枢 RecordingNodeExecutionEnv 同映射） */
+/** FileError → 台账裁决（与中枢执行环境同映射） */
 function verdictFromFileError(error: FileError): Parameters<ActionLedger["settle"]>[1] {
   if (error.code === "aborted") return { status: "interrupted", error: error.message };
   return { status: "failed", error: `${error.code}: ${error.message}` };

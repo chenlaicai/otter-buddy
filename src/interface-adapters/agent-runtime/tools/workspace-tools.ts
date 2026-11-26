@@ -9,7 +9,7 @@ import { gateExecutionMachine, type ExecutionMachineGateResult } from "@usecases
  * 五个工具的 machine 参数均必选（运行时 gate 校验——schema 不设 required，
  * 缺参报错走工具返回路径才能携带可用机器清单，模型读错误自纠错重带参数）。
  * 通过后经 ActionRunner.run(action, machineId) 的显式目标位路由
- * （ConversationActionRouter 显式目标优先于对话绑定）。
+ * （统一注册制 Registry：无默认机、无对话绑定回退）。
  *
  * 落点标记口径：write/delete/info 在返回文本头部或 JSON 字段携带
  * `machine: <id>`；read 不加头部行（文件内容原样返回——头部行会破坏

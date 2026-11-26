@@ -22,11 +22,10 @@ function makeCtx(options?: { pool?: () => Promise<ExecutionMachinePoolSnapshot> 
 
 const SNAPSHOT: ExecutionMachinePoolSnapshot = {
   machines: [
-    { id: "local", name: "hub-local", online: true, lastSeenAt: null, local: true },
+    { id: "dev-a", name: "中枢本机", online: true, lastSeenAt: null },
     { id: "dev-111", name: "旧笔记本", online: true, lastSeenAt: "2026-11-25T02:00:00Z" },
     { id: "dev-222", name: "台式机", online: false, lastSeenAt: null },
   ],
-  currentMachineId: "local",
 };
 
 function findTool(ctx: ToolContext) {

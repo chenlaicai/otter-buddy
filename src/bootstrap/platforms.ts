@@ -118,10 +118,8 @@ function injectUploadChannel(
   options: { executionMachines: ExecutionMachineRouter; dataDir?: string },
 ): void {
   if (attachmentUpload) ctx.attachmentUpload = attachmentUpload;
-  ctx.resolveExecutionEnv = async (conversationId) => {
-    const machine = options.executionMachines.resolveForConversation
-      ? await options.executionMachines.resolveForConversation(conversationId)
-      : options.executionMachines.resolve();
+  ctx.resolveExecutionEnv = async (machineId, conversationId) => {
+    const machine = options.executionMachines.resolve(machineId);
     return machine.createExecutionEnvironment(
       resolveSessionCwd(conversationId, options.dataDir ?? "./data"),
       conversationId,

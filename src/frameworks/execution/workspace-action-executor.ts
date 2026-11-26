@@ -12,16 +12,14 @@ import type { ActionKind } from "@entities/execution/action-record";
 import { sha256 } from "./ledger/sqlite-action-ledger";
 
 /**
- * workspace 六动作执行器——自 LocalExecutionMachine
- * 抽出的公共实现（中枢 local 与 connector 远程共用同一执行语义与台账记账协议）。
- * 纯重构平移（已把闭包障碍扫清：本模块依赖仅 node 内置 + usecases 端口 + entities
- * + ledger hash）。ledger=null 时等价裸执行（记账降级关闭）。
+ * workspace 六动作执行器——connector 设备侧公共实现。
+ * 统一注册制后中枢不再内置 local 执行机；中枢机器也经 connector 使用本模块。
+ * 本模块依赖仅 node 内置 + usecases 端口 + entities + ledger hash；
+ * ledger=null 时等价裸执行（记账降级关闭）。
  *
- * 归因注入（闭包收口）：invoke 归因读取り otterInvokeStorage（其类型拖 api-contract
- * ——src 外文件进不了 connector 构建树）。改为注入 attribution 回调：中枢 local 装配
- * 传真实 storage 读取；connector 进程无 invoke 上下文（归因属中枢数据，远程动作在中枢
- * 侧 remote_action_requests 已登记），传 undefined /恒 undefined 回调——语义不变，
- * 闭包不再拖 AsyncLocalStorage 全家桶。
+ * 归因注入（闭包收口）：connector 进程无 invoke 上下文（归因属中枢数据，动作在中枢
+ * 侧 remote_action_requests 已登记），使用恒 undefined 回调；因此闭包不拖
+ * AsyncLocalStorage 与 api-contract 依赖。
  */
 export interface ActionAttribution {
   invokeId?: string | null;
@@ -29,7 +27,7 @@ export interface ActionAttribution {
 }
 
 export class WorkspaceActionExecutor {
-  /** 只读访问器（LocalExecutionMachine 的 Env 工厂/纪元读取用） */
+  /** 只读访问器（connector 执行环境/纪元读取用） */
   get ledgerRef(): ActionLedger | null { return this.ledger; }
   get warnRef(): ((message: string, meta?: Record<string, unknown>) => void) | undefined { return this.warn; }
   get machineBootEpoch(): number {
@@ -38,10 +36,10 @@ export class WorkspaceActionExecutor {
 
   constructor(
     private readonly workspaceGateway: WorkspaceGateway,
-    /** 本机动作台账（null = 记录降级关闭，动作照常执行） */
+    /** connector 设备侧动作台账（null = 记录降级关闭，动作照常执行） */
     private readonly ledger: ActionLedger | null = null,
     private readonly warn?: (message: string, meta?: Record<string, unknown>) => void,
-    /** invoke 归因读取（中枢 local 传 otterInvokeStorage 读取；connector 恒 undefined） */
+    /** invoke 归因读取（connector 恒 undefined；中枢 remote_action_requests 承载归因） */
     private readonly attribution: () => ActionAttribution | undefined = () => undefined,
   ) {}
 

@@ -3,124 +3,58 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ExecutionMachineModal } from './ExecutionMachineModal'
 
-/**
- * 执行机选择器 + 远程动作状态组件测试。
- */
-
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
-function stubFetch(handler: (url: string, init?: RequestInit) => Response) {
-  return vi.fn((url: string, init?: RequestInit) => Promise.resolve(handler(url, init)))
-}
+const actionsFixture = [
+  { actionId: 'a-1', deviceId: 'connector-b', actionType: 'workspace.write', status: 'succeeded', error: null, createdAt: '2026-11-18T06:00:00Z', settledAt: '2026-11-18T06:00:01Z' },
+  { actionId: 'a-2', deviceId: 'hub-connector', actionType: 'bash', status: 'unknown', error: 'timeout after 30000ms', createdAt: '2026-11-18T05:00:00Z', settledAt: null },
+]
 
-describe('ExecutionMachineModal（阶段 5 PR-B）', () => {
+describe('ExecutionMachineModal（统一注册制：仅动作状态）', () => {
   afterEach(() => { vi.unstubAllGlobals() })
 
-  function standardMock(overrides?: {
-    machines?: unknown
-    current?: string | null
-    actions?: unknown
-  }) {
-    return stubFetch((url, init) => {
-      if (url === '/api/execution-machines') {
-        return jsonResponse({ machines: overrides?.machines ?? [
-          // 真态：local 带 online+local 显式信号，覆盖徽章判别漂移
-          { id: 'local', name: '本机', online: true, lastSeenAt: null, local: true },
-          { id: 'connector-b', name: 'B 机', online: true, lastSeenAt: '2026-11-18T06:00:00Z' },
-          { id: 'connector-c', name: 'C 机', online: false, lastSeenAt: '2026-11-17T00:00:00Z' },
-        ], currentMachineId: 'local' })
-      }
-      if (url.includes('/execution-machine') && (!init || init.method === undefined || init.method === 'GET')) {
-        return jsonResponse({ machineId: overrides?.current ?? null })
-      }
-      if (url.includes('/remote-actions')) {
-        return jsonResponse({ actions: overrides?.actions ?? [
-          { actionId: 'a-1', deviceId: 'connector-b', actionType: 'workspace.write', status: 'succeeded', error: null, createdAt: '2026-11-18T06:00:00Z', settledAt: '2026-11-18T06:00:01Z' },
-          { actionId: 'a-2', deviceId: 'connector-b', actionType: 'workspace.write', status: 'unknown', error: 'timeout after 30000ms', createdAt: '2026-11-18T05:00:00Z', settledAt: null },
-        ] })
-      }
-      return jsonResponse({ error: 'not found' }, 404)
-    })
-  }
-
-  it('全量设备列表 + 在线状态点 + 当前回显（null=本机默认选中）', async () => {
-    const fetchMock = standardMock()
+  it('只请求对话动作台账，展示全部执行机状态，不请求已移除的绑定 API', async () => {
+    const fetchMock = vi.fn((_url: string) => Promise.resolve(jsonResponse({ actions: actionsFixture })))
     vi.stubGlobal('fetch', fetchMock)
     render(<ExecutionMachineModal conversationId="c-1" onClose={() => {}} />)
-    await waitFor(() => expect(screen.getByTestId('machine-option-connector-b')).toBeTruthy())
-    expect(screen.getByTestId('machine-option-local').textContent).toContain('本机') // local:true → 本机徽章（非在线徽章——判别符漂移覆盖）
-    expect(screen.getByTestId('machine-option-local').textContent).not.toContain('在线')
-    expect(screen.getByTestId('machine-option-local').textContent).toContain('当前') // null → local 选中
-    expect(screen.getByTestId('machine-option-connector-b').textContent).toContain('在线')
-    expect(screen.getByTestId('machine-option-connector-c').textContent).toContain('离线')
-    // 远程动作五态列表
-    expect(screen.getAllByText('workspace.write').length).toBeGreaterThanOrEqual(2)
+
+    await waitFor(() => expect(screen.getAllByText('workspace.write')).toHaveLength(1))
     expect(screen.getByText('成功')).toBeTruthy()
     expect(screen.getByText('不明')).toBeTruthy()
+    expect(screen.getByText('connector-b')).toBeTruthy()
+    expect(screen.getByText('hub-connector')).toBeTruthy()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/conversations/c-1/remote-actions?limit=30')
+    expect(screen.queryByText(/对话执行机|生成配对码/)).toBeNull()
+    expect(screen.queryByTestId('connector-onboarding')).toBeNull()
   })
 
-  it('离线设备置灰不可选（重连后可切）', async () => {
-    vi.stubGlobal('fetch', standardMock())
+  it('无动作时显示统一台账空态，不再排除中枢机器动作', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(jsonResponse({ actions: [] }))))
     render(<ExecutionMachineModal conversationId="c-1" onClose={() => {}} />)
-    await waitFor(() => expect(screen.getByTestId('machine-option-connector-c')).toBeTruthy())
-    const offline = screen.getByTestId('machine-option-connector-c') as HTMLButtonElement
-    expect(offline.disabled).toBe(true)
+    await waitFor(() => expect(screen.getByText('本对话暂无动作记录')).toBeTruthy())
   })
 
-  it('切换调用 PUT（选 connector-b）；「本机」选项提交 null（回默认）', async () => {
-    const fetchMock = standardMock({ current: 'connector-b' })
+  it('401 显示登录过期错误，不呈现误导空态', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(jsonResponse({ error: 'unauthorized' }, 401))))
+    render(<ExecutionMachineModal conversationId="c-1" onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('登录已过期'))
+    expect(screen.queryByText('本对话暂无动作记录')).toBeNull()
+  })
+
+  it('5xx 显示真实状态码，刷新可恢复', async () => {
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => Promise.resolve(jsonResponse({ error: 'boom' }, 500)))
+      .mockImplementationOnce(() => Promise.resolve(jsonResponse({ actions: actionsFixture })))
     vi.stubGlobal('fetch', fetchMock)
     render(<ExecutionMachineModal conversationId="c-1" onClose={() => {}} />)
-    await waitFor(() => expect(screen.getByTestId('machine-option-connector-b').textContent).toContain('当前'))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('HTTP 500'))
 
-    // 切回本机 → PUT machineId: null
-    fireEvent.click(screen.getByTestId('machine-option-local'))
-    await waitFor(() => {
-      const put = fetchMock.mock.calls.find(c => c[1]?.method === 'PUT')
-      expect(put?.[0]).toContain('/api/conversations/c-1/execution-machine')
-      expect(JSON.parse(String(put?.[1]?.body)).machineId).toBeNull()
-    })
-  })
-
-  it('切换失败（400 目标未注册）显示错误不落选中态', async () => {
-    const fetchMock = standardMock()
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      if (init?.method === 'PUT') return Promise.resolve(jsonResponse({ error: 'machine not registered: ghost（设备未上线或未配对——目标必须当前在册；离线设备重连后可切）' }, 400))
-      return standardMock()(url, init)
-    })
-    vi.stubGlobal('fetch', fetchMock)
-    render(<ExecutionMachineModal conversationId="c-1" onClose={() => {}} />)
-    await waitFor(() => expect(screen.getByTestId('machine-option-connector-b')).toBeTruthy())
-    fireEvent.click(screen.getByTestId('machine-option-connector-b'))
-    await waitFor(() => expect(screen.getByText(/machine not registered/)).toBeTruthy())
-    // 选中态未漂移（仍是 null→local）
-    expect(screen.getByTestId('machine-option-local').textContent).toContain('当前')
-  })
-
-  it('无远程动作时空态文案（本机动作不在此列）', async () => {
-    vi.stubGlobal('fetch', standardMock({ actions: [] }))
-    render(<ExecutionMachineModal conversationId="c-1" onClose={() => {}} />)
-    await waitFor(() => expect(screen.getByText(/暂无远程动作记录/)).toBeTruthy())
-  })
-
-  // reload 非 OK 不再静默——401 呈现登录过期错误条而非误导空态
-  it('reload 401（会话过期）→ 登录过期错误条，不再呈现误导空态', async () => {
-    vi.stubGlobal('fetch', stubFetch(() => jsonResponse({ error: 'unauthorized' }, 401)))
-    render(<ExecutionMachineModal conversationId="c-1" onClose={() => {}} />)
-    await waitFor(() => expect(screen.getByText(/登录已过期/)).toBeTruthy())
-    expect(screen.queryByText(/暂无远程动作记录/)).toBeNull()
-  })
-
-  // 非 401 非 OK 聚合呈现，不再静默
-  it('reload 部分 5xx → 聚合错误条（含状态码），不再静默空态', async () => {
-    vi.stubGlobal('fetch', stubFetch((url) => {
-      if (url.includes('/remote-actions')) return jsonResponse({ error: 'boom' }, 500)
-      if (url === '/api/execution-machines') return jsonResponse({ machines: [{ id: 'local', name: '本机', online: true, lastSeenAt: null, local: true }], currentMachineId: 'local' })
-      return jsonResponse({ machineId: null })
-    }))
-    render(<ExecutionMachineModal conversationId="c-1" onClose={() => {}} />)
-    await waitFor(() => expect(screen.getByText(/部分数据加载失败：远程动作 HTTP 500/)).toBeTruthy())
+    fireEvent.click(screen.getByTitle('刷新动作状态'))
+    await waitFor(() => expect(screen.getByText('成功')).toBeTruthy())
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })

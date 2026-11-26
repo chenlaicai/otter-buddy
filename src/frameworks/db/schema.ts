@@ -158,20 +158,17 @@ function createConversationTables(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
-      archived_at TEXT,
-      /* 对话级当前执行机——NULL=默认 local
-       * （存量对话零迁移行为不变）；显式切换不自动漂移（设备下线不回切，fail-closed） */
-      current_machine_id TEXT
+      archived_at TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status);
   `);
-  // （检视归位）：存量库迁移——conversations.current_machine_id 列
-  // （幂等 ALTER：新库 CREATE TABLE 已含，旧库补列；同 introduced_by_pr 模式但归 conversations 建表函数）
+  // 对话绑定移除（统一注册制）：存量库 DROP current_machine_id 列（幂等——新库建表
+  // 已无该列，ALTER 抛错忽略；存量对话绑定语义由动作级 machine 显式参数取代）
   try {
-    db.exec(`ALTER TABLE conversations ADD COLUMN current_machine_id TEXT`);
+    db.exec(`ALTER TABLE conversations DROP COLUMN current_machine_id`);
   } catch {
-    // 列已存在，忽略
+    // 列不存在（新库/已迁移），忽略
   }
 
   db.exec(`

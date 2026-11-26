@@ -13,7 +13,7 @@ async function responseError(res: Response, fallback: string): Promise<string> {
   return body?.error ?? `${fallback}（HTTP ${String(res.status)}）`
 }
 
-/** 一次性秘密只留在组件内存；关闭执行机弹窗即卸载，不写存储或日志。 */
+/** 一次性秘密只留在组件内存；离开设置页即卸载，不写存储或日志。 */
 export function ConnectorOnboardingPanel() {
   const [issued, setIssued] = useState<IssuedCode | null>(null)
   const [issuing, setIssuing] = useState(false)
@@ -246,7 +246,7 @@ export function ConnectorOnboardingPanel() {
             {copied ? '已复制首启命令' : '复制首启命令'}
           </button>
           <p className="text-[10px] text-stone-400">此前已生成但未核销的码在各自到期前仍可使用；每码只能核销一次。</p>
-          <p className="text-[10px] text-stone-400">配对码只在此处显示；请只交给你要添加的设备。设备上线后可关闭弹窗。</p>
+          <p className="text-[10px] text-stone-400">配对码只在此处显示；请只交给你要添加的设备。设备上线后可刷新上方列表确认。</p>
         </div>
       )}
 

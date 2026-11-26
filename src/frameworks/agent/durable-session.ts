@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { createCodingTools } from "@earendil-works/pi-durable/tools";
 import { createMachineScopedCodingTools } from "./machine-scoped-coding-tools";
+import { createPlaceholderExecutionEnv } from "./placeholder-execution-env";
 import type { ExecutionMachinePoolSnapshot } from "@usecases/ports/execution-machine";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
@@ -143,14 +144,14 @@ export class DurableSession {
       models: options.models,
       registry: session.registry,
       env: async ({ cwd }) => {
-        const conversationId = otterInvokeStorage.getStore()?.currentConversationId;
         // 记录 SDK 会话 cwd：执行机壳按显式 machine 重建 env 时需同源 cwd（执行机壳的
-        // 环境替换发生在工具 execute 内，此处构造的默认机 env 会被其丢弃——轻对象无副作用）。
+        // 环境替换发生在工具 execute 内，此处构造的占位 env 会被其丢弃——轻对象无副作用）。
         if (cwd !== undefined) session.lastEnvCwd = cwd;
-        const machine = options.executionMachines.resolveForConversation
-          ? await options.executionMachines.resolveForConversation(conversationId)
-          : options.executionMachines.resolve();
-        return machine.createExecutionEnvironment(cwd ?? options.cwd, conversationId);
+        // 统一注册制：无默认机——SDK 契约要求 env 工厂恒成功（构造先于工具 execute，
+        // 失败会炸全部工具含纯中枢工具），返回占位 env（方法调用 fail-closed 抛错）。
+        // 真执行路径：SDK 四工具在机器壳内按显式 machine 重建 env；workspace/upload
+        // 走 ActionRunner——均不经过占位 env。
+        return createPlaceholderExecutionEnv(cwd ?? options.cwd);
       },
       settings: {
         retry: { enabled: true, maxRetries: 4, baseDelayMs: 1000, maxAgentDelayMs: 30000 },
@@ -345,8 +346,8 @@ export class DurableSession {
     const invokeId = this.hasBoundInvoke ? this.currentInvokeId : (this.options.invokeId ?? this.options.register.currentInvokeId);
     if (!invokeId) throw new Error("Durable prompt requires currentInvokeId");
     this.currentInvokeId = invokeId;
-    // invoke id 写入 ALS store——动作台账归属（RecordingNodeExecutionEnv
-    // 与 LocalExecutionMachine 读取）；工具调用 id 由 beforeTool 逐枚覆盖。
+    // invoke id 写入 ALS store——动作台账归属（RemoteExecutionMachine 读取）；
+    // 工具调用 id 由 beforeTool 逐枚覆盖。
     if (scope) scope.currentInvokeId = invokeId;
     // 不再每轮 configure(agentChange())——它会把 state.tools 重置为初始激活集，
     // 覆盖 tool_search `control.addTools` 的加载结果（deferred 工具跨 invoke 报 not available）。

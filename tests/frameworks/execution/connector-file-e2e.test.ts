@@ -16,7 +16,6 @@ import { ConnectorWsGateway } from "@frameworks/execution/connector-ws-gateway";
 import { RemoteExecutionMachine } from "@frameworks/execution/remote-execution-machine";
 import { ExecutionMachineRegistry } from "@usecases/execution/execution-machine-registry";
 import type { ExecutionMachine } from "@usecases/ports/execution-machine";
-import { ConversationActionRouter } from "@usecases/execution/conversation-action-router";
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 import { SqliteActionLedger } from "@frameworks/execution/ledger/sqlite-action-ledger";
 import { WorkspaceActionExecutor } from "@frameworks/execution/workspace-action-executor";
@@ -166,21 +165,20 @@ describe("远程文件面端到端（协议 v2 全链，真 WSS）", () => {
       machine.wireChannel();
       const registry = new ExecutionMachineRegistry();
       registry.register(machine);
-      const router = new ConversationActionRouter(registry, {
-        getExecutionMachineId: async id => (id === CONVERSATION_ID ? DEVICE_ID : null),
-      });
+      // 统一注册制：直接走 Registry（显式 machine 参数路由，无对话级绑定回退）
 
       const deviceFile = path.join(runtime.workspaceGateway.getWorkspacePath(CONVERSATION_ID), "src", "hello.txt");
       const faux = fauxProvider({});
       const models = createModels();
       models.setProvider(faux.provider);
       faux.setResponses([
-        fauxAssistantMessage(fauxToolCall("write", { path: "src/hello.txt", content: "hello remote v1" }, { id: "w1" }), { stopReason: "toolUse" }),
-        fauxAssistantMessage(fauxToolCall("edit", { path: "src/hello.txt", edits: [{ oldText: "v1", newText: "v2" }] }, { id: "e1" }), { stopReason: "toolUse" }),
-        fauxAssistantMessage(fauxToolCall("read", { path: "src/hello.txt" }, { id: "r1" }), { stopReason: "toolUse" }),
+        fauxAssistantMessage(fauxToolCall("write", { path: "src/hello.txt", content: "hello remote v1", machine: DEVICE_ID }, { id: "w1" }), { stopReason: "toolUse" }),
+        fauxAssistantMessage(fauxToolCall("edit", { path: "src/hello.txt", edits: [{ oldText: "v1", newText: "v2" }], machine: DEVICE_ID }, { id: "e1" }), { stopReason: "toolUse" }),
+        fauxAssistantMessage(fauxToolCall("read", { path: "src/hello.txt", machine: DEVICE_ID }, { id: "r1" }), { stopReason: "toolUse" }),
         fauxAssistantMessage(fauxToolCall("bash", {
           command: "git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -qm init && git log --oneline | head -1",
           timeout: 30,
+          machine: DEVICE_ID,
         }, { id: "b1" }), { stopReason: "toolUse" }),
         fauxAssistantMessage("remote-file-e2e-done"),
       ]);
@@ -190,7 +188,8 @@ describe("远程文件面端到端（协议 v2 全链，真 WSS）", () => {
         models,
         model: faux.getModel(),
         cwd: hubWorkspace,
-        executionMachines: router,
+        executionMachines: registry,
+      machinePool: async () => ({ machines: [{ id: DEVICE_ID, name: "file e2e 机", online: true, lastSeenAt: null }] }),
         logger: silentLogger,
         register: createInvokeRegister(),
         invokeId: "invoke-file-e2e",

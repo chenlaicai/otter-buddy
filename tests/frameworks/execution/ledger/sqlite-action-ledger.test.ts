@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { SqliteActionLedger, sha256 } from "@frameworks/execution/ledger/sqlite-action-ledger";
-import { LocalExecutionMachine } from "@frameworks/execution/local-execution-machine";
+import { WorkspaceActionExecutor } from "@frameworks/execution/workspace-action-executor";
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 
 /** 本机动作台账 sqlite 实现单测。 */
@@ -27,7 +27,7 @@ afterEach(() => {
 
 describe("SqliteActionLedger 基础生命周期", () => {
   it("start 落 running 行，settle 裁决终态", async () => {
-    const ledger = new SqliteActionLedger(ledgerFile());
+    const ledger = new SqliteActionLedger(ledgerFile(), { deviceId: "ledger-test" });
     const { record, deduped } = await ledger.start({
       actionId: "life-1",
       source: "sdk-env",
@@ -50,12 +50,12 @@ describe("SqliteActionLedger 基础生命周期", () => {
   });
 
   it("getByActionId 无行 = not_found（查询层第五态）", async () => {
-    const ledger = new SqliteActionLedger(ledgerFile());
+    const ledger = new SqliteActionLedger(ledgerFile(), { deviceId: "ledger-test" });
     expect(await ledger.getByActionId("missing")).toBeNull();
   });
 
   it("listByInvoke 按 startedAt 升序返回该 invoke 的动作", async () => {
-    const ledger = new SqliteActionLedger(ledgerFile());
+    const ledger = new SqliteActionLedger(ledgerFile(), { deviceId: "ledger-test" });
     await ledger.start({ actionId: "b", source: "workspace", kind: "workspace.write", invokeId: "inv-9", conversationId: "c1" });
     await new Promise(resolve => setTimeout(resolve, 3)); // 拉开毫秒，钉死时间序（同毫秒时会退化 action_id 字典序）
     await ledger.start({ actionId: "a", source: "sdk-env", kind: "shell.exec", invokeId: "inv-9" });
@@ -68,7 +68,7 @@ describe("SqliteActionLedger 基础生命周期", () => {
 
 describe("去重协议", () => {
   it("同 actionId 已 succeeded → deduped=true 直接返回已记录结果", async () => {
-    const ledger = new SqliteActionLedger(ledgerFile());
+    const ledger = new SqliteActionLedger(ledgerFile(), { deviceId: "ledger-test" });
     await ledger.start({ actionId: "act-1", source: "workspace", kind: "workspace.write" });
     await ledger.settle("act-1", { status: "succeeded", resultSummary: { bytes: 3 } });
     const second = await ledger.start({ actionId: "act-1", source: "workspace", kind: "workspace.write" });
@@ -78,7 +78,7 @@ describe("去重协议", () => {
 
   it("interrupted / failed 不是「已完成」——重开新一轮而非去重；unknown 同理（经清扫产生）", async () => {
     const file = ledgerFile();
-    const ledgerA = new SqliteActionLedger(file);
+    const ledgerA = new SqliteActionLedger(file, { deviceId: "ledger-test" });
     for (const actionId of ["act-interrupted", "act-failed"]) {
       await ledgerA.start({ actionId, source: "sdk-env", kind: "file.write" });
       await ledgerA.settle(actionId, actionId === "act-interrupted"
@@ -89,7 +89,7 @@ describe("去重协议", () => {
     await ledgerA.start({ actionId: "act-unknown", source: "sdk-env", kind: "shell.exec" });
     ledgerA.close();
 
-    const ledgerB = new SqliteActionLedger(file);
+    const ledgerB = new SqliteActionLedger(file, { deviceId: "ledger-test" });
     await ledgerB.open(); // 清扫：act-unknown → unknown
     expect((await ledgerB.getByActionId("act-unknown"))?.status).toBe("unknown");
 
@@ -107,9 +107,9 @@ describe("开机清扫（旧纪元 running 行裁决）", () => {
     const dir = tempDir();
     const file = path.join(dir, "actions.db");
     // 真实走一遍机器写入（target 现在记绝对路径）
-    const ledgerA = new SqliteActionLedger(file);
-    const machine = new LocalExecutionMachine(new NodeWorkspaceGateway(dir), ledgerA);
-    await machine.run({ type: "workspace.write", input: { conversationId: "conv-sw", relativePath: "a.md", content: "hello sweep" } });
+    const ledgerA = new SqliteActionLedger(file, { deviceId: "ledger-test" });
+    const executor = new WorkspaceActionExecutor(new NodeWorkspaceGateway(dir), ledgerA);
+    await executor.run({ type: "workspace.write", input: { conversationId: "conv-sw", relativePath: "a.md", content: "hello sweep" } });
     ledgerA.close();
 
     // 模拟崩溃：把已 succeeded 的行拨回旧纪元 running（磁盘内容保持完整）
@@ -119,7 +119,7 @@ describe("开机清扫（旧纪元 running 行裁决）", () => {
     db.close();
 
     // 新开机清扫：hash 应命中磁盘真实内容 → 追认 succeeded
-    const ledgerB = new SqliteActionLedger(file);
+    const ledgerB = new SqliteActionLedger(file, { deviceId: "ledger-test" });
     const report = await ledgerB.open();
     expect(report.upgradedToSucceeded).toBe(1);
     const rows = await allRawRows(ledgerB);
@@ -135,7 +135,7 @@ describe("开机清扫（旧纪元 running 行裁决）", () => {
     const target = path.join(dir, "a.md");
     writeFileSync(target, "hello world");
 
-    const ledgerA = new SqliteActionLedger(file);
+    const ledgerA = new SqliteActionLedger(file, { deviceId: "ledger-test" });
     // 模拟崩溃：start 后未 settle
     await ledgerA.start({
       actionId: "sweep-write-hit", source: "sdk-env", kind: "file.write", target,
@@ -144,7 +144,7 @@ describe("开机清扫（旧纪元 running 行裁决）", () => {
     ledgerA.close();
 
     // 新开机（epoch 递增）：清扫 → hash 命中追认 succeeded
-    const ledgerB = new SqliteActionLedger(file);
+    const ledgerB = new SqliteActionLedger(file, { deviceId: "ledger-test" });
     const report = await ledgerB.open();
     expect(report.upgradedToSucceeded).toBe(1);
     const row = await ledgerB.getByActionId("sweep-write-hit");
@@ -159,14 +159,14 @@ describe("开机清扫（旧纪元 running 行裁决）", () => {
     const target = path.join(dir, "b.md");
     writeFileSync(target, "partial conte"); // 崩溃留半截
 
-    const ledgerA = new SqliteActionLedger(file);
+    const ledgerA = new SqliteActionLedger(file, { deviceId: "ledger-test" });
     await ledgerA.start({
       actionId: "sweep-write-miss", source: "sdk-env", kind: "file.write", target,
       contentHash: sha256("partial content"), contentBytes: 15,
     });
     ledgerA.close();
 
-    const ledgerB = new SqliteActionLedger(file);
+    const ledgerB = new SqliteActionLedger(file, { deviceId: "ledger-test" });
     const report = await ledgerB.open();
     expect(report.markedInterrupted).toBe(1);
     const row = await ledgerB.getByActionId("sweep-write-miss");
@@ -180,14 +180,14 @@ describe("开机清扫（旧纪元 running 行裁决）", () => {
     const target = path.join(dir, "c.log");
     writeFileSync(target, "prefix-appended-tail");
 
-    const ledgerA = new SqliteActionLedger(file);
+    const ledgerA = new SqliteActionLedger(file, { deviceId: "ledger-test" });
     await ledgerA.start({
       actionId: "sweep-append-1", source: "sdk-env", kind: "file.append", target,
       contentHash: sha256("appended-tail"), contentBytes: 13,
     });
     ledgerA.close();
 
-    const ledgerB = new SqliteActionLedger(file);
+    const ledgerB = new SqliteActionLedger(file, { deviceId: "ledger-test" });
     const report = await ledgerB.open();
     expect(report.upgradedToSucceeded).toBe(1);
     ledgerB.close();
@@ -196,13 +196,13 @@ describe("开机清扫（旧纪元 running 行裁决）", () => {
     const file2 = path.join(dir, "actions2.db");
     const target2 = path.join(dir, "d.log");
     writeFileSync(target2, "only-prefix");
-    const ledgerC = new SqliteActionLedger(file2);
+    const ledgerC = new SqliteActionLedger(file2, { deviceId: "ledger-test" });
     await ledgerC.start({
       actionId: "sweep-append-miss", source: "sdk-env", kind: "file.append", target: target2,
       contentHash: sha256("appended-tail"), contentBytes: 13,
     });
     ledgerC.close();
-    const ledgerD = new SqliteActionLedger(file2);
+    const ledgerD = new SqliteActionLedger(file2, { deviceId: "ledger-test" });
     const report2 = await ledgerD.open();
     expect(report2.markedUnknown).toBe(1); // dspro minor：尾不匹配不能证明没追加上——重做会重复，转检查
     expect((await ledgerD.getByActionId("sweep-append-miss"))?.status).toBe("unknown");
@@ -211,13 +211,13 @@ describe("开机清扫（旧纪元 running 行裁决）", () => {
 
   it("shell.exec 旧纪元 running → unknown（转检查，禁止猜测重试）", async () => {
     const file = ledgerFile();
-    const ledgerA = new SqliteActionLedger(file);
+    const ledgerA = new SqliteActionLedger(file, { deviceId: "ledger-test" });
     await ledgerA.start({
       actionId: "sweep-exec", source: "sdk-env", kind: "shell.exec", target: "npm run build",
     });
     ledgerA.close();
 
-    const ledgerB = new SqliteActionLedger(file);
+    const ledgerB = new SqliteActionLedger(file, { deviceId: "ledger-test" });
     const report = await ledgerB.open();
     expect(report.markedUnknown).toBe(1);
     const row = await ledgerB.getByActionId("sweep-exec");
@@ -228,20 +228,20 @@ describe("开机清扫（旧纪元 running 行裁决）", () => {
 
   it("file.rename/remove/mkdir → interrupted（幂等可重做）", async () => {
     const file = ledgerFile();
-    const ledgerA = new SqliteActionLedger(file);
+    const ledgerA = new SqliteActionLedger(file, { deviceId: "ledger-test" });
     await ledgerA.start({ actionId: "sw-ren", source: "sdk-env", kind: "file.rename", target: "/tmp/dst" });
     await ledgerA.start({ actionId: "sw-rm", source: "sdk-env", kind: "file.remove", target: "/tmp/x" });
     await ledgerA.start({ actionId: "sw-mk", source: "sdk-env", kind: "file.mkdir", target: "/tmp/y" });
     ledgerA.close();
 
-    const ledgerB = new SqliteActionLedger(file);
+    const ledgerB = new SqliteActionLedger(file, { deviceId: "ledger-test" });
     const report = await ledgerB.open();
     expect(report.markedInterrupted).toBe(3);
     ledgerB.close();
   });
 
   it("同纪元 running 行（同 boot 内重试）不被清扫", async () => {
-    const ledger = new SqliteActionLedger(ledgerFile());
+    const ledger = new SqliteActionLedger(ledgerFile(), { deviceId: "ledger-test" });
     await ledger.start({ actionId: "epoch-1", source: "sdk-env", kind: "shell.exec" });
     const report = await ledger.sweepStaleBoot();
     expect(report.markedUnknown).toBe(0);
@@ -252,7 +252,7 @@ describe("开机清扫（旧纪元 running 行裁决）", () => {
 describe("修剪", () => {
   it("超期终态行被修剪；running 行永不修剪", async () => {
     const file = path.join(tempDir(), "actions.db");
-    const ledger = new SqliteActionLedger(file, { retentionDays: 0 });
+    const ledger = new SqliteActionLedger(file, { deviceId: "ledger-test", retentionDays: 0 });
     const staleAt = new Date(Date.now() - 60_000).toISOString();
     await ledger.start({ actionId: "old-ok", source: "sdk-env", kind: "file.write" });
     await ledger.settle("old-ok", { status: "succeeded" }, staleAt);
@@ -265,7 +265,7 @@ describe("修剪", () => {
 
   it("MINOR-4：interrupted 随终态同窗修剪；unknown 留 30 天检查窗后修剪", async () => {
     const file = path.join(tempDir(), "actions.db");
-    const ledger = new SqliteActionLedger(file, { retentionDays: 0 });
+    const ledger = new SqliteActionLedger(file, { deviceId: "ledger-test", retentionDays: 0 });
     const staleAt = new Date(Date.now() - 60_000).toISOString();
     await ledger.start({ actionId: "old-int", source: "sdk-env", kind: "file.remove" });
     await ledger.settle("old-int", { status: "interrupted", error: "x" }, staleAt);
@@ -293,11 +293,11 @@ describe("修剪", () => {
 describe("boot epoch", () => {
   it("每次开机单调递增，行携带铸造时纪元", async () => {
     const file = ledgerFile();
-    const a = new SqliteActionLedger(file);
+    const a = new SqliteActionLedger(file, { deviceId: "ledger-test" });
     const { record } = await a.start({ actionId: "epoch-check-1", source: "sdk-env", kind: "file.write" });
     expect(record.bootEpoch).toBe(a.bootEpoch);
     a.close();
-    const b = new SqliteActionLedger(file);
+    const b = new SqliteActionLedger(file, { deviceId: "ledger-test" });
     expect(b.bootEpoch).toBeGreaterThan(a.bootEpoch);
     b.close();
   });

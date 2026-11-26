@@ -203,7 +203,6 @@ function makeHarness(): Harness {
       logger: createTestLogger(),
       delayMs: opts.delayMs ?? 0,
       rateLimitBaseDelayMs: opts.rateLimitBaseDelayMs,
-      actionLedger: opts.actionLedger,
       remoteActions: opts.remoteActions,
       bootEpoch: opts.bootEpoch ?? 42,
       pid: opts.pid,
@@ -464,11 +463,11 @@ it("台账摘要内嵌续跑指令：unknown 优先呈现 + 处置指引；恢�
     const invokeId = await h.seedInterrupted();
     const chain = stubChainEngine();
     const service = h.buildService(chain, {
-      actionLedger: {
-        listByInvoke: async (id: string) => id === invokeId ? [
-          { actionId: "a1", deviceId: "local", onlineSessionId: null, invokeId: id, conversationId: null, toolCallId: "c1", source: "sdk-env", kind: "shell.exec", target: "npm run build", contentHash: null, contentBytes: null, status: "unknown", error: null, resultSummary: null, bootEpoch: 1, pid: null, startedAt: T0, settledAt: null },
-          { actionId: "a2", deviceId: "local", onlineSessionId: null, invokeId: id, conversationId: null, toolCallId: "c2", source: "sdk-env", kind: "file.write", target: "/tmp/a.md", contentHash: null, contentBytes: null, status: "succeeded", error: null, resultSummary: null, bootEpoch: 1, pid: null, startedAt: T0, settledAt: null },
-        ] : [],
+      remoteActions: {
+        listByConversation: async () => [
+          { actionId: "a1", onlineSessionId: "s-1", deviceId: "hub-node", actionType: "shell.exec", status: "unknown", error: null, result: null, createdAt: T0, settledAt: null, conversationId: "conv-1", invokeId },
+          { actionId: "a2", onlineSessionId: "s-1", deviceId: "hub-node", actionType: "file.write", status: "succeeded", error: null, result: null, createdAt: T0, settledAt: null, conversationId: "conv-1", invokeId },
+        ],
       },
     });
 
@@ -476,10 +475,10 @@ it("台账摘要内嵌续跑指令：unknown 优先呈现 + 处置指引；恢�
 
     expect(chain.calls).toHaveLength(1);
     const content = (chain.calls[0] as { userMessageContent: string }).userMessageContent;
-    expect(content).toContain("机器台账");
-    expect(content).toContain("[unknown] shell.exec 命令 npm run build");
+    expect(content).toContain("远程动作");
+    expect(content).toContain("[unknown] shell.exec");
     expect(content).toContain("禁止盲目重试");
-    expect(content).toContain("[succeeded] file.write /tmp/a.md");
+    expect(content).toContain("[succeeded] file.write");
     expect(content).toContain("不要重做");
     // 恢复轮 invoke 回填（审计链）
     const row = await h.resumeRepo.getByInvokeId(invokeId);
@@ -536,13 +535,12 @@ describe("ResumeInterruptedService 检视轮修复（同 boot 认领冲突保持
     const invokeId = await h.seedInterrupted();
     const chain = stubChainEngine();
     const service = h.buildService(chain, {
-      actionLedger: {
-        listByInvoke: async (id: string, limit?: number) =>
-          Array.from({ length: limit ?? 200 }, (_, i) => ({
-            actionId: `a${i}`, deviceId: "local", onlineSessionId: null, invokeId: id, conversationId: null,
-            toolCallId: null, source: "sdk-env", kind: "file.write", target: `/tmp/f${i}`, contentHash: null,
-            contentBytes: null, status: "succeeded", error: null, resultSummary: null, bootEpoch: 1,
-            pid: null, startedAt: T0, settledAt: null,
+      remoteActions: {
+        listByConversation: async (_conversationId: string, limit?: number) =>
+          Array.from({ length: limit ?? 1000 }, (_, i) => ({
+            actionId: `a${i}`, onlineSessionId: "s-1", deviceId: "hub-node", actionType: "file.write",
+            status: "succeeded", error: null, result: null, createdAt: T0, settledAt: null,
+            conversationId: "conv-1", invokeId: null,
           })),
       },
     });
@@ -550,7 +548,7 @@ describe("ResumeInterruptedService 检视轮修复（同 boot 认领冲突保持
     await service.resume();
 
     const content = (chain.calls[0] as { userMessageContent: string }).userMessageContent;
-    expect(content).toContain("机器台账");
+    expect(content).toContain("远程动作");
     expect(content).toContain("计数可能不完整");
     expect(h.queueStatus(invokeId)).toBe("done");
   });
@@ -559,14 +557,14 @@ describe("ResumeInterruptedService 检视轮修复（同 boot 认领冲突保持
     const invokeId = await h.seedInterrupted();
     const chain = stubChainEngine();
     const service = h.buildService(chain, {
-      actionLedger: { listByInvoke: async () => { throw new Error("db locked"); } },
+      remoteActions: { listByConversation: async () => { throw new Error("db locked"); } },
     });
 
     await service.resume();
 
     expect(chain.calls).toHaveLength(1);
     const content = (chain.calls[0] as { userMessageContent: string }).userMessageContent;
-    expect(content).not.toContain("机器台账");
+    expect(content).not.toContain("远程动作");
     expect(h.queueStatus(invokeId)).toBe("done");
   });
 });

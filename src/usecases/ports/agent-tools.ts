@@ -197,9 +197,9 @@ export interface ToolContext {
       filePath: string;
     }>;
   };
-  /** 对话执行机 env 解析（与 DurableSession env 工厂同链路——resolveForConversation →
-   *  createExecutionEnvironment；upload_device_file 经它读设备字节。缺省 = 工具不注册）。 */
-  resolveExecutionEnv?: (conversationId: string) => Promise<ExecutionEnv>;
+  /** 显式执行机 env 解析（machineId 定位已注册机器，conversationId 归因动作；
+   *  upload_device_file 经它读设备字节。缺省 = 工具不注册）。 */
+  resolveExecutionEnv?: (machineId: string, conversationId: string) => Promise<ExecutionEnv>;
   /** 执行机资源池快照（list_execution_machines 感知工具依赖；装配层注入，
    *  与 /api/execution-machines 同源同投影。缺省 = 工具不注册）。 */
   listExecutionMachines?: () => Promise<ExecutionMachinePoolSnapshot>;

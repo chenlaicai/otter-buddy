@@ -1,18 +1,15 @@
-import {
-  LOCAL_EXECUTION_MACHINE_ID,
-  type ActionRunOptions,
-  type ExecutionAction,
-  type ExecutionActionResult,
-  type ExecutionActionType,
-  type ExecutionMachine,
-  type ExecutionMachineRouter,
+import type {
+  ActionRunOptions,
+  ExecutionAction,
+  ExecutionActionResult,
+  ExecutionActionType,
+  ExecutionMachine,
+  ExecutionMachineRouter,
 } from "@usecases/ports/execution-machine";
 
 /** The single target-resolution entry for OS/workspace actions. */
 export class ExecutionMachineRegistry implements ExecutionMachineRouter {
   private readonly machines = new Map<string, ExecutionMachine>();
-
-  constructor(private readonly defaultMachineId = LOCAL_EXECUTION_MACHINE_ID) {}
 
   register(machine: ExecutionMachine): void {
     if (this.machines.has(machine.id)) {
@@ -33,23 +30,22 @@ export class ExecutionMachineRegistry implements ExecutionMachineRouter {
     this.machines.set(machine.id, machine);
   }
 
+  /** 目标解析：机器未注册即抛错（fail-closed——统一注册制下无内置默认机，
+   *  未显式指定目标的调用方属漏网路径，吵着失败而非猜一个落点）。 */
   resolve(targetMachineId?: string): ExecutionMachine {
-    const id = targetMachineId ?? this.defaultMachineId;
-    const machine = this.machines.get(id);
+    if (!targetMachineId) {
+      throw new Error("execution machine not specified: pool has no default machine (uniform registration; callers must name the target explicitly)");
+    }
+    const machine = this.machines.get(targetMachineId);
     if (!machine) {
-      throw new Error(`Execution machine not registered: ${id}`);
+      throw new Error(`Execution machine not registered: ${targetMachineId}`);
     }
     return machine;
   }
 
-  /** 注册中心投影：当前有哪些机器（Web「当前执行机」与 LLM 感知的只读数据源，唯一事实源仍在本表）。 */
+  /** 注册中心投影：当前有哪些机器（Web 与 LLM 感知的只读数据源，唯一事实源仍在本表）。 */
   list(): Array<{ id: string; name: string }> {
     return [...this.machines.values()].map((m) => ({ id: m.id, name: m.name ?? m.id }));
-  }
-
-  /** 当前默认执行机 id（未显式指定目标时的落点；恒为 local）。 */
-  currentMachineId(): string {
-    return this.defaultMachineId;
   }
 
   async run<K extends ExecutionActionType>(

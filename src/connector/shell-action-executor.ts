@@ -3,7 +3,7 @@
  *
  * 执行底座：每动作独立 `NodeExecutionEnv`（pi-durable SDK——进程组 kill、timeout、
  * abort、spill 语义复用）+ 独立 AbortController（cancel 只杀该动作进程组）。
- * **刻意不复用 RecordingNodeExecutionEnv**：那一层经 `@earendil-works/chord` 主路径
+ * **刻意不复用中枢侧 SDK 执行环境**：那一层经 `@earendil-works/chord` 主路径
  * 进 connector 产物会破轻量闭包铁律；本模块直接用 SDK env + 既有 SqliteActionLedger
  * 记账（actionId 用 hub 下发值——去重协议本体；conversationId/invokeId 归因透传）。
  *
@@ -211,7 +211,7 @@ export class ShellActionExecutor implements ShellExecutorLike {
         invokeId: typeof input.invokeId === "string" ? input.invokeId : null,
         conversationId: input.conversationId,
         toolCallId: typeof input.toolCallId === "string" ? input.toolCallId : null,
-        source: "sdk-env", // hub 侧 SDK bash 面的远程投影——与 RecordingNodeExecutionEnv 的 exec 入账同源
+        source: "sdk-env", // hub 侧 SDK bash 面的远程投影——与中枢执行环境的 exec 入账同源
         kind: "shell.exec",
         target: display,
       });
@@ -235,7 +235,7 @@ export class ShellActionExecutor implements ShellExecutorLike {
   }
 }
 
-/** argv 形态的展示用命令行（台账 target 用——与 RecordingNodeExecutionEnv 同规则引用） */
+/** argv 形态的展示用命令行（台账 target 用——与中枢执行环境同规则引用） */
 function displayCommand(command: string | string[]): string {
   if (typeof command === "string") return command;
   return command.map(part => (/[^\w.,:/=@%-]/.test(part) ? `'${part.replace(/'/g, `'\\''`)}'` : part)).join(" ");

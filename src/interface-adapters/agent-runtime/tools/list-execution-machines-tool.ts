@@ -14,7 +14,7 @@ export function createListExecutionMachinesTool(ctx: ToolContext): AgentTool {
   return {
     name: "list_execution_machines",
     description:
-      "查询执行机资源池（只读）：返回 {machines: [{id, name, online, lastSeenAt, local?}], currentMachineId}——local 行带 local:true（中枢所在机器，恒 online）；connector 设备含在线状态与最近在线时间。用于感知多执行机环境（multi-machine / execution machines）中有哪些机器可用——不假设环境只有一台机器。",
+      "查询执行机资源池（只读）：返回 {machines: [{id, name, online, lastSeenAt}]}——统一注册制下全部条目均为 connector 注册设备（含中枢所在机器），每台含在线状态与最近在线时间。用于感知多执行机环境（multi-machine / execution machines）中有哪些机器可用——不假设环境只有一台机器。",
     parameters: {
       type: "object",
       properties: {},

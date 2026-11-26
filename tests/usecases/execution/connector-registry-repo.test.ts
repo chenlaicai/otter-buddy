@@ -2,7 +2,6 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import type Database from "better-sqlite3";
 import { SqliteConnectorRegistryRepository } from "@frameworks/db/execution/sqlite-connector-registry-repository";
 import { ExecutionMachineRegistry, } from "@usecases/execution/execution-machine-registry";
-import { LOCAL_EXECUTION_MACHINE_ID } from "@usecases/ports/execution-machine";
 import { createTestDb } from "../../helpers/db";
 import type { Device } from "@entities/execution/device";
 import type { OnlineSession } from "@entities/execution/online-session";
@@ -117,11 +116,12 @@ describe("connector 注册仓库（配对码/设备/会话三态）", () => {
 });
 
 describe("ExecutionMachineRegistry unregister/replace（C1 顶替语义）", () => {
-  it("unregister 幂等：未注册 id 静默；注销后 resolve 回 fail-closed", () => {
+  it("unregister 幂等：未注册 id 静默；注销后显式 resolve 回 fail-closed（统一注册制：无参 resolve 恒抛 no default machine）", () => {
     const registry = new ExecutionMachineRegistry();
     expect(() => registry.unregister("ghost")).not.toThrow(); // 幂等
-    registry.unregister(LOCAL_EXECUTION_MACHINE_ID);
-    expect(() => registry.resolve()).toThrow(/not registered/);
+    registry.unregister("legacy-local");
+    expect(() => registry.resolve("legacy-local")).toThrow(/not registered/);
+    expect(() => registry.resolve()).toThrow(/no default machine/i);
   });
 
   it("replace 顶替：同 id 后到者生效（设备重上线投影刷新）", () => {

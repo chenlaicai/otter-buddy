@@ -3,11 +3,11 @@ import { gateExecutionMachine } from "@usecases/execution/execution-machine-gate
 import type { ExecutionMachinePoolSnapshot } from "@usecases/ports/execution-machine";
 
 function poolWith(machines: ExecutionMachinePoolSnapshot["machines"]): () => Promise<ExecutionMachinePoolSnapshot> {
-  return async () => ({ machines, currentMachineId: machines[0]?.id ?? "local" });
+  return async () => ({ machines });
 }
 
 const TWO_MACHINE_POOL = poolWith([
-  { id: "local", name: "中枢本机", online: true, lastSeenAt: null, local: true },
+  { id: "node-a", name: "中枢本机", online: true, lastSeenAt: null },
   { id: "dev-box", name: "开发机", online: false, lastSeenAt: "2026-11-25T14:02:00Z" },
 ]);
 
@@ -18,7 +18,7 @@ describe("execution-machine-gate: 三失败路径 + 通过路径", () => {
     const text = result.ok ? "" : result.message;
     expect(text).toContain("缺少必选参数 machine");
     expect(text).toContain("fail-closed");
-    expect(text).toContain("- local（中枢本机，在线");
+    expect(text).toContain("- node-a（中枢本机，在线");
     expect(text).toContain("- dev-box（开发机，离线");
     expect(text).toContain("list_execution_machines");
   });
@@ -35,7 +35,7 @@ describe("execution-machine-gate: 三失败路径 + 通过路径", () => {
     const text = result.ok ? "" : result.message;
     expect(text).toContain('"ghost-machine" 不在机器池中');
     expect(text).toContain("不自动换机");
-    expect(text).toContain("- local（中枢本机，在线");
+    expect(text).toContain("- node-a（中枢本机，在线");
   });
 
   it("指定机器离线：报错标注离线与 lastSeen", async () => {
@@ -49,13 +49,13 @@ describe("execution-machine-gate: 三失败路径 + 通过路径", () => {
   });
 
   it("指定在线机器：通过并携带规范化 machineId", async () => {
-    const result = await gateExecutionMachine("local", TWO_MACHINE_POOL);
-    expect(result).toEqual({ ok: true, machineId: "local" });
+    const result = await gateExecutionMachine("node-a", TWO_MACHINE_POOL);
+    expect(result).toEqual({ ok: true, machineId: "node-a" });
   });
 
   it("池快照回调抛错：fail-loud 拒绝执行且不吞异常文本", async () => {
     const broken = async () => { throw new Error("pool projection exploded"); };
-    const result = await gateExecutionMachine("local", broken);
+    const result = await gateExecutionMachine("node-a", broken);
     expect(result.ok).toBe(false);
     expect(result.ok ? "" : result.message).toContain("pool projection exploded");
   });
@@ -64,7 +64,7 @@ describe("execution-machine-gate: 三失败路径 + 通过路径", () => {
     const missing = await gateExecutionMachine(undefined);
     expect(missing.ok).toBe(false);
     expect(missing.ok ? "" : missing.message).toContain("list_execution_machines");
-    const okShape = await gateExecutionMachine("local");
-    expect(okShape).toEqual({ ok: true, machineId: "local" });
+    const okShape = await gateExecutionMachine("node-a");
+    expect(okShape).toEqual({ ok: true, machineId: "node-a" });
   });
 });
