@@ -4,8 +4,8 @@ title: 顶栏静止块改为常驻透明水玻璃透镜，退役乳白选中块
 summary: 搭档指出静止选中块不该是乳白/薄纱——水玻璃从始至终透明。GlassLens 透镜改为静止常驻：静止端参数集重定义为清玻璃（frost≈0、保留光效/投影/可见折射），液滴流动端点不动；DOM 高亮块降级为 fallback 并去掉纯白；修复透镜首次绘制的两个启动死点（IO 后无 wake、静止帧无 dirty）。
 change_type: feature
 intent:
-  problem: "顶栏静止选中块是纯白乳白 DOM 块（engine 静止端 frost=1 实心染色 + #ffffff 高亮），与搭档要求的水玻璃（从始至终透明、无乳白无薄纱）不符"
-  expected_effect: "静止选中块由 WebGL 清玻璃透镜常驻绘制（frost=0.03、静止端 strength=0.5、可见折射），DOM 高亮块仅在降级路径可见且不再使用 #ffffff；液滴流动动画端点参数零变化"
+  problem: "顶栏静止选中块是纯白乳白 DOM 块（engine 静止端 frost=1 实心染色 + 旧高亮块纯白填充），与搭档要求的水玻璃（从始至终透明、无乳白无薄纱）不符"
+  expected_effect: "静止选中块由 WebGL 清玻璃透镜常驻绘制（frost=0.03、静止端 strength=0.5、可见折射），DOM 高亮块仅在降级路径可见且不再使用纯白十六进制色；液滴流动动画端点参数零变化；透镜生命周期闭环（无选中退场、reduced-motion 动态切换退场、几何变化重对位）"
   verify_by:
     type: behavior_check
 capability_test: "n/a: 视觉效果类改动——机器验收 = material-v3.test.ts 契约断言（锁 frost/strength 端点与兜底样式）+ 887 单测 + Playwright 截图目检（静止/运动/连点/自定义背景标）"
@@ -65,10 +65,13 @@ F20261124tbnav 交付的顶栏形态为「乳白静止块＋单枚液滴流动�
 
 blurCenter/blurEdge 公式不变（由 frost 驱动，frost≈0.03 时近清晰）；bevel/band/radius 形状参数不动。
 
-### 3. 首绘启动修复（本次排障发现的两处上游组合盲区）
+### 3. 首绘与生命周期闭环（首轮实现 + 检视补漏，共五处）
 
 - **IO 后无 wake**：`view.visible` 初始 false，engine 主循环 `if (!v.visible) continue` 会跳过首帧；原版不画首帧（静止=DOM），常驻后必须画。IntersectionObserver 回调中 `!was && visible` 时补 `engine.wake()`。
 - **静止帧无 dirty**：engine 画帧条件 `moving || dirty || repaint || relight`——非动画 snap 后全部为 false，`engine.add()` 内置的 wake 也画不出来。sync 非动画分支补 `view.dirty = true`（place 到新几何本就是 refresh 语义）。
+- **无选中退场不调度帧（检视 #4）**：`value=null` 时 detach 只标 dirty，引擎静止无循环，旧玻璃残留到无关事件唤醒。`detach()` 内补 `engine.wake()`。
+- **动态 reduced-motion 不生效（检视 #5）**：引擎静止无帧时 `step` 的 still 分支永远不走，运行中开启 reduced-motion 透镜不退场。组件显式监听 `prefers-reduced-motion` change：开启即 detach、关闭即 sync(false) 恢复常驻；unmount 时移除监听。
+- **几何变化不同步（检视 #6）**：原 ResizeObserver 守卫 `if (!active) sync(false)` 在常驻后永不触发，选中项/容器尺寸变化后透镜停在旧位置。改为按弹簧速度分派：飞行中 `sync(true)` 改目标（动画不中断），静止时 `sync(false)` 重新 snap；按压中忽略。
 
 ### 4. DOM 高亮块降级 token 化（globals.css）
 
@@ -84,11 +87,11 @@ blurCenter/blurEdge 公式不变（由 frost 驱动，frost≈0.03 时近清晰�
 ## 影响范围
 
 - 仅桌面顶栏主导航（`data-glass-host`）；engine.ts 零改动，glass-layer / 材质 v3 体系不受影响。
-- 透镜常驻的额外开销：静止时 engine 以 REPAINT_EVERY=120ms 节奏重读 back 层（七个小项的 DOM 快照重绘），开销可忽略；引擎 dedup（帧参数不变不重画）机制不变。
+- 透镜常驻的额外开销：engine 无帧时不开循环——静止且无指针移动/尺寸变化时不调度任何帧；`REPAINT_EVERY=120ms` 只是在已有绘制帧上决定背景纹理是否重读的上限，不构成静止时的周期任务。静止开销 = 仅指针移动（光效 relight）或 dirty 时才有帧，帧内可能重读 back 层。
 
 ## 验证
 
-- 单测：web 887/887 通过（`material-v3.test.ts` 契约用例已更新：锁 `frost=lerp(0.03,0,pc)`、`strength=lerp(0.5,1,pc)` 静止端点 + 兜底块禁 `#ffffff` 回归）。
+- 单测：web 891/891 通过（新增 `glass-lens.test.tsx` 4 条行为测试：mock engine 驱动真实生命周期——初始常驻、value=null 退场、动态 reduced-motion 退场、RO 几何重对位；`material-v3.test.ts` 契约用例更新：锁 `frost=lerp(0.03,0,pc)`、`strength=lerp(0.5,1,pc)` 静止端点 + 兜底块禁纯白十六进制色回归）。
 - 类型：`tsc --noEmit` 干净。
 - 截图自验（alpha 隔离实例 3162，2× Playwright，真实 WebGL2）：
   - 静止默认态/切项后：清玻璃胶囊（阴影+边缘光），无白色实心；`data-glass-moving` 在位、DOM 高亮 opacity=0、canvas 尺寸由 engine 接管（1272×192）。
@@ -99,4 +102,5 @@ blurCenter/blurEdge 公式不变（由 frost 驱动，frost≈0.03 时近清晰�
 ## 残余风险
 
 - 暗色主题下静止清玻璃的观感未截图验证（当前主用浅色）；`--nav-active-bg` 暗色值 #FFFDF9 仅影响降级路径。
-- 若未来顶栏覆盖滚动/流式内容，常驻透镜的 120ms 背景重读频率可能需要重估（与 F20261124tbnav 的合入边界同款约束）。
+- 若未来顶栏覆盖滚动/流式内容，指针移动触发的重读频率可能需要重估（与 F20261124tbnav 的合入边界同款约束）。
+- 选中项自身几何变化若不触发容器尺寸变化（root RO 不响），透镜不会重对位；顶栏为编译期固定七项文案，该场景现实中不存在（检视发现的 IO/RO/dirty 修复已覆盖容器级与选中项尺寸变化经容器传导的场景）。

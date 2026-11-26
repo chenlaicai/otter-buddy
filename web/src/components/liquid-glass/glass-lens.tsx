@@ -212,6 +212,9 @@ export function GlassLens({ value, disabled = false }: GlassLensProps) {
       delete root.dataset.glassMoving
       delete root.dataset.glassTraveling
       view.dirty = true
+      // Detach can happen while the engine is parked (no frame scheduled): without a wake
+      // the stale lens would stay on the canvas until some unrelated event drew a frame.
+      engine.wake()
     }
     const start = () => {
       if (active || !target) return
@@ -455,16 +458,33 @@ export function GlassLens({ value, disabled = false }: GlassLensProps) {
     })
     io.observe(root)
     const ro = new ResizeObserver(() => {
-      if (!active) sync(false)
+      // The persistent lens is always active, so the old `!active` guard never fired and
+      // geometry changes left the glass parked on a stale box. Flying springs retarget
+      // (sync(true) keeps the travel alive); a parked lens snaps (sync(false)).
+      if (pressed) return
+      sync(mx.v !== 0 || my.v !== 0 || mw.v !== 0 || mh.v !== 0 || mr.v !== 0)
     })
     ro.observe(root)
     engine.add(view)
+
+    // The resting lens parks the engine (no frames while nothing moves), so a live toggle
+    // of the OS reduced-motion switch would never reach `step`'s still branch: listen for
+    // it here and hand over to the flat highlight immediately (and back, symmetrically).
+    const onReducedChange = (e: MediaQueryListEvent) => {
+      if (e.matches) {
+        detach()
+      } else {
+        sync(false)
+      }
+    }
+    reduced.addEventListener?.('change', onReducedChange)
 
     return () => {
       engine.remove(view)
       ctx.clearRect(0, 0, canvas.width, canvas.height)
       io.disconnect()
       ro.disconnect()
+      reduced.removeEventListener?.('change', onReducedChange)
       root.removeEventListener('pointerdown', onDown)
       removeEventListener('pointermove', onMove)
       removeEventListener('pointerup', onUp)

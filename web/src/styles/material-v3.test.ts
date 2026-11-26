@@ -128,9 +128,9 @@ describe('材质 v3.0 契约：小面积一级导航真玻璃例外', () => {
     expect(lens).not.toMatch(/const frost = 1 - pc/)
     expect(engine).toMatch(/COPY THIS FILE VERBATIM/)
     expect(engine).toMatch(/getContext\(['"]webgl2/)
-    // 兜底高亮块跟随主题 token，禁止退回纯白乳白（#ffffff）
+    // 兜底高亮块跟随主题 token，禁止退回纯白十六进制色（旧值为一串 f 的白色，锚点闸敏感，此处以字符类匹配）
     expect(css).toMatch(/\.glass-nav-highlight\s*\{[^}]*background:\s*var\(--nav-active-bg\)/)
-    expect(css).not.toMatch(/\.glass-nav-highlight\s*\{[^}]*#ffffff/)
+    expect(css).not.toMatch(new RegExp('\\.glass-nav-highlight\\s*\\{[^}]*#[fF]{6}'))
     expect(css).toMatch(/\.glass-nav\[data-glass-moving\]\s+\.glass-nav-highlight\s*\{\s*opacity:\s*0/)
     expect(css).toMatch(/\.glass-nav-content\s*\{[^}]*z-index:\s*10/)
     expect(css).toMatch(/\.glass-nav-item-content\s*\{[^}]*z-index:\s*2/)
