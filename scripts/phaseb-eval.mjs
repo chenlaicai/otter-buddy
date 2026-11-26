@@ -1,6 +1,6 @@
 /**
- * Phase B 固定快照基线评测（M-1239dd29）。
- * 设计真相源：R20261126amrca Phase B——固定快照、生产默认口径、
+ * Phase B 固定快照基线评测（memory_vec 清理后的有效评测）。
+ * 设计真相源：评测方法论文档（docs/research 侧）——固定快照、生产默认口径、
  * 指标素材：recall@5/10、MRR、nDCG、r_pool、r_slate、延迟分解（embed/FTS/vec）。
  *
  * 架构：Proxy 装饰器包装 SqliteMemoryRepository（不改任何 private 逻辑）——

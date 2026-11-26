@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Phase C 参数网格（真实集，M-1239dd29）
+// Phase C 参数网格（真实集）
 // 依据 Phase B 发现：vecSimilarityThreshold=0.3 使 vec 路融合前被杀光（过门率≤4%，gold 杀伤 96.4%）
 // 网格：阈值 {0.05,0.1,0.15,0.2} × vec 池深 {10,20} × 消息半衰期 {7,14,21} = 24 组合 + 现状基线（同进程对照）
 // 全链路真实 search（RRF→rerank→dedup→quota→slice），每组合跑完恢复权重（防频率信号污染）
-// 采用门槛（R20261126amrca）：recall@10/r_pool 不下降；nDCG@5 或 MRR 稳定提升；合成回归另验
+// 采用门槛（评测方法论文档）：recall@10/r_pool 不下降；nDCG@5 或 MRR 稳定提升；合成回归另验
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

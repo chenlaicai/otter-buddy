@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Phase B 指标计算（M-1239dd29 / R20261126amrca Phase B 口径）
+// Phase B 指标计算（评测方法论文档口径）
 // 输入：runs-phaseb.json（k10/k20/ftsonly 三配置）+ labels-A/B（κ=0.8544 过门）
 // 口径：
 //   gold(主) = 双标均判 3；gold(敏感) = 任一判 3（敏感性对照）

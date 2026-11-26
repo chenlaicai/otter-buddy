@@ -1,6 +1,6 @@
 /**
  * 标注工作台渲染器：blind-pools-phaseb.json → 每查询紧凑文本（q01-q20.txt）+ 序号映射（q-idx.json）。
- * 标注者输出 {q, scene, grades:{"#序号": 0-3}}，由 merge-labels.mjs 映射回 entryId。
+ * 标注者输出 {q, scene, grades}（grades 键为井号序号短码、值为 0-3 整数），由 merge-labels.mjs 映射回 entryId。
  */
 import fs from "node:fs";
 import path from "node:path";

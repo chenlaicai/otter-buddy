@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Phase B 双盲标注一致性：二次加权 Cohen's Kappa（R20261126amrca 质量门 ≥0.6）
+// Phase B 双盲标注一致性：二次加权 Cohen's Kappa（质量门 ≥0.6）
 // 用法: node scripts/kappa-calc.mjs --eval-dir <目录>
-//   eval-dir 需含: labels-A.json(labels-A数组) labels-B.json({q,scene,grades:#短码}) q-idx.json(短码→id 映射真相源)
+//   eval-dir 需含: labels-A.json(labels-A数组) labels-B.json（grades 键为井号短码） q-idx.json(短码→id 映射真相源)
 //   可选 blind-pools-phaseb.json ——提供时额外校验映射与池 id 集一致；缺省时池全集从 q-idx 推导
 //   （归档样本见 docs/research/2026/11/26/metma-data/，Kappa 复算无需含正文文件）
 import { readFileSync } from 'fs';
@@ -20,7 +20,7 @@ const poolsPath = `${EVAL_DIR}/blind-pools-phaseb.json`;
 const pools = fsExists(poolsPath) ? JSON.parse(readFileSync(poolsPath, 'utf8')) : null;
 const labelsA = JSON.parse(readFileSync(`${EVAL_DIR}/labels-A.json`, 'utf8'));
 const labelsB = JSON.parse(readFileSync(`${EVAL_DIR}/labels-B.json`, 'utf8'));
-// #短码→id 映射真相源 = 渲染 workbench 时生成的乱序映射（B 方所见的 #xx 顺序）
+// 井号短码→id 映射真相源 = 渲染 workbench 时生成的乱序映射（B 方所见的短码顺序）
 const qIdx = JSON.parse(readFileSync(`${EVAL_DIR}/q-idx.json`, 'utf8'));
 
 const nQueries = Object.keys(qIdx).length;
