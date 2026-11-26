@@ -41,8 +41,11 @@ const WARN_BYTES = 8000;
 /** 核心常驻 prompt 的只降预算；提升预算必须单独评审，不能随正文顺带膨胀。 */
 const CORE_PROMPTS = [
   { path: ".pi/SYSTEM.md", budgetBytes: 24089, requiresSignalParam: true },
-  { path: "prompts/identity/BIG_OTTER.md", budgetBytes: 16143, requiresSignalParam: false },
-  { path: "prompts/identity/SMALL_OTTER.md", budgetBytes: 8442, requiresSignalParam: true },
+  // 执行机动作级选择（machine 必选）的身份注入：BIG +207 / SMALL +201（2026-11-25，
+  // BIG 已删黑话表低频词条 ToolContext/otterCard.submit/卡片高度、SMALL 已压记忆先行段，
+  // 剩余增量走本预算提升——避免压缩防注入安全语义（来源核验）换取空间）。
+  { path: "prompts/identity/BIG_OTTER.md", budgetBytes: 16350, requiresSignalParam: false },
+  { path: "prompts/identity/SMALL_OTTER.md", budgetBytes: 8643, requiresSignalParam: true },
 ];
 
 const args = process.argv.slice(2);
