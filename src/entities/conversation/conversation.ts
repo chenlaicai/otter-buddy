@@ -186,7 +186,7 @@ export function checkMergeFactResource(
   const hasTerminal = evidence
     .split(/\r?\n|；|;/)
     .some(rawLine => {
-      // 日期形态先剥离（2026-11-26 的年份会撞 #N 号；对抗回归用例钉住）
+      // 日期形态先剥离（日期年份恰好等于声明 PR 号时会误配；对抗回归用例钉住）
       const line = rawLine.replace(/\d{4}-\d{2}-\d{2}/g, "[date]");
       if (!/\b(MERGED|CLOSED)\b/i.test(line)) return false;
       if (/\bNOT[ -]?MERGED\b|\bNOT[ -]?CLOSED\b|未合入|未合并/i.test(line)) return false;
