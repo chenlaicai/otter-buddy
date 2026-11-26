@@ -1,0 +1,481 @@
+{
+  "grid": [
+    {
+      "name": "t0.05-k10-h7",
+      "threshold": 0.05,
+      "vecK": 10,
+      "halfLife": 7
+    },
+    {
+      "name": "t0.05-k10-h14",
+      "threshold": 0.05,
+      "vecK": 10,
+      "halfLife": 14
+    },
+    {
+      "name": "t0.05-k10-h21",
+      "threshold": 0.05,
+      "vecK": 10,
+      "halfLife": 21
+    },
+    {
+      "name": "t0.05-k20-h7",
+      "threshold": 0.05,
+      "vecK": 20,
+      "halfLife": 7
+    },
+    {
+      "name": "t0.05-k20-h14",
+      "threshold": 0.05,
+      "vecK": 20,
+      "halfLife": 14
+    },
+    {
+      "name": "t0.05-k20-h21",
+      "threshold": 0.05,
+      "vecK": 20,
+      "halfLife": 21
+    },
+    {
+      "name": "t0.1-k10-h7",
+      "threshold": 0.1,
+      "vecK": 10,
+      "halfLife": 7
+    },
+    {
+      "name": "t0.1-k10-h14",
+      "threshold": 0.1,
+      "vecK": 10,
+      "halfLife": 14
+    },
+    {
+      "name": "t0.1-k10-h21",
+      "threshold": 0.1,
+      "vecK": 10,
+      "halfLife": 21
+    },
+    {
+      "name": "t0.1-k20-h7",
+      "threshold": 0.1,
+      "vecK": 20,
+      "halfLife": 7
+    },
+    {
+      "name": "t0.1-k20-h14",
+      "threshold": 0.1,
+      "vecK": 20,
+      "halfLife": 14
+    },
+    {
+      "name": "t0.1-k20-h21",
+      "threshold": 0.1,
+      "vecK": 20,
+      "halfLife": 21
+    },
+    {
+      "name": "t0.15-k10-h7",
+      "threshold": 0.15,
+      "vecK": 10,
+      "halfLife": 7
+    },
+    {
+      "name": "t0.15-k10-h14",
+      "threshold": 0.15,
+      "vecK": 10,
+      "halfLife": 14
+    },
+    {
+      "name": "t0.15-k10-h21",
+      "threshold": 0.15,
+      "vecK": 10,
+      "halfLife": 21
+    },
+    {
+      "name": "t0.15-k20-h7",
+      "threshold": 0.15,
+      "vecK": 20,
+      "halfLife": 7
+    },
+    {
+      "name": "t0.15-k20-h14",
+      "threshold": 0.15,
+      "vecK": 20,
+      "halfLife": 14
+    },
+    {
+      "name": "t0.15-k20-h21",
+      "threshold": 0.15,
+      "vecK": 20,
+      "halfLife": 21
+    },
+    {
+      "name": "t0.2-k10-h7",
+      "threshold": 0.2,
+      "vecK": 10,
+      "halfLife": 7
+    },
+    {
+      "name": "t0.2-k10-h14",
+      "threshold": 0.2,
+      "vecK": 10,
+      "halfLife": 14
+    },
+    {
+      "name": "t0.2-k10-h21",
+      "threshold": 0.2,
+      "vecK": 10,
+      "halfLife": 21
+    },
+    {
+      "name": "t0.2-k20-h7",
+      "threshold": 0.2,
+      "vecK": 20,
+      "halfLife": 7
+    },
+    {
+      "name": "t0.2-k20-h14",
+      "threshold": 0.2,
+      "vecK": 20,
+      "halfLife": 14
+    },
+    {
+      "name": "t0.2-k20-h21",
+      "threshold": 0.2,
+      "vecK": 20,
+      "halfLife": 21
+    },
+    {
+      "name": "BASELINE-k10(现状)",
+      "threshold": 0.3,
+      "vecK": 10,
+      "halfLife": 7
+    }
+  ],
+  "results": [
+    {
+      "name": "t0.05-k10-h7",
+      "threshold": 0.05,
+      "vecK": 10,
+      "halfLife": 7,
+      "r_pool": 0.6,
+      "r_slate": 0,
+      "recall@5": 0.2675997246217835,
+      "recall@10": 0.42348119609149026,
+      "MRR": 0.8833333333333334,
+      "nDCG5": 0.7213953523976232,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.05-k10-h14",
+      "threshold": 0.05,
+      "vecK": 10,
+      "halfLife": 14,
+      "r_pool": 0.6,
+      "r_slate": 0,
+      "recall@5": 0.2837535707756296,
+      "recall@10": 0.43010512771542186,
+      "MRR": 0.9099999999999999,
+      "nDCG5": 0.7319176276764195,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.05-k10-h21",
+      "threshold": 0.05,
+      "vecK": 10,
+      "halfLife": 21,
+      "r_pool": 0.6,
+      "r_slate": 0,
+      "recall@5": 0.30028134855340743,
+      "recall@10": 0.4362589738692681,
+      "MRR": 0.9099999999999999,
+      "nDCG5": 0.7426911421197324,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.05-k20-h7",
+      "threshold": 0.05,
+      "vecK": 20,
+      "halfLife": 7,
+      "r_pool": 1,
+      "r_slate": 0.05,
+      "recall@5": 0.23310872950578837,
+      "recall@10": 0.4376794284147225,
+      "MRR": 0.8222222222222222,
+      "nDCG5": 0.6866444058684567,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.05-k20-h14",
+      "threshold": 0.05,
+      "vecK": 20,
+      "halfLife": 14,
+      "r_pool": 1,
+      "r_slate": 0.05,
+      "recall@5": 0.2504896818867407,
+      "recall@10": 0.4472826030178971,
+      "MRR": 0.85625,
+      "nDCG5": 0.7018466990145477,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.05-k20-h21",
+      "threshold": 0.05,
+      "vecK": 20,
+      "halfLife": 21,
+      "r_pool": 1,
+      "r_slate": 0.05,
+      "recall@5": 0.26840634855340734,
+      "recall@10": 0.45728260301789714,
+      "MRR": 0.85625,
+      "nDCG5": 0.7164468600761896,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.1-k10-h7",
+      "threshold": 0.1,
+      "vecK": 10,
+      "halfLife": 7,
+      "r_pool": 0.6,
+      "r_slate": 0,
+      "recall@5": 0.2675997246217835,
+      "recall@10": 0.42348119609149026,
+      "MRR": 0.8833333333333334,
+      "nDCG5": 0.7213953523976232,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.1-k10-h14",
+      "threshold": 0.1,
+      "vecK": 10,
+      "halfLife": 14,
+      "r_pool": 0.6,
+      "r_slate": 0,
+      "recall@5": 0.2865313485534074,
+      "recall@10": 0.43010512771542186,
+      "MRR": 0.9099999999999999,
+      "nDCG5": 0.7380896892480522,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.1-k10-h21",
+      "threshold": 0.1,
+      "vecK": 10,
+      "halfLife": 21,
+      "r_pool": 0.6,
+      "r_slate": 0,
+      "recall@5": 0.30028134855340743,
+      "recall@10": 0.4362589738692681,
+      "MRR": 0.9099999999999999,
+      "nDCG5": 0.7426911421197324,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.1-k20-h7",
+      "threshold": 0.1,
+      "vecK": 20,
+      "halfLife": 7,
+      "r_pool": 1,
+      "r_slate": 0.05,
+      "recall@5": 0.23417710557416443,
+      "recall@10": 0.4387478044830987,
+      "MRR": 0.8472222222222221,
+      "nDCG5": 0.6859000227277428,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.1-k20-h14",
+      "threshold": 0.1,
+      "vecK": 20,
+      "halfLife": 14,
+      "r_pool": 1,
+      "r_slate": 0.05,
+      "recall@5": 0.25433583573289453,
+      "recall@10": 0.4539065346418288,
+      "MRR": 0.88125,
+      "nDCG5": 0.7072743774454665,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.1-k20-h21",
+      "threshold": 0.1,
+      "vecK": 20,
+      "halfLife": 21,
+      "r_pool": 1,
+      "r_slate": 0.05,
+      "recall@5": 0.2722525023995612,
+      "recall@10": 0.46390653464182885,
+      "MRR": 0.88125,
+      "nDCG5": 0.7196542304022224,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.15-k10-h7",
+      "threshold": 0.15,
+      "vecK": 10,
+      "halfLife": 7,
+      "r_pool": 0.6,
+      "r_slate": 0,
+      "recall@5": 0.26162569864775753,
+      "recall@10": 0.40794673055702474,
+      "MRR": 0.885,
+      "nDCG5": 0.7017194285837601,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.15-k10-h14",
+      "threshold": 0.15,
+      "vecK": 10,
+      "halfLife": 14,
+      "r_pool": 0.6,
+      "r_slate": 0,
+      "recall@5": 0.2677001797222386,
+      "recall@10": 0.4109992336095278,
+      "MRR": 0.9125,
+      "nDCG5": 0.7215971541281246,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.15-k10-h21",
+      "threshold": 0.15,
+      "vecK": 10,
+      "halfLife": 21,
+      "r_pool": 0.6,
+      "r_slate": 0,
+      "recall@5": 0.28859303686509574,
+      "recall@10": 0.43241282002311426,
+      "MRR": 0.9125,
+      "nDCG5": 0.7326871833393213,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.15-k20-h7",
+      "threshold": 0.15,
+      "vecK": 20,
+      "halfLife": 7,
+      "r_pool": 1,
+      "r_slate": 0,
+      "recall@5": 0.23236974626680512,
+      "recall@10": 0.42482173055702477,
+      "MRR": 0.8766666666666666,
+      "nDCG5": 0.6779118604427588,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.15-k20-h14",
+      "threshold": 0.15,
+      "vecK": 20,
+      "halfLife": 14,
+      "r_pool": 1,
+      "r_slate": 0,
+      "recall@5": 0.24582517972223855,
+      "recall@10": 0.4302551859904802,
+      "MRR": 0.9125,
+      "nDCG5": 0.7072485107158406,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.15-k20-h21",
+      "threshold": 0.15,
+      "vecK": 20,
+      "halfLife": 21,
+      "r_pool": 1,
+      "r_slate": 0,
+      "recall@5": 0.2667180368650957,
+      "recall@10": 0.45166877240406667,
+      "MRR": 0.9125,
+      "nDCG5": 0.7187385107581534,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.2-k10-h7",
+      "threshold": 0.2,
+      "vecK": 10,
+      "halfLife": 7,
+      "r_pool": 0.6,
+      "r_slate": 0,
+      "recall@5": 0.2479500279132632,
+      "recall@10": 0.38693445851534086,
+      "MRR": 0.85,
+      "nDCG5": 0.6626414294678663,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.2-k10-h14",
+      "threshold": 0.2,
+      "vecK": 10,
+      "halfLife": 14,
+      "r_pool": 0.6,
+      "r_slate": 0,
+      "recall@5": 0.2650928850561204,
+      "recall@10": 0.40175463833552066,
+      "MRR": 0.8791666666666667,
+      "nDCG5": 0.6847823074745845,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.2-k10-h21",
+      "threshold": 0.2,
+      "vecK": 10,
+      "halfLife": 21,
+      "r_pool": 0.6,
+      "r_slate": 0,
+      "recall@5": 0.28053119674443205,
+      "recall@10": 0.43358003516091753,
+      "MRR": 0.8791666666666667,
+      "nDCG5": 0.7042629278415217,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.2-k20-h7",
+      "threshold": 0.2,
+      "vecK": 20,
+      "halfLife": 7,
+      "r_pool": 1,
+      "r_slate": 0,
+      "recall@5": 0.22107502791326322,
+      "recall@10": 0.4069344585153408,
+      "MRR": 0.85,
+      "nDCG5": 0.6408290263768304,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.2-k20-h14",
+      "threshold": 0.2,
+      "vecK": 20,
+      "halfLife": 14,
+      "r_pool": 1,
+      "r_slate": 0,
+      "recall@5": 0.24321788505612035,
+      "recall@10": 0.42175463833552057,
+      "MRR": 0.8791666666666667,
+      "nDCG5": 0.666718620883901,
+      "slateLen": 10
+    },
+    {
+      "name": "t0.2-k20-h21",
+      "threshold": 0.2,
+      "vecK": 20,
+      "halfLife": 21,
+      "r_pool": 1,
+      "r_slate": 0,
+      "recall@5": 0.258656196744432,
+      "recall@10": 0.4535800351609175,
+      "MRR": 0.8791666666666667,
+      "nDCG5": 0.6876854667760781,
+      "slateLen": 10
+    },
+    {
+      "name": "BASELINE-k10(现状)",
+      "threshold": 0.3,
+      "vecK": 10,
+      "halfLife": 7,
+      "r_pool": 0.6,
+      "r_slate": 0,
+      "recall@5": 0.18675955172278702,
+      "recall@10": 0.3035187075995899,
+      "MRR": 0.8375,
+      "nDCG5": 0.583191053209693,
+      "slateLen": 10
+    }
+  ]
+}

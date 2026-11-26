@@ -1,0 +1,233 @@
+{
+  "report": {
+    "主口径(双3交集)": {
+      "k10": {
+        "nQueries": 20,
+        "nGoldQueries": 20,
+        "noGoldQueries": [],
+        "r_pool": 0.6,
+        "r_slate": 0,
+        "recall@5": 0.18675955172278702,
+        "recall@10": 0.3035187075995899,
+        "MRR": 0.8125,
+        "nDCG5": 0.5796146549085761,
+        "latency": {
+          "embedMs": {
+            "med": 63.8,
+            "mean": 212.0600000000001
+          },
+          "ftsMs": {
+            "med": 18.3,
+            "mean": 24.110000000000007
+          },
+          "vecMs": {
+            "med": 376.8,
+            "mean": 369.93999999999994
+          },
+          "totalMs": {
+            "med": 540,
+            "mean": 669.3349999999999
+          }
+        },
+        "goldAttribution": {
+          "bothMiss": 15,
+          "ftsOnly": 123,
+          "vecOnly": 30,
+          "poolHit_slateMiss": 25,
+          "fullHit": 28,
+          "slateOnlyDirect": 0
+        }
+      },
+      "k20": {
+        "nQueries": 20,
+        "nGoldQueries": 20,
+        "noGoldQueries": [],
+        "r_pool": 1,
+        "r_slate": 0,
+        "recall@5": 0.1909262183894537,
+        "recall@10": 0.3035187075995899,
+        "MRR": 0.8083333333333333,
+        "nDCG5": 0.5817395179693736,
+        "latency": {
+          "embedMs": {
+            "med": 0,
+            "mean": 0
+          },
+          "ftsMs": {
+            "med": 17.6,
+            "mean": 23.11
+          },
+          "vecMs": {
+            "med": 370,
+            "mean": 357.4749999999999
+          },
+          "totalMs": {
+            "med": 454.6,
+            "mean": 442.6800000000001
+          }
+        },
+        "goldAttribution": {
+          "bothMiss": 0,
+          "ftsOnly": 109,
+          "vecOnly": 45,
+          "poolHit_slateMiss": 34,
+          "fullHit": 33,
+          "slateOnlyDirect": 0
+        }
+      },
+      "ftsonly": {
+        "nQueries": 20,
+        "nGoldQueries": 20,
+        "noGoldQueries": [],
+        "r_pool": 0.4,
+        "r_slate": 0,
+        "recall@5": 0.17896193267516797,
+        "recall@10": 0.2871893425202249,
+        "MRR": 0.7541666666666667,
+        "nDCG5": 0.5601884393556297,
+        "latency": {
+          "embedMs": {
+            "med": 0,
+            "mean": 0
+          },
+          "ftsMs": {
+            "med": 18.1,
+            "mean": 25.32
+          },
+          "vecMs": {
+            "med": 0,
+            "mean": 0
+          },
+          "totalMs": {
+            "med": 77.8,
+            "mean": 77.40500000000002
+          }
+        },
+        "goldAttribution": {
+          "bothMiss": 45,
+          "ftsOnly": 176,
+          "vecOnly": 0,
+          "poolHit_slateMiss": 0,
+          "fullHit": 0,
+          "slateOnlyDirect": 0
+        }
+      }
+    },
+    "敏感口径(任一3)": {
+      "k10": {
+        "nQueries": 20,
+        "nGoldQueries": 20,
+        "noGoldQueries": [],
+        "r_pool": 0.5,
+        "r_slate": 0,
+        "recall@5": 0.16695688784226942,
+        "recall@10": 0.27103578172026144,
+        "MRR": 0.8541666666666666,
+        "nDCG5": 0.5796146549085761,
+        "latency": {
+          "embedMs": {
+            "med": 63.8,
+            "mean": 212.0600000000001
+          },
+          "ftsMs": {
+            "med": 18.3,
+            "mean": 24.110000000000007
+          },
+          "vecMs": {
+            "med": 376.8,
+            "mean": 369.93999999999994
+          },
+          "totalMs": {
+            "med": 540,
+            "mean": 669.3349999999999
+          }
+        },
+        "goldAttribution": {
+          "bothMiss": 24,
+          "ftsOnly": 237,
+          "vecOnly": 36,
+          "poolHit_slateMiss": 31,
+          "fullHit": 29,
+          "slateOnlyDirect": 0
+        }
+      },
+      "k20": {
+        "nQueries": 20,
+        "nGoldQueries": 20,
+        "noGoldQueries": [],
+        "r_pool": 1,
+        "r_slate": 0,
+        "recall@5": 0.16865331641369802,
+        "recall@10": 0.27103578172026144,
+        "MRR": 0.8458333333333334,
+        "nDCG5": 0.5817395179693736,
+        "latency": {
+          "embedMs": {
+            "med": 0,
+            "mean": 0
+          },
+          "ftsMs": {
+            "med": 17.6,
+            "mean": 23.11
+          },
+          "vecMs": {
+            "med": 370,
+            "mean": 357.4749999999999
+          },
+          "totalMs": {
+            "med": 454.6,
+            "mean": 442.6800000000001
+          }
+        },
+        "goldAttribution": {
+          "bothMiss": 0,
+          "ftsOnly": 214,
+          "vecOnly": 60,
+          "poolHit_slateMiss": 47,
+          "fullHit": 36,
+          "slateOnlyDirect": 0
+        }
+      },
+      "ftsonly": {
+        "nQueries": 20,
+        "nGoldQueries": 20,
+        "noGoldQueries": [],
+        "r_pool": 0.3,
+        "r_slate": 0,
+        "recall@5": 0.1520599098202914,
+        "recall@10": 0.2582885289730087,
+        "MRR": 0.7916666666666667,
+        "nDCG5": 0.5601884393556297,
+        "latency": {
+          "embedMs": {
+            "med": 0,
+            "mean": 0
+          },
+          "ftsMs": {
+            "med": 18.1,
+            "mean": 25.32
+          },
+          "vecMs": {
+            "med": 0,
+            "mean": 0
+          },
+          "totalMs": {
+            "med": 77.8,
+            "mean": 77.40500000000002
+          }
+        },
+        "goldAttribution": {
+          "bothMiss": 60,
+          "ftsOnly": 297,
+          "vecOnly": 0,
+          "poolHit_slateMiss": 0,
+          "fullHit": 0,
+          "slateOnlyDirect": 0
+        }
+      }
+    }
+  },
+  "note": {
+    "gold": "主=双3交集, 敏感=任一3; gain=双标均值; 池=fts∪vec; 标注可见边界=盲标池为k20并集∪slate兜底"
+  }
+}
