@@ -1023,7 +1023,7 @@ function createWaitTool(): AgentTool {
 
 /** merge_pr 子步骤：目标仓库解析——repo 入参（owner/name 或整条 PR URL）。
  *  Why：gh 不带 --repo 时用进程 cwd 所属仓解析 PR 号，服务进程 cwd 是 otter-buddy 主仓，
- *  被管理项目（CoLink 等）上的调用必然 "Could not resolve to a PullRequest"（100% 失效 +
+ *  被管理项目上的调用必然 "Could not resolve to a PullRequest"（100% 失效 +
  *  授权审计随之断链，诱使绕闸）。ToolContext 无工作区路径数据源，「工作区 remote 回退」层不存在，
  *  缺省保持 gh 进程 cwd 行为（本仓调用零变化），跨仓由入参显式声明。
  *  返回 repo（owner/name 形态）与 urlPrNumber（URL 形态捎带的 PR 号，供与 prNumber 核对）。 */
@@ -1041,7 +1041,7 @@ export function resolveTargetRepo(raw: unknown): { repo?: string; urlPrNumber?: 
     return { repo: `${url[1]}/${url[2]}`, ...(url[3] ? { urlPrNumber: Number(url[3]) } : {}) };
   }
   if (!/^[\w.-]+\/[\w.-]+$/.test(text)) {
-    return { error: `[错误] repo 参数格式不正确：「${text.slice(0, 60)}」。请传 owner/name（如 colink-group/CoLink）或整条 PR URL（https://github.com/owner/name/pull/123）。` };
+    return { error: `[错误] repo 参数格式不正确：「${text.slice(0, 60)}」。请传 owner/name（如 example-org/example-repo）或整条 PR URL（https://github.com/owner/name/pull/123）。` };
   }
   return { repo: text };
 }
@@ -1056,7 +1056,7 @@ async function checkPrMergeable(prNumber: number, repo?: string): Promise<{ stat
     prState = pr.state;
     prCreatedAt = pr.createdAt;
   } catch (err) {
-    return { terminal: errorResponse(`[错误] 查询 PR #${prNumber} 状态失败${repo ? `（repo=${repo}）` : ""}：${err instanceof Error ? err.message : String(err)}${repo ? "" : "\n提示：若目标是其他仓库（如 colink-group/CoLink）的 PR，请传 repo 参数——gh 缺省用进程工作目录所属仓解析 PR 号，跨仓必 404。"}`) };
+    return { terminal: errorResponse(`[错误] 查询 PR #${prNumber} 状态失败${repo ? `（repo=${repo}）` : ""}：${err instanceof Error ? err.message : String(err)}${repo ? "" : "\n提示：若目标是其他仓库（如 example-org/example-repo）的 PR，请传 repo 参数——gh 缺省用进程工作目录所属仓解析 PR 号，跨仓必 404。"}`) };
   }
   if (prState === "MERGED") return { terminal: textResponse(`PR #${prNumber} 已合入（幂等），无需重复操作`) };
   if (prState !== "OPEN") return { terminal: errorResponse(`[错误] PR #${prNumber} 状态为 ${prState}，不可合入`) };
@@ -1419,7 +1419,7 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
         prNumber: { type: "number", description: "PR 编号" },
         partnerApproval: { type: "string", description: "搭档授权原话（必填，原样引用，不得转述/概括/编造）。机械校验：必须逐字命中搭档历史消息的连续片段（引一次说过的原话，如「1095合入」），推断/拼接/转述文本会被拒绝" },
         strategy: { type: "string", enum: ["squash", "merge", "rebase"], description: "合入策略，缺省 squash（本仓惯例）" },
-        repo: { type: "string", description: "目标仓库（跨仓必带）：owner/name 或整条 PR URL（如 colink-group/CoLink 或 https://github.com/colink-group/CoLink/pull/4052）。缺省 = 进程工作目录所属仓，其他仓库的 PR 不带此参数必 404" },
+        repo: { type: "string", description: "目标仓库（跨仓必带）：owner/name 或整条 PR URL（如 example-org/example-repo 或 https://github.com/example-org/example-repo/pull/123）。缺省 = 进程工作目录所属仓，其他仓库的 PR 不带此参数必 404" },
       },
       required: ["prNumber", "partnerApproval"],
     },
