@@ -43,8 +43,9 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv.slice(2));
 
-// 动态 import better-sqlite3（与主应用同依赖）
+// 动态 import better-sqlite3 / sqlite-vec（与主应用同依赖）
 const { default: Database } = await import("better-sqlite3");
+const { load: loadSqliteVec } = await import("sqlite-vec");
 
 if (!fs.existsSync(args.db)) {
   console.error(`DB 不存在: ${args.db}`);
@@ -52,6 +53,7 @@ if (!fs.existsSync(args.db)) {
 }
 
 const db = new Database(args.db, args.apply ? undefined : { readonly: true });
+loadSqliteVec(db);
 
 // ---------- 扫描 ----------
 
@@ -151,11 +153,15 @@ const deleteTx = db.transaction((ids) => {
     try {
       delVec = db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?");
       delVec.run("__probe__"); // vec0 虚拟表需加载 sqlite-vec 扩展，裸连接直接 prepare 成功但 run 报错
-    } catch {
-      console.warn("memory_vec 是 vec0 虚拟表且扩展未加载，跳过 vec 清理（残留向量在主应用下次启动时随 reindex 自愈）");
-      delVec = null;
+    } catch (error) {
+      // Why: 跳过 vec 会留下不可检索的孤儿索引；任何卫星清理失败都必须回滚整个删除事务。
+      throw new Error("memory_vec 清理不可用，已中止并回滚；不得跳过 vec 继续删除主记忆", { cause: error });
     }
   }
+  const hasVecGenerations = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_vec_generations'").get();
+  const delVecGenerations = hasVecGenerations
+    ? db.prepare("DELETE FROM memory_vec_generations WHERE entry_id = ?")
+    : null;
   const delWeights = db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?");
   const delTasks = db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?");
   const delEdge = db.prepare("DELETE FROM memory_edges WHERE from_entry_id = ? OR to_entry_id = ?");
@@ -167,6 +173,7 @@ const deleteTx = db.transaction((ids) => {
     delEdge.run(id, id);
     delFts.run(id);
     if (delVec) delVec.run(id);
+    if (delVecGenerations) delVecGenerations.run(id);
     delMain.run(id);
   }
 });
