@@ -114,7 +114,7 @@ category: technique
 
 **分配流程**：
 1. 查对方模型（`get_active_participants` 返回的 modelAlias，或任务上下文）
-2. `create_otter` 传不同的 `modelAlias`（按 strengths 匹配任务特征：代码/逻辑 → mimo，全局一致性 → kimi，中文语义 → glm）
+2. 从当前身份注入的「可用模型」清单选择不同别名传给 `create_otter`——按清单中的 strengths 匹配任务特征，不凭预训练记忆或旧文档写死模型别名；清单不可见时先查运行时配置，不猜测
 3. 任务简报「信任上下文」段写明双方模型，提示审视者从优势维度切入
 
 **降级**：单模型池 → 同模型 + B1-B4 checklist 补偿 + **审视报告标注「同模型审查，盲区风险未消除」**。降级绝不静默。
