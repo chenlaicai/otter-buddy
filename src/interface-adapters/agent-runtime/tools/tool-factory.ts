@@ -1298,6 +1298,51 @@ async function checkReviewClosureOnPr(prNumber: number): Promise<{ terminal?: Re
   }
 }
 
+type MergeFailedCheck = { name: string; url?: string; conclusion: string };
+
+/** 合入拒绝后的只读诊断：把 GitHub 的通用 policy 文案落到可定位的 PR 状态与失败检查。 */
+async function queryMergeFailureDiagnostics(prNumber: number): Promise<{ mergeStateStatus: string; failedChecks: MergeFailedCheck[] }> {
+  const { stdout } = await execFileAsync(
+    "gh",
+    ["pr", "view", String(prNumber), "--json", "mergeStateStatus,statusCheckRollup"],
+    { timeout: 30_000 },
+  );
+  const pr = JSON.parse(stdout) as {
+    mergeStateStatus?: string;
+    statusCheckRollup?: Array<Record<string, unknown>>;
+  };
+  const failedConclusions = new Set(["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "ERROR"]);
+  const failedChecks = (pr.statusCheckRollup ?? []).flatMap(check => {
+    const conclusion = String(check.conclusion ?? check.state ?? "").toUpperCase();
+    if (!failedConclusions.has(conclusion)) return [];
+    const name = String(check.name ?? check.context ?? "unknown-check");
+    const url = typeof check.detailsUrl === "string" ? check.detailsUrl : typeof check.targetUrl === "string" ? check.targetUrl : undefined;
+    return [{ name, ...(url ? { url } : {}), conclusion }];
+  });
+  return { mergeStateStatus: pr.mergeStateStatus ?? "UNKNOWN", failedChecks };
+}
+
+async function buildMergeFailureResponse(prNumber: number, err: unknown): Promise<ToolResponse> {
+  const originalError = err instanceof Error ? err.message : String(err);
+  const base = `[错误] 合入 PR #${prNumber} 失败：${originalError}`;
+  try {
+    const diagnostics = await queryMergeFailureDiagnostics(prNumber);
+    const checkText = diagnostics.failedChecks.length > 0
+      ? diagnostics.failedChecks.map(check => `${check.name} [${check.conclusion}]${check.url ? ` ${check.url}` : ""}`).join("\n")
+      : "未检测到已失败 check（可能仍在等待检查，或受其他分支规则限制）";
+    return {
+      ...errorResponse(`${base}\nmergeStateStatus=${diagnostics.mergeStateStatus}\n失败检查：\n${checkText}`),
+      details: diagnostics,
+    };
+  } catch (diagnosticErr) {
+    const diagnosticError = diagnosticErr instanceof Error ? diagnosticErr.message : String(diagnosticErr);
+    return {
+      ...errorResponse(`${base}\n诊断信息查询失败：${diagnosticError}`),
+      details: { mergeStateStatus: "UNKNOWN", failedChecks: [], diagnosticError },
+    };
+  }
+}
+
 /** 授权通过后的合入执行段（抽出控复杂度）——检视闭环闸 → 审计 → merge。 */
 async function performMerge(
   ctx: ToolContext,
@@ -1320,7 +1365,7 @@ async function performMerge(
     const { stdout } = await execFileAsync("gh", ["pr", "merge", String(prNumber), `--${strategy}`], { timeout: 60_000 });
     return textResponse(`PR #${prNumber} 已合入（${strategy}）。${stdout.trim()}\n审计：授权原话已落 linked_resources（category=merge-authorization）+ 日志`);
   } catch (err) {
-    return errorResponse(`[错误] 合入 PR #${prNumber} 失败：${err instanceof Error ? err.message : String(err)}`);
+    return buildMergeFailureResponse(prNumber, err);
   }
 }
 

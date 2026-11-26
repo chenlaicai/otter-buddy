@@ -213,6 +213,61 @@ describe('F20260922pmgd merge_pr 工具（PR 合入搭档授权闸）', () => {
     expect(moduleIdx).toBeLessThan(closureIdx);
     expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
   });
+
+  it('分支保护拒绝 → 回执附 mergeStateStatus 与失败检查定位，并保留原始错误（#1998）', async () => {
+    execFileMock.mockImplementation((cmd: string, args: string[], _opts: unknown, cb: (e: Error | null, r?: { stdout: string; stderr: string }) => void) => {
+      if (cmd === 'node' && String(args[0]).includes('check-pr-review-closure')) {
+        cb(null, { stdout: '✅ 检视闭环', stderr: '' });
+        return;
+      }
+      if (args[1] === 'view' && args.includes('mergeStateStatus,statusCheckRollup')) {
+        cb(null, { stdout: JSON.stringify({
+          mergeStateStatus: 'BLOCKED',
+          statusCheckRollup: [
+            { __typename: 'CheckRun', name: 'check', conclusion: 'FAILURE', detailsUrl: 'https://github.com/chenlaicai/otter-buddy/actions/runs/123/job/456' },
+            { __typename: 'CheckRun', name: 'e2e', conclusion: 'SUCCESS', detailsUrl: 'https://example.test/success' },
+          ],
+        }), stderr: '' });
+        return;
+      }
+      if (args[1] === 'view') cb(null, { stdout: JSON.stringify({ state: 'OPEN', createdAt: DEFAULT_PR_CREATED_AT }), stderr: '' });
+      else if (args[1] === 'merge') cb(new Error('Command failed: gh pr merge\nGraphQL: base branch policy prohibits merging'), { stdout: '', stderr: 'GraphQL: base branch policy prohibits merging' });
+      else cb(new Error(`unexpected gh args: ${args.join(' ')}`));
+    });
+    const tool = findMergePr(makeCtx());
+    const result = await tool.execute('t9', { prNumber: 1095, partnerApproval: '1095合入，你更新下', strategy: 'squash' });
+
+    expect(result.details.mergeStateStatus).toBe('BLOCKED');
+    expect(result.details.failedChecks).toEqual([
+      { name: 'check', url: 'https://github.com/chenlaicai/otter-buddy/actions/runs/123/job/456', conclusion: 'FAILURE' },
+    ]);
+    expect(JSON.stringify(result)).toContain('base branch policy prohibits merging');
+    expect(JSON.stringify(result)).toContain('mergeStateStatus=BLOCKED');
+    expect(JSON.stringify(result)).toContain('https://github.com/chenlaicai/otter-buddy/actions/runs/123/job/456');
+  });
+
+  it('失败诊断查询异常 → 不覆盖原始合入错误，机器状态显式 UNKNOWN（#1998）', async () => {
+    execFileMock.mockImplementation((cmd: string, args: string[], _opts: unknown, cb: (e: Error | null, r?: { stdout: string; stderr: string }) => void) => {
+      if (cmd === 'node' && String(args[0]).includes('check-pr-review-closure')) {
+        cb(null, { stdout: '✅ 检视闭环', stderr: '' });
+        return;
+      }
+      if (args[1] === 'view' && args.includes('mergeStateStatus,statusCheckRollup')) {
+        cb(new Error('GraphQL: diagnostic query timeout'), { stdout: '', stderr: 'GraphQL: diagnostic query timeout' });
+        return;
+      }
+      if (args[1] === 'view') cb(null, { stdout: JSON.stringify({ state: 'OPEN', createdAt: DEFAULT_PR_CREATED_AT }), stderr: '' });
+      else if (args[1] === 'merge') cb(new Error('Command failed: base branch policy prohibits merging'), { stdout: '', stderr: 'base branch policy prohibits merging' });
+      else cb(new Error(`unexpected gh args: ${args.join(' ')}`));
+    });
+    const tool = findMergePr(makeCtx());
+    const result = await tool.execute('t10', { prNumber: 1095, partnerApproval: '1095合入，你更新下', strategy: 'squash' });
+
+    expect(result.details.mergeStateStatus).toBe('UNKNOWN');
+    expect(result.details.failedChecks).toEqual([]);
+    expect(result.details.diagnosticError).toContain('diagnostic query timeout');
+    expect(JSON.stringify(result)).toContain('base branch policy prohibits merging');
+  });
 });
 
 describe('F20260929mpav 原话校验闸（无原话不允许合入）', () => {
