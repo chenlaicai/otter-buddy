@@ -72,6 +72,7 @@ export class ConnectorWsGateway {
   private readonly actionResultHandlers: Array<(frame: Extract<ConnectorFrame, { type: "action.result" }>) => void> = [];
   private readonly actionOutputHandlers: Array<(frame: Extract<ConnectorFrame, { type: "action.output" }>) => void> = [];
   private readonly sessionDownHandlers: Array<(sessionId: string, deviceId: string, reason: ConnectorSessionDownReason) => void> = [];
+  private readonly deviceOnlineHandlers: Array<(deviceId: string) => void> = [];
   private sweepTimer: NodeJS.Timeout | null = null;
   /** 旧 sid 帧丢弃计数（观测模块 C 红线命中情况） */
   private staleFrameDrops = 0;
@@ -275,8 +276,8 @@ export class ConnectorWsGateway {
     this.connections.set(session.id, live);
     this.deviceIndex.set(device.id, session.id);
     this.ensureSweepTimer();
-    this.logger.info("connector device online", { deviceId: device.id, sessionId: session.id, protocolVersion: version });
     this.send(socket, { v: version, type: "hello.ack", seq: frame.seq, sid: session.id, data: { version } });
+    this.notifyDeviceOnline(live);
     return live;
   }
 
@@ -371,6 +372,23 @@ export class ConnectorWsGateway {
 
   onSessionDown(handler: (sessionId: string, deviceId: string, reason: ConnectorSessionDownReason) => void): void {
     this.sessionDownHandlers.push(handler);
+  }
+
+  /** 设备完成 hello 并进入在线表后通知；恢复服务据此重查原机等待项。 */
+  onDeviceOnline(handler: (deviceId: string) => void): void {
+    this.deviceOnlineHandlers.push(handler);
+  }
+
+  /** 上线只触发既有恢复队列重查；不在 connector 侧补跑动作。 */
+  private notifyDeviceOnline(live: LiveConnection): void {
+    this.logger.info("connector device online", {
+      deviceId: live.deviceId, sessionId: live.sessionId, protocolVersion: live.version,
+    });
+    for (const handler of this.deviceOnlineHandlers) {
+      try { handler(live.deviceId); } catch (err) {
+        this.logger.warn("onDeviceOnline callback failed (non-fatal)", { deviceId: live.deviceId, error: String(err) });
+      }
+    }
   }
 
   dispose(): void {

@@ -84,8 +84,10 @@ export function mockSendEntry(options?: {
   });
 
   const impl = {
-    createInvoke: async (input: { conversationId: string; otterId: string }) => {
+    createInvoke: async (input: { conversationId: string; otterId: string; triggerEntryId?: string; metadata?: Record<string, unknown> }) => {
       const invoke = makeInvoke(input.conversationId, input.otterId);
+      invoke.triggerEntryId = input.triggerEntryId ?? null;
+      invoke.metadata = input.metadata ?? null;
       store.invokes.set(invoke.id, invoke);
       const invokeStartEntry = makeEntry(input.conversationId, { entryType: "invoke_start", invokeId: invoke.id, body: "start" });
       store.entries.push(invokeStartEntry);

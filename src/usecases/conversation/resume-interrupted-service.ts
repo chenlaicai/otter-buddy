@@ -8,6 +8,8 @@ import type { HealingEventRepository } from "@usecases/healing/healing-event-rep
 import { randomUUID } from "node:crypto";
 import { buildRemoteActionSummary } from "@usecases/execution/action-ledger-summary";
 import type { RemoteActionRequest } from "@entities/execution/remote-action-request";
+import type { ExecutionMachinePoolProvider } from "@usecases/execution/execution-machine-gate";
+import { loadRecoveryActionChain, originalMachinesReady, type RecoveryActionChain } from "./recovery-routing";
 import {
   buildRestartResumeMsg,
   buildRestartResumeFailedInvokeMsg,
@@ -19,6 +21,11 @@ interface ResumeQueueItem {
   conversationId: string;
   otterId: string;
   triggerEntryId: string | null;
+}
+
+interface ResumeTrigger {
+  /** connector 完成上线后的定向重查；缺省为进程重启恢复。 */
+  deviceOnline?: string;
 }
 
 /**
@@ -51,6 +58,8 @@ export class ResumeInterruptedService {
 
   /** 本进程 boot 纪元（毫秒时间戳，构造时定格；进程内恒定、跨进程互异） */
   private readonly bootEpoch: number;
+  /** 原机等待告警按恢复项与机器集去重；离线轮询不重复刷 healing。 */
+  private readonly reportedMachineWaits = new Set<string>();
 
   constructor(
     private readonly deps: {
@@ -70,9 +79,10 @@ export class ResumeInterruptedService {
       delayMs?: number;
       /** 429 限流退避基础延迟（ms），测试可注入小值 */
       rateLimitBaseDelayMs?: number;
-      /** 远程动作登记只读面（统一注册制：全部机器动作的恢复摘要数据源——
-       *  local 动作并入后单一份 central registry；缺省无台账段——旧文案兼容） */
-      remoteActions?: { listByConversation(conversationId: string, limit?: number): Promise<RemoteActionRequest[]> };
+      /** 中央动作台账只读面：按 invoke 精确查询原执行机与五态。 */
+      remoteActions?: { listByInvoke(invokeId: string, limit?: number): Promise<RemoteActionRequest[]> };
+      /** 原机在线判定；与工具 gate 和感知工具共用机器池投影。 */
+      machinePool?: ExecutionMachinePoolProvider;
       /** 本进程 boot 纪元（认领绑定；测试可注入固定值） */
       bootEpoch?: number;
       /** 旧持有者 pid 死活探针（重认领预检；测试可注入 fake，
@@ -87,15 +97,18 @@ export class ResumeInterruptedService {
 
   /** 入口：延迟后逐条恢复。fire-and-forget 调用（不阻塞服务就绪）。
    * 只恢复队列里的中断 invoke——不再做任何历史信号扫描。 */
-  async resume(): Promise<void> {
+  async resume(trigger?: ResumeTrigger): Promise<void> {
     const delay = this.deps.delayMs ?? ResumeInterruptedService.RESUME_DELAY_MS;
     await new Promise(resolve => setTimeout(resolve, delay));
     try {
       const pending = await this.deps.resumePendingRepo.getPendingResumes();
       if (pending.length === 0) return;
-      this.deps.logger.info("Resuming interrupted invokes after restart", { count: pending.length });
-      // （移植）：服务重启事件落 healing 台账（severity 按中断数分级）
-      await this.recordRestartHealingEvent(pending.length);
+      this.deps.logger.info(trigger?.deviceOnline ? "Rechecking interrupted invokes after device online" : "Resuming interrupted invokes after restart", {
+        count: pending.length,
+        deviceId: trigger?.deviceOnline,
+      });
+      // 设备上线重查不是新的服务重启，不重复写重启事件。
+      if (!trigger?.deviceOnline) await this.recordRestartHealingEvent(pending.length);
 
       // 三点裁决②：全并行恢复——同会话多 running 说明中断前就是并发
       // （生产实证：同会话同秒不同獭 running 真实存在）；串行是 messages 时代防 seq
@@ -104,7 +117,7 @@ export class ResumeInterruptedService {
       await Promise.allSettled(
         pending.map(async (item) => {
           try {
-            await this.resumeItemSafe(item);
+            await this.resumeItemSafe(item, trigger);
           } catch (err) {
             // 单条失败不阻塞其余（resumeItemSafe 已内吞异常，此处双保险）
             this.deps.logger.error(`Resume item ${item.invokeId} failed`, err instanceof Error ? err : new Error(String(err)));
@@ -145,16 +158,54 @@ export class ResumeInterruptedService {
     }
   }
 
+  /** 原机不可达时给出可定位的人工对账信号；同进程同恢复项/机器集只报一次。 */
+  private async reportOriginalMachineWait(item: ResumeQueueItem, machineIds: string[]): Promise<void> {
+    const healingRepo = this.deps.healingRepo;
+    if (!healingRepo) return;
+    const required = [...machineIds].sort();
+    const key = `${item.invokeId}:${required.join(",")}`;
+    if (this.reportedMachineWaits.has(key)) return;
+    // 先占位防并发重查双写；写失败则释放，下次仍可补报。
+    this.reportedMachineWaits.add(key);
+    try {
+      await healingRepo.create({
+        id: randomUUID(), messageId: item.invokeId, conversationId: item.conversationId, otterId: item.otterId,
+        errorType: "tool_failure", severity: "medium",
+        description: `恢复链 ${item.invokeId} 等待原执行机 ${required.join("、")}；离线或设备记录缺失期间保持 pending，未增加 attempts`,
+        suggestion: "检查原机 connector 在线状态与设备记录；恢复前人工核对 unknown 动作和设备侧效果，禁止改派其他机器",
+        context: { invokeId: item.invokeId, machineIds: required, reason: "resume-original-machines-unavailable" },
+        status: "open", resolution: null, createdAt: new Date().toISOString(), resolvedAt: null,
+      });
+    } catch (err) {
+      this.reportedMachineWaits.delete(key);
+      throw err;
+    }
+  }
+
   /**
    * 单条 resume 的安全包装——捕获所有异常确保不崩循环。
    * 移植旧 resumeItemSafe 三分类语义（done/skipped/failed）。
    * 认领 token 在此生成并全程传递（并行恢复下不能走实例字段），
    * 持有者终态收口用 settleResumeHeld（token 校验）。
    */
-  private async resumeItemSafe(item: ResumeQueueItem): Promise<"done" | "skipped" | "failed"> {
+  private async resumeItemSafe(item: ResumeQueueItem, trigger?: ResumeTrigger): Promise<"done" | "skipped" | "failed"> {
     const claimToken = randomUUID();
+    const routingDeps = {
+      invokeRepo: this.deps.invokeRepo,
+      entryRepo: this.deps.entryRepo,
+      remoteActions: this.deps.remoteActions,
+      machinePool: this.deps.machinePool,
+      onOriginalMachinesUnavailable: async (machineIds: string[]) => {
+        await this.reportOriginalMachineWait(item, machineIds);
+      },
+      logger: this.deps.logger,
+    };
+    const chain = await loadRecoveryActionChain(
+      routingDeps, item.invokeId, ResumeInterruptedService.LEDGER_SUMMARY_FETCH_LIMIT, trigger,
+    );
+    if (!chain || !(await originalMachinesReady(routingDeps, item.invokeId, chain.machineIds))) return "skipped";
     try {
-      return await this.resumeOneWithRetry(item, claimToken);
+      return await this.resumeOneWithRetry(item, claimToken, chain);
     } catch (err) {
       this.deps.logger.error("Resume item failed after retries", err instanceof Error ? err : new Error(String(err)), {
         invokeId: item.invokeId, conversationId: item.conversationId, otterId: item.otterId,
@@ -255,6 +306,26 @@ export class ResumeInterruptedService {
       const sameBootClaimed = row.claimToken != null && row.bootEpoch === this.bootEpoch;
       if (!sameBootClaimed) {
         await this.deps.resumePendingRepo.settleResume(item.invokeId, "exhausted", new Date().toISOString());
+        // 链级上限终态必须可观测：exhausted 之外另落 healing，防静默 crash-loop 烧配额。
+        this.deps.logger.warn("resume chain attempts exhausted", {
+          invokeId: item.invokeId, conversationId: item.conversationId, attempts: row.attempts,
+        });
+        if (this.deps.healingRepo) {
+          try {
+            await this.deps.healingRepo.create({
+              id: randomUUID(), messageId: "", conversationId: item.conversationId, otterId: item.otterId,
+              errorType: "other", severity: "high",
+              description: `恢复链已达 ${String(row.attempts)} 次上限，invoke ${item.invokeId} 已标记 exhausted，停止自动恢复`,
+              suggestion: "人工核查该恢复链的原始错误与 unknown 动作；确认前禁止自动重放 unsafe 动作",
+              context: { invokeId: item.invokeId, attempts: row.attempts, reason: "resume-chain-attempts-exhausted" },
+              status: "open", resolution: null, createdAt: new Date().toISOString(), resolvedAt: null,
+            });
+          } catch (err) {
+            this.deps.logger.warn("resume attempts exhausted healing write failed", {
+              invokeId: item.invokeId, error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
       } else {
         // claim_token 值消费——跳过时记录持有者令牌前缀（可观测：排查谁持有）
         this.deps.logger.warn("claim rejected: same-boot holder exists", {
@@ -266,14 +337,14 @@ export class ResumeInterruptedService {
   }
 
   /** 429 限流/网络错误的指数退避重试包装（移植） */
-  private async resumeOneWithRetry(item: ResumeQueueItem, claimToken: string): Promise<"done" | "skipped" | "failed"> {
+  private async resumeOneWithRetry(item: ResumeQueueItem, claimToken: string, chain: RecoveryActionChain): Promise<"done" | "skipped" | "failed"> {
     if ((await this.claimForResume(item, claimToken)) === "skipped") return "skipped";
 
     let lastErr: unknown;
     const baseDelay = this.deps.rateLimitBaseDelayMs ?? ResumeInterruptedService.RATE_LIMIT_BASE_DELAY_MS;
     for (let attempt = 0; attempt <= ResumeInterruptedService.RATE_LIMIT_MAX_RETRIES; attempt++) {
       try {
-        return await this.resumeOne(item, claimToken);
+        return await this.resumeOne(item, claimToken, chain);
       } catch (err) {
         lastErr = err;
         if (this.isRetryableNetworkError(err) && attempt < ResumeInterruptedService.RATE_LIMIT_MAX_RETRIES) {
@@ -323,33 +394,9 @@ export class ResumeInterruptedService {
     return retryablePatterns.some(pattern => message.toLowerCase().includes(pattern.toLowerCase()));
   }
 
-  /** 取中断 invoke 的台账摘要（机器真相；台账缺席/无行动作返回 null）。
-   *  查询上限远大于默认 200——listByInvoke 默认升序 LIMIT 截断会把崩溃时刻的最新动作
-   *  （最可能 unknown）先截掉，计数静默失真；真超限时显性标注不完整。〔检视 minor-2〕 */
-  private async buildLedgerSummary(invokeId: string, conversationId: string): Promise<string | null> {
-    // 台账统一（统一注册制）：全部机器动作都进 central registry（remote_action_requests）
-    // ——本机旧独立台账（execution-machines/local/actions.db）已退役为只读历史存档，
-    // 恢复摘要数据源单一化。invokeId 参数保留（调用方语义与日志排障锚点）。
-    void invokeId;
-    return await this.buildRemoteActionBlock(conversationId);
-  }
-
-  /** 动作台账段（conversation 维度——统一注册制：全部机器动作都在 central
-   *  registry；registry 缺席/无行返回 null） */
-  private async buildRemoteActionBlock(conversationId: string): Promise<string | null> {
-    if (!this.deps.remoteActions) return null;
-    try {
-      const rows = await this.deps.remoteActions.listByConversation(conversationId, ResumeInterruptedService.LEDGER_SUMMARY_FETCH_LIMIT);
-      const summary = buildRemoteActionSummary(rows);
-      // 查询上限显性标注（不静默截断——真超限时恢复摘要计数可能不完整）
-      if (summary && rows.length >= ResumeInterruptedService.LEDGER_SUMMARY_FETCH_LIMIT) {
-        return `${summary}\n- ⚠️ 台账行数达查询上限（${ResumeInterruptedService.LEDGER_SUMMARY_FETCH_LIMIT}），计数可能不完整`;
-      }
-      return summary;
-    } catch (err) {
-      this.deps.logger.warn("resume remote-action summary fetch failed (non-fatal)", { conversationId, error: err instanceof Error ? err.message : String(err) });
-      return null;
-    }
+  /** 恢复摘要与路由共用同一份完整祖先链台账，避免查询结果分裂。 */
+  private buildLedgerSummary(chain: RecoveryActionChain): string | null {
+    return buildRemoteActionSummary(chain.rows);
   }
 
   /** 跳过判据合并（participant 失效 → exhausted 静默；「獭已恢复」→ exhausted 静默）。
@@ -379,7 +426,7 @@ export class ResumeInterruptedService {
     }
   }
 
-  private async resumeOne(item: ResumeQueueItem, claimToken: string): Promise<"done" | "skipped" | "failed"> {
+  private async resumeOne(item: ResumeQueueItem, claimToken: string, chain: RecoveryActionChain): Promise<"done" | "skipped" | "failed"> {
     try {
       // 1. CAS 认领已上提至 resumeOneWithRetry 入口（attempts 语义 = 跨重启恢复次数，
       //    进程内退避重试不重认领——见 resumeOneWithRetry 注释）
@@ -410,15 +457,16 @@ export class ResumeInterruptedService {
         }
       };
       try {
-        const ledgerSummary = await this.buildLedgerSummary(item.invokeId, item.conversationId);
+        const ledgerSummary = this.buildLedgerSummary(chain);
         await this.deps.dispatchChainEngine.executeChain({
           conversationId: item.conversationId,
-          userMessageContent: buildRestartResumeMsg(ledgerSummary),
+          userMessageContent: buildRestartResumeMsg(ledgerSummary, chain.machineIds),
           senderId: "",
           initialTargets: [item.otterId],
           triggerMessageId: item.invokeId,
           // 重启续跑指令是合成文本——不进安全词扫描
           triggerSenderType: "system",
+          ...(chain.machineIds.length > 0 && { requiredExecutionMachineIds: chain.machineIds }),
           invokeFn: captureInvokeFn,
         });
         // 恢复轮 invoke 审计链追加（best-effort；改追加式）

@@ -117,6 +117,8 @@ describe("ConnectorWsGateway 协议状态机（C1 端到端）", () => {
   });
 
   it("hello → hello.ack（sid 下发）→ 库 online + Registry 投影可见", async () => {
+    const onlineNotifications: string[] = [];
+    hub.gateway.onDeviceOnline(id => { onlineNotifications.push(id); });
     const ws = wsConnect(hub.url, "tok-test");
     const opened = new Promise<void>(r => ws.on("open", () => r()));
     ws.on("error", () => {}); // 401 场景不会发生；防未处理 error 事件
@@ -133,8 +135,9 @@ describe("ConnectorWsGateway 协议状态机（C1 端到端）", () => {
     const session = await repo.getOnlineSession(ack.sid!);
     expect(session?.status).toBe("online");
     expect(session?.deviceId).toBe("connector-test");
-    // Registry 投影可见（占位投影）
+    // Registry 投影可见（占位投影）；恢复重查通知在 hello 完成后发出。
     expect(hub.machines.list().map(m => m.id)).toContain("connector-test");
+    expect(onlineNotifications).toEqual(["connector-test"]);
     ws.close();
     await waitClosed(ws);
   });

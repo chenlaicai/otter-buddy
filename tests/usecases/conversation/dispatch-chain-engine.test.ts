@@ -978,5 +978,23 @@ describe("上下文注入面 delta 化（F20260922ctxi）", () => {
     });
     expect(received[0]).toMatch(/\[张三\]（[^）]*）旧消息/); // 未读保留，不过滤
   });
+
+  it("恢复链原执行机集合透传到 invokeFn", async () => {
+    const m = makeMocks();
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    let received: string[] | undefined;
+    await engine.executeChain({
+      conversationId: "conv-1",
+      userMessageContent: "恢复原任务",
+      senderId: "system",
+      initialTargets: ["otter-1"],
+      requiredExecutionMachineIds: ["connector-original"],
+      invokeFn: async params => {
+        received = params.requiredExecutionMachineIds;
+        return { messageId: "recovery-invoke" };
+      },
+    });
+    expect(received).toEqual(["connector-original"]);
+  });
 });
 

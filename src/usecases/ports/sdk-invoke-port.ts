@@ -104,6 +104,8 @@ export interface InvokeOptions {
   currentInvokeId?: string;
   /** 受限外部会话：受限工具、独立 Session 与工作区 MCP，禁止普通池和其他工具面。 */
   externalProfile?: 'restricted';
+  /** 恢复链已有动作的原执行机；仅恢复 invoke 注入，统一机器闸禁止换机。 */
+  requiredExecutionMachineIds?: string[];
   /** 彻底切换：SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
   emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
 }

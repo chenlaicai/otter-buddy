@@ -274,6 +274,8 @@ export interface InvokeOptions {
   currentInvokeId?: string;
   /** 受限外部会话：受限工具、独立 Session 与工作区 MCP，禁止普通池和其他工具面。 */
   externalProfile?: 'restricted';
+  /** 恢复链已有动作的原执行机；仅恢复 invoke 注入，统一机器闸禁止换机。 */
+  requiredExecutionMachineIds?: string[];
   /** 外部 conversation/connector 已审公开配置；绝不回退普通 otter systemPrompt。 */
   externalTaskConfig?: ExternalTaskConfig;
   /** SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
@@ -1306,7 +1308,19 @@ export class PiSessionFactory implements AgentGateway {
     const loopBlockOnIntercept = this.buildLoopBlockInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId });
     return await otterInvokeStorage.run(
       // otterId 进 store——tool_call handler 查 halt 标用
-      { otterPromptConfig: undefined, identityPrefix: "", otterId, displayName, currentConversationId: conversationId, loopBlockedTools, loopBlockOnIntercept, guardProjectRoot, guardSessionCwd, guardOnIntercept },
+      {
+        otterPromptConfig: undefined,
+        identityPrefix: "",
+        otterId,
+        displayName,
+        currentConversationId: conversationId,
+        requiredExecutionMachineIds: options?.requiredExecutionMachineIds,
+        loopBlockedTools,
+        loopBlockOnIntercept,
+        guardProjectRoot,
+        guardSessionCwd,
+        guardOnIntercept,
+      },
       // eslint-disable-next-line max-statements, complexity -- pool hit/miss 两条路径 + startup cursor push；pendingRestart 检查增加语句数；守卫拦截 hook 增加分支
       async () => {
         // 1. session 已由 _acquirePooled 提供（池化：命中复用 / 未命中冷启动入池）

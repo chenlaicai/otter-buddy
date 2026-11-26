@@ -16,6 +16,9 @@ export interface OtterInvokeContext {
   currentInvokeId?: string;
   /** 当前业务对话 id——动作台账归因与恢复摘要使用；不再参与执行机选择。 */
   currentConversationId?: string;
+  /** 恢复链已有动作的原执行机集合；仅恢复 invoke 注入，工具闸拒绝换机。
+   *  普通 invoke 缺省，保留每次动作显式选机的自由。 */
+  requiredExecutionMachineIds?: string[];
   /** 当前正在执行的工具调用 id（DurableSession.beforeTool 写入、
    * 下一枚 beforeTool 覆盖）——动作台账按 toolCallId 铸造 actionId。 */
   currentToolCallId?: string;

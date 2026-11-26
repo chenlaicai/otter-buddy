@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { gateExecutionMachine } from "@usecases/execution/execution-machine-gate";
 import type { ExecutionMachinePoolSnapshot } from "@usecases/ports/execution-machine";
+import { otterInvokeStorage } from "@entities/execution/otter-invoke-context";
 
 function poolWith(machines: ExecutionMachinePoolSnapshot["machines"]): () => Promise<ExecutionMachinePoolSnapshot> {
   return async () => ({ machines });
@@ -58,6 +59,26 @@ describe("execution-machine-gate: 三失败路径 + 通过路径", () => {
     const result = await gateExecutionMachine("node-a", broken);
     expect(result.ok).toBe(false);
     expect(result.ok ? "" : result.message).toContain("pool projection exploded");
+  });
+
+  it("恢复上下文只允许原执行机；普通 invoke 不受该集合限制", async () => {
+    const online = poolWith([
+      { id: "node-a", name: "原机", online: true, lastSeenAt: null },
+      { id: "node-b", name: "其他机", online: true, lastSeenAt: null },
+    ]);
+    await otterInvokeStorage.run({
+      otterPromptConfig: undefined,
+      identityPrefix: "",
+      otterId: "otter-recovery",
+      requiredExecutionMachineIds: ["node-a"],
+    }, async () => {
+      expect(await gateExecutionMachine("node-a", online)).toEqual({ ok: true, machineId: "node-a" });
+      const rejected = await gateExecutionMachine("node-b", online);
+      expect(rejected.ok).toBe(false);
+      expect(rejected.ok ? "" : rejected.message).toContain("不是该链已有动作的原执行机");
+      expect(rejected.ok ? "" : rejected.message).toContain("node-a");
+    });
+    expect(await gateExecutionMachine("node-b", online)).toEqual({ ok: true, machineId: "node-b" });
   });
 
   it("池回调缺省：降级为形态校验 + 指向感知工具的提示", async () => {

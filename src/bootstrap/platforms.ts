@@ -211,7 +211,14 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     // 链调度主防线——同獭忙碌时委托 SDK 队列，不撞锁。
     isRunning: options?.agentGateway ? (otterId) => options.agentGateway!.isRunning(otterId) : undefined,
     followUp: options?.agentGateway ? async (otterId, text, followOptions) => {
-      if (followOptions?.delegated) return options.agentGateway!.followUp(otterId, text, { delegated: true, reason: 'chain', delegatedOptions: { conversationId: followOptions.conversationId ?? '' } });
+      if (followOptions?.delegated) return options.agentGateway!.followUp(otterId, text, {
+        delegated: true,
+        reason: 'chain',
+        delegatedOptions: {
+          conversationId: followOptions.conversationId ?? '',
+          requiredExecutionMachineIds: followOptions.requiredExecutionMachineIds,
+        },
+      });
       return options.agentGateway!.followUp(otterId, text);
     } : undefined,
     // 单飞行拒绝的人话系统通知（send-entry 用例闭包）

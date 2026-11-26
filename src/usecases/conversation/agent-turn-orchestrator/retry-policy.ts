@@ -86,11 +86,14 @@ export function buildAutoRetryMsg(reason: string): string {
  * 可选内嵌动作台账摘要（机器真相——succeeded 别重做/unknown
  * 先检查/interrupted 可重做），「上一步实际做没做成」从此查台账不靠回忆。
  */
-export function buildRestartResumeMsg(actionLedgerSummary?: string | null): string {
+export function buildRestartResumeMsg(actionLedgerSummary?: string | null, requiredMachineIds: string[] = []): string {
   const summaryBlock = actionLedgerSummary
     ? `\n${actionLedgerSummary}\n请以台账为准核对现场后继续任务：已完成（succeeded）的动作不要重做；结果不明（unknown）的先检查再决定；确认未完成（interrupted）的可安全重做。\n`
     : "";
-  return `[系统提醒] 服务重启导致你的执行中断，系统已自动恢复。${summaryBlock}你之前 speak 的内容已保留在对话中，请基于已有进度继续完成发言，然后 yield 交棒。如果对任务上下文记忆不完整，先查阅消息历史再继续。`;
+  const machineBlock = requiredMachineIds.length > 0
+    ? `\n本恢复链已有动作的原执行机：${requiredMachineIds.join("、")}。需要延续这些动作时只能使用原 machine，不得换机重放；执行工具闸会拒绝其他机器。\n`
+    : "";
+  return `[系统提醒] 服务重启导致你的执行中断，系统已自动恢复。${summaryBlock}${machineBlock}你之前 speak 的内容已保留在对话中，请基于已有进度继续完成发言，然后 yield 交棒。如果对任务上下文记忆不完整，先查阅消息历史再继续。`;
 }
 
 /** 恢复失败/跳过的用户可见提示（成功路径静默——沿用搭档 9/6 裁决）。 */

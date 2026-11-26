@@ -68,6 +68,13 @@ export class SqliteRemoteActionRegistry implements RemoteActionRegistry {
     return rows.map(rowToReq);
   }
 
+  async listByInvoke(invokeId: string, limit = 200): Promise<RemoteActionRequest[]> {
+    const rows = this.db.prepare(
+      "SELECT * FROM remote_action_requests WHERE invoke_id = ? ORDER BY created_at ASC, rowid ASC LIMIT ?",
+    ).all(invokeId, limit) as Row[];
+    return rows.map(rowToReq);
+  }
+
   async listByConversation(conversationId: string, limit = 200, order: "asc" | "desc" = "asc"): Promise<RemoteActionRequest[]> {
     // rowid tie-breaker——created_at 毫秒精度同值时 DESC LIMIT 边界不定序
     const dir = order === "desc" ? "DESC" : "ASC";

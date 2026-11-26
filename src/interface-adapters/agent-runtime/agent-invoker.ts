@@ -327,6 +327,8 @@ export class AgentInvoker implements AgentTurnPort {
     /** 链触发 entry id（写 invokes.trigger_entry_id + metadata.traceId 同源） */
     triggerMessageId?: string;
     assignmentRole?: "reviewer";
+    /** 恢复链已有动作的原执行机；仅恢复服务注入。 */
+    requiredExecutionMachineIds?: string[];
   }): Promise<AgentTurnResult> {
     // 牌局中对话侧防护：入座獺不进 LLM 推理（局中水位换世会打穿牌局上下文）——
     // 自动应答「打牌中」。判据 = RoomService.isSeated 精确谓词（非通用 isRunning——定时任务里的
@@ -446,6 +448,8 @@ export class AgentInvoker implements AgentTurnPort {
     batchMaxSeq?: number;
     triggerMessageId?: string;
     assignmentRole?: "reviewer";
+    /** 恢复链已有动作的原执行机；仅恢复服务注入。 */
+    requiredExecutionMachineIds?: string[];
   }): Promise<AgentTurnResult> {
     const { otterId, conversationId, userMessageContent, onSSEEvent, retryCount = 0, images, batchMaxSeq, triggerMessageId, externalProfile: requestedProfile } = params;
     // （口径①）：对话级档位高于消息级——外部接入对话（kind=external）的
@@ -572,6 +576,7 @@ export class AgentInvoker implements AgentTurnPort {
       metadata: {
         ...buildInvokeCreationMetadata(params.assignmentRole),
         ...(externalProfile ? { externalProfile } : {}),
+        ...(params.requiredExecutionMachineIds?.length ? { requiredExecutionMachineIds: params.requiredExecutionMachineIds } : {}),
       },
     });
     const currentInvokeId = invoke.id;
@@ -589,7 +594,7 @@ export class AgentInvoker implements AgentTurnPort {
       let pendingSelfRestart: { otterId: string; conversationId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean } | undefined;
 
       // 创建 AttemptDriver 和 TurnCallbacks
-      const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, otterType: otter?.type, otterColor: otter?.color ?? null, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images, batchMaxSeq, currentInvokeId, externalProfile });
+      const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, otterType: otter?.type, otterColor: otter?.color ?? null, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images, batchMaxSeq, currentInvokeId, externalProfile, requiredExecutionMachineIds: params.requiredExecutionMachineIds });
       // 彻底切换：invoke 态回调（无 failMessage→abort SDK 联动——handleAutoRetry 同 invoke 重试不再杀 session）
       const callbacks = this.createTurnCallbacks(emitEvent, otterId);
 
@@ -662,7 +667,7 @@ export class AgentInvoker implements AgentTurnPort {
     conversationId: string,
     dynamicContext: DynamicContext,
     emitEvent: (event: SSEEvent) => void,
-    opts: { otterName?: string; otterType?: string; otterColor?: string | null; onSelfRestart?: (signal: { otterId: string; conversationId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId: string; externalProfile?: 'restricted' },
+    opts: { otterName?: string; otterType?: string; otterColor?: string | null; onSelfRestart?: (signal: { otterId: string; conversationId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId: string; externalProfile?: 'restricted'; requiredExecutionMachineIds?: string[] },
   ): AttemptDriver {
     /** ctxTokens 旁路盒——TurnResult 不带 ctxTokens，闭包直改
      *  外部 let 不可行，driver 对象生命周期覆盖整个 turn，invokeConversationInner 收尾处
@@ -681,6 +686,7 @@ export class AgentInvoker implements AgentTurnPort {
           messageId: input.invokeId, // SDK 层 messageId 语义 = abort/guard 键控（invokeId 承担）
           currentInvokeId: opts.currentInvokeId,
           externalProfile: opts.externalProfile,
+          requiredExecutionMachineIds: opts.requiredExecutionMachineIds,
           emitEvent,
           ...(opts?.images && { images: opts.images }),
           batchMaxSeq: opts?.batchMaxSeq,
