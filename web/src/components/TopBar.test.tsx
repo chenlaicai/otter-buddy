@@ -36,7 +36,7 @@ describe('TopBar 悬浮主导航', () => {
     vi.restoreAllMocks()
   })
 
-  it('左侧保留系统图标与名称，中央导航使用开源 GlassLens 且只有一枚乳白静止选中块', () => {
+  it('左侧保留系统图标与名称，中央导航使用开源 GlassLens 且只有一枚高亮占位元素（常驻透镜绘制时隐藏）', () => {
     const { container } = render(<MemoryRouter initialEntries={['/conversation']}><TopBar /></MemoryRouter>)
 
     expect(screen.getByRole('img', { name: 'Otter Buddy' })).toBeTruthy()
