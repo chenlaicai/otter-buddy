@@ -102,7 +102,7 @@ Agent 主动发起 search_memory
 
 论文的基础实现使用 BM25 + bge-m3、RRF 候选池 N=128、LightGBM LambdaRank 的 10 个低成本特征，以及 2700-token 预算内的贪心组装；默认路径不要求生成式 LLM 参与写入或选择。
 
-作者报告：LongMemEval 多 session 问题上相对若干基线准确率提高约 10–31 个百分点，`r_pool=0.981`、`r_slate=0.94`，选择阶段 serving cost 相比每查询 64 次 LLM 调用的 reranker 低 3.2 倍。**这些全部是论文作者报告，本研究未复现。** 论文实验以长对话 QA 为主，也不能直接覆盖工具调用、软件协作和程序性经验等本地记忆类型。
+作者报告：在 LongMemEval-S 中证据跨多个 session 的问题上，相对若干基线准确率提高约 10–31 个百分点，`r_pool=0.981`、`r_slate=0.94`，选择阶段 serving cost 相比每查询 64 次 LLM 调用的 reranker 低 3.2 倍。**这些全部是论文作者报告，本研究未复现。** 论文实验以长对话 QA 为主，也不能直接覆盖工具调用、软件协作和程序性经验等本地记忆类型。
 
 两个反面约束同样重要：
 
@@ -263,7 +263,7 @@ vLLM-GR 面向 generative recommendation：模型读取交互历史，通过 Bea
 | Vec 池加深只改变排序、不改善证据完整 | Phase C A/B，同时看 `r_pool/r_slate` 与排序指标 |
 | 放宽时间衰减使旧事实复活 | 时间更新类查询单独验收，superseded 状态继续参与 |
 | 评测抢占本机资源 | 固定快照、串行 worker、缓存 embedding，不重复跑参数组合推理 |
-| 与 Vec 代际/CAS 等在途改动冲突 | 实施前核对最新 main 与相关 PR，必要时 rebase 后再做 |
+| Vec 代际/CAS 机制已合入，后续实现仍可能与其冲突 | 实施前核对最新 main 与相关 PR，必要时 rebase 后再做 |
 
 ### 10.2 未决项
 
