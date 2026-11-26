@@ -7,16 +7,14 @@ import { findKillSegments } from "./kill-segment-finder";
 import type { GuardBlock } from "./bash-safety-guard";
 import {
   executableWords,
+  PKILL_OTTER_PATTERNS,
   textScansMainSignature,
   tokensScanMainSignature,
   wordExpansionScansMain,
 } from "./psgrep-token-scan";
 
-/** pkill/killall 既有特征名表；ps|grep 新通道不复用这张宽表。 */
-export const PKILL_OTTER_PATTERNS = [
-  "otter-buddy", "otter_buddy", "dist/src/main", "dist/src/main.js",
-  ".otter-buddy.pid", "main.js", "node",
-];
+// pkill/pgrep 的特征名表迁至 psgrep-token-scan（pkill 按名杀 + pgrep 按名查询同语义共用），此处 re-export 兼容旧 import。
+export { PKILL_OTTER_PATTERNS };
 
 export const PS_GREP_KILL_BLOCK_MSG: GuardBlock = {
   text: "ps|grep 按名匹配会命中主进程（dist/src/main.js 入口签名）再 kill——主服务与 worktree alpha 同签名不可区分，不允许。精确终止请用字面量 PID kill。",

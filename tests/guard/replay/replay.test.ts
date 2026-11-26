@@ -275,6 +275,105 @@ describe("guard 回放·检视初轮修复回归钉（S1/S2/S5/S7/③）", () =>
   });
 });
 
+describe("guard 回放·pgrep 查询/数据流分离 + xargs 带参旗标跳参（F20261126pgrep）", () => {
+  // pgrep 纯查询放行 + pgrep→kill 数据流拦（分离查询 vs 数据流 + 对齐 pkill 子串口径）
+  it("pgrep 纯查询放行（非杀进程）", () => {
+    expect(judge('pgrep -f "connector/main.js" | head -5')).toBe("allow");
+  });
+  it("kill $(pgrep 主进程) 数据流仍拦", () => {
+    expect(judge('kill $(pgrep -f "dist/src/main.js")')).toBe("block");
+  });
+  it("pgrep 主进程纯查询放行", () => {
+    expect(judge('pgrep -f "dist/src/main.js"')).toBe("allow");
+  });
+  // 对齐 pkill 子串口径：等价 pkill 拦 ⇒ 等价 pgrep→kill 必拦（不允许一句话绕过）
+  it("pgrep 子串主签名 | xargs kill 拦（对齐 pkill）", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs kill')).toBe("block");
+  });
+  it("-fl 变体 kill $(pgrep -fl 主签名) 拦", () => {
+    expect(judge('kill $(pgrep -fl "dist/src/main.js")')).toBe("block");
+  });
+  it("--full 变体 kill $(pgrep --full 主签名) 拦", () => {
+    expect(judge('kill $(pgrep --full "dist/src/main.js")')).toBe("block");
+  });
+  it("sudo 前缀 kill $(sudo pgrep -f 主签名) 拦", () => {
+    expect(judge('kill $(sudo pgrep -f "dist/src/main.js")')).toBe("block");
+  });
+  it("非 otter 特征 pgrep | xargs kill 放行（不误拦）", () => {
+    expect(judge('pgrep -f "some-unrelated-proc" | xargs kill')).toBe("allow");
+  });
+  // 链尾 xargs 带 flag（-r/-n1）仍识别为 kill 链尾（delta 发现的 xargs 带参边界）
+  it("xargs -r kill 链尾变体拦", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs -r kill')).toBe("block");
+  });
+  it("xargs -n1 kill 链尾变体拦", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs -n1 kill')).toBe("block");
+  });
+  // 链尾 xargs 带参 flag（-d/-n/-I 跳参）——发现 5：带参 flag 的参数不能被误当链尾命令名
+  it("xargs -d \\n kill（带参 flag 分开）链尾拦", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs -d "\\n" kill')).toBe("block");
+  });
+  it("xargs -n 1 kill（带参 flag 分开）链尾拦", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs -n 1 kill')).toBe("block");
+  });
+  it("xargs -I {} kill（带参 flag 分开）链尾拦", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs -I {} kill')).toBe("block");
+  });
+  it("xargs -I{} kill（带参 flag 粘连）链尾拦", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs -I{} kill')).toBe("block");
+  });
+  it("xargs --no-run-if-empty kill（无参长选项）链尾拦", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs --no-run-if-empty kill')).toBe("block");
+  });
+  it("非 kill 参数 xargs 放行（维持放行）", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs echo')).toBe("allow");
+  });
+  it("xargs -d \\n echo（带参 flag 非 kill）放行", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs -d "\\n" echo')).toBe("allow");
+  });
+  it("xargs -d kill（参数值恰为 kill，非命令名）放行", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs -d kill echo')).toBe("allow");
+  });
+  // 链尾 xargs 长选项带参（--delimiter/--replace/--arg-file/--eof/--max-lines 跳参）——发现 5 收口
+  it("xargs --delimiter \\n kill（长选项带参）链尾拦", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs --delimiter "\\n" kill')).toBe("block");
+  });
+  it("xargs --replace X kill（长选项带参）链尾拦", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs --replace X kill')).toBe("block");
+  });
+  it("xargs --arg-file X kill（长选项带参）链尾拦", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs --arg-file X kill')).toBe("block");
+  });
+  it("xargs --eof END kill（长选项带参）链尾拦", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs --eof END kill')).toBe("block");
+  });
+  it("xargs --max-lines X kill（长选项带参）链尾拦", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs --max-lines X kill')).toBe("block");
+  });
+  it("xargs --delimiter \\n echo（长选项带参非 kill）放行", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs --delimiter "\\n" echo')).toBe("allow");
+  });
+  it("xargs --delimiter kill echo（参数值恰为 kill，非命令名）放行", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs --delimiter kill echo')).toBe("allow");
+  });
+  // 链尾 xargs 长选项粘连形态（--xxx=X 整体 token）——发现 5 最终收口（赋值前缀组负向后顾防从 flag 名中间匹配）
+  it("xargs --delimiter=\\n kill（长选项粘连）链尾拦", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs --delimiter="\\n" kill')).toBe("block");
+  });
+  it("xargs --replace=X kill（长选项粘连）链尾拦", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs --replace=X kill')).toBe("block");
+  });
+  it("xargs -r --delimiter=X kill（无参 flag + 粘连带参组合）链尾拦", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs -r --delimiter=X kill')).toBe("block");
+  });
+  it("xargs --delimiter=X echo（长选项粘连非 kill）放行", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs --delimiter=X echo')).toBe("allow");
+  });
+  it("xargs --delimiter=kill echo（粘连参数值恰为 kill，命令 echo）放行", () => {
+    expect(judge('pgrep -f "connector/main.js" | xargs --delimiter=kill echo')).toBe("allow");
+  });
+});
+
 describe("guard 回放·门覆盖面（guardGateCovers，建议②）", () => {
   it("bash 工具命令命中门", () => {
     expect(guardGateCovers("bash", { command: "ls" })).toBe(true);

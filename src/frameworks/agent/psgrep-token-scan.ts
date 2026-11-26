@@ -7,6 +7,14 @@ import { lex, type Token, type Word } from "./command-lexer";
 
 /** 模板签名模式白名单：归一后精确等值（includes 不能证明匹配——^ 锚点/后缀变体运行时不匹配主行）。 */
 const MAIN_SIGNATURES = new Set(["dist/src/main.js", "otter-buddy/dist/src/main.js"]);
+
+/** otter 进程特征子串表（pkill/pgrep 共用）：按名匹配命令行判据。
+ *  pkill 按名杀与 pgrep 按名查询是同语义，等价改写（pkill -f X ⇔ pgrep -f X | xargs kill）
+ *  必须同拦；ps|grep 精确签名通道用 MAIN_SIGNATURES，不复用这张宽表。 */
+export const PKILL_OTTER_PATTERNS = [
+  "otter-buddy", "otter_buddy", "dist/src/main", "dist/src/main.js",
+  ".otter-buddy.pid", "main.js", "node",
+];
 const CLAUSE_BOUNDARIES = new Set([";", "\n", "&", "&&", "||", "(", ")"]);
 
 function isRedirection(op: string): boolean {
@@ -106,6 +114,27 @@ function grepMatchesMain(words: Word[]): GrepMatch | "self" | null {
 /** 模板内 awk：单引号字面 script，或双引号全静态 script（非 lit part 只允许 \\$ 类
  *  escape——单引号 -c 载荷内物理写不了单引号，awk "{print \\$2}" 是唯一朴素形态；
  *  未转义 $N 是 var 展开、语义不同构，不在模板）。 */
+/** 定位链内 pgrep 命令词；只认命令位置（链首 / wrapper 前缀后），pgrep 作为参数不识别。 */
+function findPgrepIndex(words: Word[]): number {
+  for (let i = 0; i < words.length && i < 3; i++) {
+    const n = basename(words[i].evaluated ?? "");
+    if (n === "pgrep") return i;
+    if (!["sudo", "env", "nohup", "timeout", "nice", "command"].includes(n)) break;
+  }
+  return -1;
+}
+
+/** 链内 pgrep 判定：argv 文字含 otter 特征子串即命中（对齐 pkillTargetsOtter 子串口径）。
+ *  pgrep 本身是「查询」非「杀」——签名识别只为「pgrep → kill」数据流兑底，
+ *  纯 pgrep 查询不在此判定（由 kill 段粗筛控制）。pgrep 与 pkill 等价改写的枚举形态
+ *  （-f / -fl / --full / sudo 前缀）由 argv 文字子串统一覆盖，不允许一句话绕过。 */
+function pgrepMatchesMain(words: Word[]): boolean {
+  const pgrepIdx = findPgrepIndex(words);
+  if (pgrepIdx < 0) return false;
+  const argText = words.slice(pgrepIdx + 1).map(w => w.evaluated ?? "").join(" ").toLowerCase();
+  return PKILL_OTTER_PATTERNS.some(p => argText.includes(p.toLowerCase()));
+}
+
 function isTemplateAwk(words: Word[]): boolean {
   if (words.length !== 2 || basename(words[0].evaluated ?? "") !== "awk") return false;
   const script = words[1];
@@ -115,12 +144,31 @@ function isTemplateAwk(words: Word[]): boolean {
   return script.parts.every(p => p.type === "lit" || (p.type === "escape" && p.quoted === "double"));
 }
 
-/** 链尾形态：kill 直接收流，或 xargs kill（xargs 其他内层命令非链尾）。 */
+/** xargs 带参短旗标（POSIX/GNU）：独立 token 出现时下一词是参数（-d '\n' / -I {} / -n 1），
+ *  须连参数一并跳过再定位 kill；粘连形式（-d'\n' / -n1 / -I{}）参数已并入 token。
+ *  覆盖 POSIX(-E/-I/-L/-n/-s) + GNU(-a/-d/-P) 与弃用别名 -e（eof）。 */
+const XARGS_FLAGS_WITH_ARG = new Set(["-a", "-d", "-E", "-e", "-I", "-L", "-n", "-P", "-s"]);
+/** xargs 带参长选项（GNU）：--xxx 独立（下一词是参数）跳 2；--xxx=value 粘连跳 1。 */
+const XARGS_LONG_WITH_ARG = new Set([
+  "--arg-file", "--delimiter", "--eof", "--replace",
+  "--max-lines", "--max-args", "--max-procs", "--max-chars",
+]);
+
+/** 链尾形态：kill 直接收流，或 xargs [flags...] kill。xargs 自身 flag 可置于 kill 前，
+ *  按 xargs 语义跳过：带参 flag（-d/-E/-I/-n/-a/-L/-P/-s + 长选项带参）连参数一并跳，
+ *  无参 flag（-r/--no-run-if-empty/-0/-x/...）与粘连（-d'\n'/-n1/-I{}）直接跳；
+ *  非 kill 的 xargs 目标不是链尾，维持放行。 */
 function isChainTerminator(command: PipeCommand): boolean {
   const name = basename(command.words[0]?.evaluated ?? "");
   if (name === "kill") return true;
   if (name !== "xargs") return false;
-  return basename(command.words[1]?.evaluated ?? "") === "kill";
+  let i = 1;
+  while (i < command.words.length) {
+    const tok = command.words[i].evaluated ?? "";
+    if (!tok.startsWith("-")) break;
+    i += XARGS_FLAGS_WITH_ARG.has(tok) || XARGS_LONG_WITH_ARG.has(tok) ? 2 : 1;
+  }
+  return basename(command.words[i]?.evaluated ?? "") === "kill";
 }
 
 /**
@@ -140,18 +188,25 @@ function grepTemplateStep(signed: boolean, command: PipeCommand): boolean | null
 
 interface TemplateStage { started: boolean; signed: boolean }
 
-/** 阶段机单命令流转；返回新阶段，null=链断裂（放行）。ps 必须是链首命令
- *  （ps 前的任何命令断模板）；第二个 ps 无论在正签名前后都断。 */
+/** 阶段机单命令流转；返回新阶段，null=链断裂（放行）。ps / pgrep 必须是链首命令
+ *  （ps/pgrep 前的任何命令断模板）；第二个 ps/pgrep 无论在正签名前后都断。 */
 function templateStep(stage: TemplateStage, command: PipeCommand): TemplateStage | null {
   const name = basename(command.words[0]?.evaluated ?? "");
-  if (name === "ps") return stage.started ? null : { started: true, signed: false };
-  if (!stage.started) return null;
-  if (name === "grep") {
-    const signed = grepTemplateStep(stage.signed, command);
-    return signed === null ? null : { ...stage, signed };
+  if (stage.started) {
+    // 续链：仅 grep（唯一正签名）/ awk 单 script 合法，其余（含重复 ps/pgrep）断模板
+    if (name === "grep") {
+      const signed = grepTemplateStep(stage.signed, command);
+      return signed === null ? null : { ...stage, signed };
+    }
+    if (name === "awk" && stage.signed && isTemplateAwk(command.words)) return stage;
+    return null;
   }
-  if (name === "awk" && stage.signed && isTemplateAwk(command.words)) return stage;
-  return null; // ps 后白名单外断
+  // 链首：ps 等后续 grep 签名；pgrep 直接带签名（含 sudo 前缀，无签名不确认=放行）
+  if (name === "ps") return { started: true, signed: false };
+  if (findPgrepIndex(command.words) >= 0) {
+    return pgrepMatchesMain(command.words) ? { started: true, signed: true } : null;
+  }
+  return null; // 非链首命令
 }
 
 export function tokensScanMainSignature(tokens: Token[]): boolean {
