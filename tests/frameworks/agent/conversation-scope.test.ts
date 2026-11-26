@@ -66,7 +66,7 @@ describe("F20261124cnvsc ConversationScope", () => {
       expect(speak.isError).not.toBe(true);
       await byName.get("create_linked_resource")!.execute(`artifact-${label}`, { resourceType: "fact", content: `${label} artifact` });
       await byName.get("register_matter")!.execute(`matter-${label}`, { title: `${label} matter` });
-      await byName.get("workspace_write")!.execute(`workspace-${label}`, { path: "scope.txt", content: label });
+      await byName.get("workspace_write")!.execute(`workspace-${label}`, { path: "scope.txt", content: label, machine: "local" });
       await vi.waitFor(() => expect(signalConversations).toHaveLength(expectedSignals));
     };
 

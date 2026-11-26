@@ -27,7 +27,7 @@ import type { OtterType } from "@entities/otter/otter";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { Logger } from "@usecases/ports/logger";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
-import type { ExecutionMachineResolver } from "@usecases/ports/execution-machine";
+import type { ExecutionMachinePoolSnapshot, ExecutionMachineResolver } from "@usecases/ports/execution-machine";
 import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import { ConversationIdle } from "@earendil-works/pi-durable";
@@ -305,6 +305,8 @@ export interface AgentSessionFactoryConfig {
   createTools: (ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger) => AgentTool[];
   /** OS/工作区动作统一执行机路由（内置 local 由组合根注册） */
   executionMachines: ExecutionMachineResolver;
+  /** 执行机池快照回调（SDK coding 工具的机器必选参数接缝：装配即启用执行机壳；缺省退 SDK 原生） */
+  machinePool?: () => Promise<ExecutionMachinePoolSnapshot>;
   /** Healing event 仓库（可选，由 Composition Root 注入） */
   healingRepo?: HealingEventRepository;
   /** signal_events 仓库（halt 落账） */
@@ -395,6 +397,7 @@ export class PiSessionFactory implements AgentGateway {
       identityPromptDir?: string;
       createTools: (ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger) => AgentTool[];
       executionMachines: ExecutionMachineResolver;
+      machinePool?: () => Promise<ExecutionMachinePoolSnapshot>;
       healingRepo?: HealingEventRepository;
       signalRepo?: SignalEventRepository;
       rhiSignalRepo?: SignalRepository;
@@ -1621,6 +1624,7 @@ export class PiSessionFactory implements AgentGateway {
       thinkingLevel: this.cfg.modelPool?.getThinkingLevel(resolvedAlias),
       cwd: workspaceCwd,
       executionMachines: this.cfg.executionMachines,
+      machinePool: this.cfg.machinePool,
       tools: { customTools: filteredCustomTools, codingTools: filteredCodingTools, readOnly, toolExposure },
       logger: this.logger,
       register,
@@ -1816,6 +1820,7 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig,
     identityPromptDir: config.identityPromptDir,
     createTools: config.createTools,
     executionMachines: config.executionMachines,
+    machinePool: config.machinePool,
     healingRepo: config.healingRepo,
     signalRepo: config.signalRepo,
     rhiSignalRepo: config.rhiSignalRepo,

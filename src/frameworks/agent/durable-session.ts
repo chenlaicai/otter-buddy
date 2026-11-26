@@ -8,6 +8,8 @@ import {
   type Registry, type ToolHooks, type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { createCodingTools } from "@earendil-works/pi-durable/tools";
+import { createMachineScopedCodingTools } from "./machine-scoped-coding-tools";
+import type { ExecutionMachinePoolSnapshot } from "@usecases/ports/execution-machine";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
 import type { Logger } from "@usecases/ports/logger";
@@ -50,6 +52,8 @@ export interface DurableSessionOptions {
   onHaltFirstBlock?: (directive: unknown) => void;
   /** Host hook seam for tool-result boundary tests and observability. */
   afterTool?: ToolHooks["afterTool"];
+  /** 执行机池快照回调（机器必选参数的 fail-closed 校验清单源；缺省时 gate 降级文案）。 */
+  machinePool?: () => Promise<ExecutionMachinePoolSnapshot>;
 }
 
 /** One per-otter store/writer. Never share a conversation across otters. */
@@ -73,7 +77,12 @@ export class DurableSession {
   readonly model: Model<Api>;
   readonly contextWindow?: number;
   private readonly registry: Registry;
-  private readonly codingTools = createCodingTools();
+  /** SDK coding 工具面：machinePool 装配时为执行机壳（machine 必选），缺省退回 SDK 原生
+   *  （旧测试/旧装配零变化；生产装配经 app.ts 恒注入 machinePool，生产语义恒为机器必选）。 */
+  private readonly codingTools: ReturnType<typeof createCodingTools> | ReturnType<typeof createMachineScopedCodingTools>;
+  /** SDK 侧会话 cwd（env 工厂最近一次收到的 EnvTarget.cwd）——执行机壳重建 env 用。
+   *  时序由 SDK 保证：每个工具调用先构造 env 再 execute，wrapper 读到的必是本调用的 cwd。 */
+  private lastEnvCwd?: string;
   private readonly deferredTools: string[];
   private readonly otterExtension: ReturnType<typeof defineExtension>;
   private toolSearchExtension?: ReturnType<typeof defineExtension>;
@@ -113,8 +122,16 @@ export class DurableSession {
         },
       })],
     });
+    this.codingTools = options.machinePool
+      ? createMachineScopedCodingTools({
+        machinePool: options.machinePool,
+        resolveMachine: id => options.executionMachines.resolve(id),
+        sessionCwd: () => this.lastEnvCwd ?? options.cwd,
+        conversationId: () => otterInvokeStorage.getStore()?.currentConversationId,
+      })
+      : createCodingTools();
     this.registry = createRegistry();
-    this.registry.install(createCodingTools());
+    this.registry.install(this.codingTools as never);
     this.registry.install(this.otterExtension);
   }
 
@@ -127,6 +144,9 @@ export class DurableSession {
       registry: session.registry,
       env: async ({ cwd }) => {
         const conversationId = otterInvokeStorage.getStore()?.currentConversationId;
+        // 记录 SDK 会话 cwd：执行机壳按显式 machine 重建 env 时需同源 cwd（执行机壳的
+        // 环境替换发生在工具 execute 内，此处构造的默认机 env 会被其丢弃——轻对象无副作用）。
+        if (cwd !== undefined) session.lastEnvCwd = cwd;
         const machine = options.executionMachines.resolveForConversation
           ? await options.executionMachines.resolveForConversation(conversationId)
           : options.executionMachines.resolve();

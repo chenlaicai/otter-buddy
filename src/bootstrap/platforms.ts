@@ -162,6 +162,7 @@ export async function createAgentGateway(options: {
   const agentGateway = await initAgentSessionFactory({
     model, modelPool, db,
     executionMachines: options.executionMachines,
+    machinePool: options.machinePool,
     otterToolClient: null,
     sessionDir: options.sessionDir,
     // Why: 默认目录基于代码位置解析；注入参数 override 优先
