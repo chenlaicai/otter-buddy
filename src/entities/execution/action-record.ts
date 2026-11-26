@@ -65,7 +65,10 @@ export interface ActionRecord {
   /** {"exitCode":0} / {"bytes":123} / {"deleted":"file"} / {"source":"..."} */
   resultSummary: string | null;
   bootEpoch: number;
+  /** shell.exec 为动作进程组 ID；其他动作缺省为执行进程 PID。 */
   pid: number | null;
+  /** OS 返回的组长启动时间；旧台账行可能没有，缺失时禁止猜测回收。 */
+  processStartedAt?: string | null;
   startedAt: string;
   settledAt: string | null;
 }
@@ -85,6 +88,8 @@ export interface StartActionInput {
   contentHash?: string | null;
   contentBytes?: number | null;
   pid?: number | null;
+  /** shell 动作组长的 OS 启动时间，供旧 boot 回收前核对 PGID 身份。 */
+  processStartedAt?: string | null;
 }
 
 export type SettleVerdict =

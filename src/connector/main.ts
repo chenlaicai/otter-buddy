@@ -54,6 +54,7 @@ import { ShellActionExecutor } from "./shell-action-executor";
 import { FileActionExecutor } from "./file-action-executor";
 import { acquireInstanceLock, releaseInstanceLock } from "./instance-lock";
 import { askHubUrl, isInteractive, runFirstRunWizard, type DeviceIdentity } from "./first-run-wizard";
+import { ConnectorLogger, connectorLogFilePath } from "./logger";
 
 interface Args {
   hub?: string;
@@ -139,8 +140,13 @@ async function pairWithHub(hub: string, code: string, name: string): Promise<Dev
   return identity;
 }
 
+// 运行日志目的地是本地文件而非 stdout（反压治理第二轮）：stdout 接无人消费的 PTY 时
+// 任何形态的 write 都会卡内核（同步卡主循环 / 异步卡线程池导致 process.exit 挂起），
+// 文件是唯一不反压的目的地。启动早期（logger 未建）的 log() 走惰性创建。
+let connectorLogger: ConnectorLogger | null = null;
+
 function log(message: string, meta?: Record<string, unknown>): void {
-  process.stdout.write(`${JSON.stringify({ ts: new Date().toISOString(), msg: message, ...meta })}\n`);
+  (connectorLogger ??= new ConnectorLogger(connectorLogFilePath())).log(message, meta);
 }
 
 let seq = 0;
@@ -372,6 +378,8 @@ async function obtainIdentityWhenMissing(): Promise<DeviceIdentity> {
  *  > 身份文件记住的 hubUrl > 交互补问 hub；非交互且无法确定 → usage 退出（脚本化语义不变）。
  *  hubUrl 回写：换中枢/首次 --hub 连接时同步到 device.json（地址非秘密）。 */
 async function establishIdentityAndHub(args: Args): Promise<{ identity: DeviceIdentity; hub: string }> {
+  // 日志去向对维护者可见（stdout 不再承载运行日志——反压治理后 stdout 静默）
+  process.stderr.write(`运行日志: ${connectorLogFilePath()}\n`);
   let identity = await loadIdentity();
   let hub = args.hub ?? null;
 

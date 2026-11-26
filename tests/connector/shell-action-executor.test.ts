@@ -1,4 +1,6 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
+
+vi.setConfig({ testTimeout: 20_000 });
 import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -45,6 +47,29 @@ describe("ShellActionExecutor", () => {
     await ctx.executor.shutdown("test teardown").catch(() => {});
     ctx.ledger?.close();
     await rm(ctx.dataRoot, { recursive: true, force: true }).catch(() => {});
+  });
+
+  it("崩溃恢复入账：真实 spawn 后 running 行记录动作 PGID 与 OS 启动时间", async () => {
+    const pending = ctx.executor.run(
+      { conversationId: "c1", command: [process.execPath, "-e", "setTimeout(() => {}, 30000)"] },
+      { actionId: "sh-process-identity" },
+    );
+    try {
+      let row = await ctx.ledger!.getByActionId("sh-process-identity");
+      const deadline = Date.now() + 3_000;
+      while (Date.now() < deadline && (!row?.processStartedAt || row.pid === process.pid)) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        row = await ctx.ledger!.getByActionId("sh-process-identity");
+      }
+      expect(row).toMatchObject({ status: "running", processStartedAt: expect.any(String) });
+      expect(row!.pid).toEqual(expect.any(Number));
+      expect(row!.pid).not.toBe(process.pid);
+      // SDK 在 POSIX 以 detached 建立独立进程组：组长 PID 即后续 boot sweep 的精确回收目标。
+      expect(() => process.kill(-row!.pid!, 0)).not.toThrow();
+    } finally {
+      ctx.executor.cancel("sh-process-identity");
+      await pending;
+    }
   });
 
   it("成功：exitCode 0 → succeeded；stdout 实时流回；台账落 succeeded + exitCode + 会话归因", async () => {

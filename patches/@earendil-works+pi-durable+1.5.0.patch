@@ -1,0 +1,33 @@
+diff --git a/node_modules/@earendil-works/pi-durable/dist/env/index.d.ts b/node_modules/@earendil-works/pi-durable/dist/env/index.d.ts
+index 1852e44..651e5dd 100644
+--- a/node_modules/@earendil-works/pi-durable/dist/env/index.d.ts
++++ b/node_modules/@earendil-works/pi-durable/dist/env/index.d.ts
+@@ -241,6 +241,7 @@ export interface ShellExecOptions {
+     env?: Record<string, string>;
+     inheritEnv?: boolean;
+     timeout?: number;
++    onSpawn?: (pid: number) => void;
+     /**
+      * Every decoded chunk of stdout and stderr as it arrives, in arrival order, with the stream it came from: raw,
+      * unbounded, and unthrottled. Each stream is decoded separately, so a character split across chunks survives.
+diff --git a/node_modules/@earendil-works/pi-durable/dist/env/node.js b/node_modules/@earendil-works/pi-durable/dist/env/node.js
+index 120ff20..105f17a 100644
+--- a/node_modules/@earendil-works/pi-durable/dist/env/node.js
++++ b/node_modules/@earendil-works/pi-durable/dist/env/node.js
+@@ -746,8 +746,15 @@ export class NodeExecutionEnv {
+                     stdio: [stdinCommand === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+                     windowsHide: true,
+                 });
+-                if (child.pid)
++                if (child.pid) {
+                     this.activeChildPids.add(child.pid);
++                    try {
++                        options?.onSpawn?.(child.pid);
++                    }
++                    catch (error) {
++                        failCallback(toError(error));
++                    }
++                }
+                 if (stdinCommand !== undefined) {
+                     child.stdin?.on("error", () => { });
+                     child.stdin?.end(stdinCommand);

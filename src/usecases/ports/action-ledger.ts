@@ -22,6 +22,9 @@ export interface ActionLedger {
    */
   start(input: StartActionInput): Promise<{ record: ActionRecord; deduped: boolean }>;
 
+  /** 动作真实进程身份；只允许更新当前 boot 的 running 行。 */
+  recordProcessGroup?(actionId: string, identity: { pgid: number; processStartedAt: string | null }): Promise<void>;
+
   /** 动作裁决落账（succeeded/failed/interrupted）。行不存在时静默（非致命）。 */
   settle(actionId: string, verdict: SettleVerdict, settledAt?: string): Promise<void>;
 
