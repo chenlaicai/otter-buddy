@@ -31,6 +31,7 @@ import type { UnfurlController } from "./controllers/unfurl-controller";
 import type { MahjongController } from "./controllers/mahjong-controller";
 import type { ConnectorPairController } from "./controllers/connector-pair-controller";
 import type { ConnectorOnboardingController } from "./controllers/connector-onboarding-controller";
+import { machinePoolSnapshot } from "@usecases/execution/execution-machine-pool";
 
 
 
@@ -327,12 +328,13 @@ function registerExecutionMachineRoutes(app: Hono, plumbing: RouterPlumbingOptio
   // 投影下线即注销，离线设备只有 devices 表可见；「已配对设备含在线状态点」）。
   if (plumbing?.executionMachines) {
     app.get("/api/execution-machines", async (ctx) => {
-      const currentId = plumbing.executionMachines!.currentId();
-      const local = plumbing.executionMachines!.list().find(m => m.id === currentId)
-        ?? { id: currentId, name: currentId };
-      const devices = (await plumbing.executionMachines!.deviceStatus?.())
-        ?.map(d => ({ id: d.deviceId, name: d.name, online: d.online, lastSeenAt: d.lastSeenAt })) ?? [];
-      return ctx.json({ machines: [local, ...devices], currentMachineId: currentId });
+      // 单一投影：与 agent list_execution_machines 工具共用 machinePoolSnapshot
+      // （两处独立拼装会漂移）。
+      const snapshot = await machinePoolSnapshot(
+        { list: () => plumbing.executionMachines!.list(), currentMachineId: () => plumbing.executionMachines!.currentId() },
+        plumbing.executionMachines!.deviceStatus,
+      );
+      return ctx.json(snapshot);
     });
   }
 

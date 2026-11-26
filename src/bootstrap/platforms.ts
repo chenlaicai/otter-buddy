@@ -22,6 +22,7 @@ import { collectStateInventory, renderStateInventory } from "@frameworks/agent/s
 import { scanWorkspaceFiles, renderFileTrail } from "@frameworks/agent/file-trail-extractor";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { ExecutionMachineRouter } from "@usecases/ports/execution-machine";
+import type { ExecutionMachinePoolSnapshot } from "@usecases/ports/execution-machine";
 import type { Repositories, UseCases } from "./types";
 import { WorkLedgerBinder } from "@usecases/health/work-ledger-binder";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
@@ -29,6 +30,8 @@ import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-schedu
 import type { AttachmentUploadService } from "@usecases/conversation/attachment-upload-service";
 import { resolveSessionCwd } from "@frameworks/agent/session-cwd-resolver";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import type { AgentTool } from "@usecases/ports/agent-tools";
+import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { SignalRouter } from "@usecases/conversation/signal-router";
 import type { AgentTurnPort } from "@usecases/ports/agent-turn-port";
@@ -83,10 +86,32 @@ import { resolveFeatureGates } from "./feature-gates";
 
 // FeishuBundle 随静态线退役删除（见 createFeishuBundle 注释）
 
-/** upload_device_file 双依赖挂 ToolContext（tool-factory 按字段存在性注册该工具）。
- *  env 解析与 DurableSession env 工厂同链路（resolveForConversation → createExecutionEnvironment）——
- *  SDK coding face 语义：设备绝对路径/~/file:// 由设备侧执行机解析，不碰 workspace 管理面。
- *  attachmentUpload 未到位的装配（早期 invoke）只缺该工具，不影响其余工具集。 */
+/** 执行机池感知数据源挂 ToolContext（list_execution_machines 注册条件；缺省不注入） */
+function injectMachinePool(ctx: ToolContext, machinePool?: () => Promise<ExecutionMachinePoolSnapshot>): void {
+  if (machinePool) ctx.listExecutionMachines = machinePool;
+}
+
+/** 构建 agent 工具集（从 createAgentGateway 抽出，函数行预算/可读性）：
+ *  依赖注入（attachmentUpload / machinePool）+ createTools 透传。
+ *  注册权归 tool-factory 单点（alpha 实测：重复注册遇 durable registry validateExtension 重名抛错、
+ *  otter extension 拒载、invoke 必炸——此处只透传 repo）。 */
+function buildOtterTools(
+  ctx: ToolContext,
+  repo: HealingEventRepository | undefined,
+  log: Logger | undefined,
+  options: Parameters<typeof createAgentGateway>[0],
+  lateRefs: { mst: ManageScheduledTask | null; attach: AttachmentUploadService | null },
+): AgentTool[] {
+  const scheduledTaskDeps = lateRefs.mst
+    ? { manage: lateRefs.mst, pending: options.repos.scheduledTaskPending }
+    : undefined;
+  injectUploadChannel(ctx, lateRefs.attach, options);
+  injectMachinePool(ctx, options.machinePool);
+  return createTools(ctx, repo, log, options.toolActionRunner ?? options.executionMachines, scheduledTaskDeps);
+}
+
+/** upload_device_file 双依赖挂 ToolContext（tool-factory 按字段存在性注册该工具）：
+ *  env 解析与 DurableSession env 工厂同链路；attachmentUpload 未到位的装配只缺该工具，不影响其余工具集。 */
 function injectUploadChannel(
   ctx: ToolContext,
   attachmentUpload: AttachmentUploadService | null,
@@ -118,6 +143,7 @@ export async function createAgentGateway(options: {
   identityPromptDir?: string;
   /** OS/工作区动作执行机路由（组合根已注册内置 local；SDK env 构造面恒走此实例） */
   executionMachines: ExecutionMachineRouter;
+  machinePool?: () => Promise<ExecutionMachinePoolSnapshot>;
   /** 工具面动作路由器（对话级当前机；缺省退化
    *  executionMachines——零行为变化，测试/旧装配兼容） */
   toolActionRunner?: ActionRunner;
@@ -129,11 +155,9 @@ export async function createAgentGateway(options: {
   setSliceLogger(fields => {
     logger.info('[keeprecent-slice] cut', fields);
   });
-  // Why: manageScheduledTask 在 initUseCases 之后才可用，用 mutable ref 延迟注入
-  let manageScheduledTaskRef: ManageScheduledTask | null = null;
-  // attachmentUpload 同 manageScheduledTask 的延迟注入模式（initUseCases 后 app.ts 回填）——
-  // upload_device_file 的显式上传通道依赖它
-  let attachmentUploadRef: AttachmentUploadService | null = null;
+  // Why: manageScheduledTask/attachmentUpload 在 initUseCases 之后才可用，用 mutable ref 延迟注入
+  // （initUseCases 后 app.ts 回填；upload_device_file 的显式上传通道依赖 attachmentUpload）
+  const lateRefs = { mst: null as ManageScheduledTask | null, attach: null as AttachmentUploadService | null };
   // OtterToolClient 循环依赖：先注入空占位，initUseCases 后通过 resolveOtterToolClient 注入真实实例
   const agentGateway = await initAgentSessionFactory({
     model, modelPool, db,
@@ -142,18 +166,7 @@ export async function createAgentGateway(options: {
     sessionDir: options.sessionDir,
     // Why: 默认目录基于代码位置解析；注入参数 override 优先
     identityPromptDir: options.identityPromptDir ?? path.resolve(getRepoRoot(), "prompts/identity"),
-    createTools: (ctx, repo, log) => {
-      const scheduledTaskDeps = manageScheduledTaskRef
-        ? { manage: manageScheduledTaskRef, pending: repos.scheduledTaskPending }
-        : undefined;
-      // upload_device_file 双依赖挂 ToolContext（tool-factory 按字段存在性注册该工具）。
-      injectUploadChannel(ctx, attachmentUploadRef, options);
-      const tools = createTools(ctx, repo, log, options.toolActionRunner ?? options.executionMachines, scheduledTaskDeps);
-      // alpha 实测修复：此处追加与 tool-factory.ts 的 `if (healingRepo)` 注册
-      // 同源重复——旧 SDK 不查重名无症状，durable registry validateExtension 遇重名抛错、
-      // otter extension 拒载、invoke 必炸。注册权归 tool-factory 单点，此处只透传 repo。
-      return tools;
-    },
+    createTools: (ctx, repo, log) => buildOtterTools(ctx, repo, log, options, lateRefs),
     healingRepo: repos.healingEvent,
     signalRepo: repos.signalEvent,
     // matters 仓库注入——list_matters/transition_matter 注册条件
@@ -184,8 +197,8 @@ export async function createAgentGateway(options: {
   return {
     agentGateway,
     resolveOtterToolClient: (client) => agentGateway.setOtterToolClient(client),
-    resolveManageScheduledTask: (mst) => { manageScheduledTaskRef = mst; },
-    resolveAttachmentUpload: (svc) => { attachmentUploadRef = svc; },
+    resolveManageScheduledTask: (mst) => { lateRefs.mst = mst; },
+    resolveAttachmentUpload: (svc) => { lateRefs.attach = svc; },
   };
 }
 

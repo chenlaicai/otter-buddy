@@ -4,6 +4,7 @@ import type { EdgeType } from "@entities/memory/memory-edge";
 import { NIGHT_REVIEW_RANGE_CONTEXT_KEY } from "@entities/memory/consolidation-state";
 import { createListArtifactsTool, createUpdateArtifactStatusTool, createArchiveArtifactForReconciliationTool } from "./artifact-tools";
 import { createUploadDeviceFileTool } from "./upload-device-file";
+import { createListExecutionMachinesTool } from "./list-execution-machines-tool";
 import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool } from "./message-tools";
 /** 前后端共享常量，单一真相源在 @contract/api/html-card */
@@ -2252,6 +2253,9 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     // upload_device_file：显式上传通道（设备/本地文件 → 中枢附件存储）。
     // 注册条件 = 双依赖齐备（装配层注入）；缺任一则不出现，旧装配零变化。
     ...(ctx.attachmentUpload && ctx.resolveExecutionEnv ? [createUploadDeviceFileTool(ctx)] : []),
+    // list_execution_machines：执行机资源池感知（deferred）。
+    // 注册条件 = 数据源注入（装配层）；缺省不出现，旧装配零变化。
+    ...(ctx.listExecutionMachines ? [createListExecutionMachinesTool(ctx)] : []),
   ];
   /** 第五轮审视：manage_healing_events 此前未注册（pre-existing bug）——本 PR SYSTEM.md 显式引用了它，必须确保运行时可用 */
   if (healingRepo) {

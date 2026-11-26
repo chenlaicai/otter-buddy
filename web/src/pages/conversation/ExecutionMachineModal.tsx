@@ -18,6 +18,8 @@ interface MachineEntry {
   name: string
   online?: boolean
   lastSeenAt?: string
+  /** 显式本机信号（共享投影 local 行恒携带；isDevice 判别不靠 online 字段缺省推断） */
+  local?: boolean
 }
 
 interface RemoteActionEntry {
@@ -124,7 +126,7 @@ export function ExecutionMachineModal({ conversationId, onClose, onSwitched }: P
     }
   }
 
-  const isDevice = (m: MachineEntry) => m.online !== undefined
+  const isDevice = (m: MachineEntry) => m.local !== true
 
   return (
     <Modal isOpen onClose={onClose} title="执行机与远程动作" width="max-w-lg">

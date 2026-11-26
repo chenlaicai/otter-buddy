@@ -129,3 +129,21 @@ export interface ExecutionMachineResolver {
 
 /** Composition-root injection port: action execution plus explicit target resolution. */
 export interface ExecutionMachineRouter extends ActionRunner, ExecutionMachineResolver {}
+
+/** 执行机池快照条目（感知层投影——local 恒在线且带 local:true 显式信号；device 侧 online/lastSeenAt 由 connectorRegistry 投影） */
+export interface ExecutionMachinePoolEntry {
+  id: string;
+  name: string;
+  online: boolean;
+  /** 设备最近在线时间（ISO）；local 恒为 null（中枢进程在跑即在线，无离线历史语义）。 */
+  lastSeenAt: string | null;
+  /** 显式本机信号（仅 local 行；Web isDevice 判别与后续 PR-3 平权池语义用，不靠字段缺省推断） */
+  local?: boolean;
+}
+
+/** 执行机资源池快照（/api/execution-machines 与 list_execution_machines 工具共用同一投影） */
+export interface ExecutionMachinePoolSnapshot {
+  machines: ExecutionMachinePoolEntry[];
+  /** 当前默认执行机 id（路由序的最终回退；语义随 PR-2/PR-3 迭代，本字段仅陈述现状） */
+  currentMachineId: string;
+}

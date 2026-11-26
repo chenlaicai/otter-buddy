@@ -13,7 +13,8 @@
     "triage_signal": "deferred",
     "workspace_info": "deferred",
     "get_html_card_contract": "deferred",
-    "restart_service": "deferred"
+    "restart_service": "deferred",
+    "list_execution_machines": "deferred"
   },
   "capabilityBlocks": {
     "memory": {
@@ -60,7 +61,7 @@
       ]
     },
     "system": {
-      "description": "系统工具（参与者/卡片/定时/自愈/信号台账查询/待办板/工作账本登记）",
+      "description": "系统工具（参与者/卡片/定时/自愈/信号台账查询/待办板/工作账本登记/执行机池感知）",
       "tools": [
         "get_active_participants",
         "get_html_card_contract",
@@ -70,7 +71,8 @@
         "list_matters",
         "transition_matter",
         "track_work",
-        "restart_service"
+        "restart_service",
+        "list_execution_machines"
       ]
     },
     "orchestration": {

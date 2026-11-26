@@ -174,9 +174,10 @@ describe("执行机投影端点（/api/execution-machines）", () => {
     const cookie = cookieOf(login);
     const res = await app.request("/api/execution-machines", { headers: { Cookie: `otter_session=${cookie}` } });
     expect(res.status).toBe(200);
-    const body = await res.json() as { machines: Array<{ id: string; name: string }>; currentMachineId: string };
+    const body = await res.json() as { machines: Array<{ id: string; name: string; online: boolean; lastSeenAt: string | null }>; currentMachineId: string };
+    // local 补齐 online/lastSeenAt（与设备条目同构；共享投影给 agent 感知工具）
     expect(body).toEqual({
-      machines: [{ id: "local", name: "本机" }],
+      machines: [{ id: "local", name: "本机", online: true, lastSeenAt: null, local: true }],
       currentMachineId: "local",
     });
   });
@@ -198,7 +199,7 @@ describe("执行机投影端点（/api/execution-machines）", () => {
     expect(body.machines.map(m => m.id)).toEqual(["local", "connector-b", "connector-c"]);
     expect(body.machines.find(m => m.id === "connector-b")).toMatchObject({ online: true, lastSeenAt: "2026-11-18T06:00:00Z" });
     expect(body.machines.find(m => m.id === "connector-c")).toMatchObject({ online: false, lastSeenAt: "2026-11-17T00:00:00Z" });
-    expect(body.machines.find(m => m.id === "local")!.online).toBeUndefined(); // local 不带 online 字段
+    expect(body.machines.find(m => m.id === "local")).toMatchObject({ online: true, lastSeenAt: null, local: true }); // local 恒在线 + local:true 显式信号（isDevice 判别不靠字段缺省）
   });
 
   it("阶段 5：deviceStatus 缺省 → 仅 local（旧装配兼容退化）", async () => {
@@ -206,8 +207,8 @@ describe("执行机投影端点（/api/execution-machines）", () => {
     const login = await appNoStatus.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: OWNER_PASSWORD }) });
     const cookie = cookieOf(login);
     const res = await appNoStatus.request("/api/execution-machines", { headers: { Cookie: `otter_session=${cookie}` } });
-    const body = await res.json() as { machines: Array<{ id: string }> };
-    expect(body.machines).toEqual([{ id: "local", name: "本机" }]);
+    const body = await res.json() as { machines: Array<{ id: string; online: boolean; lastSeenAt: string | null }> };
+    expect(body.machines).toEqual([{ id: "local", name: "本机", online: true, lastSeenAt: null, local: true }]);
   });
 });
 
