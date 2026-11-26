@@ -52,7 +52,7 @@ export interface RhiSignalDTO {
 // ── overview：GET /api/health/overview ──
 
 export interface RhiOverviewDTO {
-  /** 指标键 camelCase（DB 存储键 snake_case 的序列化投影）：totalCommits / commitsWithFid / compliantCommits / skippedCommits / bugfixCount / bugfixRatio / bugfixRatioOfFid */
+  /** 指标键 camelCase（DB 存储键 snake_case 的序列化投影）：totalCommits / commitsWithFid / compliantCommits / skippedCommits / bugfixCount / bugfixRatio / bugfixRatioOfFid；vec 卫生可用时另含 memoryVecTotal / memoryVecLive / memoryVecOrphan / memoryVecOrphanRatio */
   metrics: Record<string, number>
   snapshotDate: string | null
   openSignals: number

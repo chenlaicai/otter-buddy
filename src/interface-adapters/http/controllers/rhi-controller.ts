@@ -72,6 +72,7 @@ function buildChainStateReason(
 const OVERVIEW_KEYS = [
   "total_commits", "commits_with_fid", "compliant_commits", "skipped_commits",
   "bugfix_count", "bugfix_ratio", "bugfix_ratio_of_fid",
+  "memory_vec_total", "memory_vec_live", "memory_vec_orphan", "memory_vec_orphan_ratio",
 ] as const;
 
 /** snake_case 指标键 → camelCase 序列化投影（API 命名对齐，DB 存储键不动） */

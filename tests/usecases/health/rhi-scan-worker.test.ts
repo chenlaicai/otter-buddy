@@ -296,6 +296,27 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     expect(typeof overall.metricValue).toBe("number");
   });
 
+  it("memoryVecAudit 复用 scanOnce 快照，向现有日报 overview 提供孤儿率与阈值元数据", async () => {
+    const sinkCalls: Array<{ date: string; rows: import("@usecases/health/snapshot-rows").CreateSnapshotRow[] }> = [];
+    const worker = new RhiScanWorker(repoDir, makePipeline(db), async () => [], console as never, {
+      prSource: async () => [],
+      snapshotSink: (date, rows) => sinkCalls.push({ date, rows }),
+      memoryVecAudit: () => ({ total: 4, live: 3, orphan: 1, orphanRatio: 0.25 }),
+    });
+
+    const result = await worker.scanOnce();
+    expect(result.metricsStored).toBe(23);
+    const byKey = new Map(sinkCalls[0]!.rows.map(row => [row.metricKey, row]));
+    expect(byKey.get("memory_vec_total")).toMatchObject({ metricType: "memory_vec", metricValue: 4 });
+    expect(byKey.get("memory_vec_live")).toMatchObject({ metricValue: 3 });
+    expect(byKey.get("memory_vec_orphan")).toMatchObject({ metricValue: 1 });
+    expect(byKey.get("memory_vec_orphan_ratio")).toMatchObject({ metricValue: 0.25 });
+    expect(JSON.parse(byKey.get("memory_vec_orphan_ratio")!.metadata!)).toEqual({
+      warningThreshold: 0.05,
+      alertThreshold: 0.2,
+    });
+  });
+
   it("snapshotSink 未注入时快照跳过且不报错（向后兼容）", async () => {
     const pipeline = makePipeline(db);
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, { prSource: async () => [] });
