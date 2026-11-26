@@ -76,8 +76,10 @@ export interface AppConfig {
     rrfK: number;
     /** Vec 权重（0-1），0=纯 FTS，1=纯 Vec，默认 0.4（偏信任 FTS） */
     alpha: number;
-    /** Vec 相似度阈值，低于此值的结果被过滤，默认 0.3 */
+    /** Vec 相似度阈值，低于此值的结果被过滤，默认 0.1 */
     vecSimilarityThreshold: number;
+    /** Vec 候选池深度（vec0 KNN k），默认 20——独立于 query.limit（原池深=limit 隐式耦合，两路与 FTS 池 50 不对称） */
+    vecCandidateLimit: number;
     /** 两路命中（source=both）的加成系数，默认 1.2 */
     bothBoost: number;
     /** 本对话来源条目排序加成系数，默认 1.5 */
@@ -311,6 +313,7 @@ interface RawConfig {
     rrfK?: number;
     alpha?: number;
     vecSimilarityThreshold?: number;
+    vecCandidateLimit?: number;
     bothBoost?: number;
     /** 本对话来源条目排序加成系数（默认 1.5） */
     currentConversationBoost?: number;
@@ -658,10 +661,11 @@ function buildMemoryConfig(raw: RawConfig): AppConfig["memory"] {
   return {
     rrfK: d(raw.memory?.rrfK, 60),
     alpha: d(raw.memory?.alpha, 0.4),
-    vecSimilarityThreshold: d(raw.memory?.vecSimilarityThreshold, 0.3),
+    vecSimilarityThreshold: d(raw.memory?.vecSimilarityThreshold, 0.1),
+    vecCandidateLimit: d(raw.memory?.vecCandidateLimit, 20),
     bothBoost: d(raw.memory?.bothBoost, 1.2),
     currentConversationBoost: d(raw.memory?.currentConversationBoost, 1.5),
-    weightHalfLifeDays: d(raw.memory?.weightHalfLifeDays, 7),
+    weightHalfLifeDays: d(raw.memory?.weightHalfLifeDays, 14),
     weightHalfLifeDaysDocument: d(raw.memory?.weightHalfLifeDaysDocument, 90),
     userFlagMultiplier: d(raw.memory?.userFlagMultiplier, 2.0),
     frequencyBoostFactor: d(raw.memory?.frequencyBoostFactor, 0.1),

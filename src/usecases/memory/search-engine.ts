@@ -67,8 +67,11 @@ export interface SearchEngineConfig {
   rrfK: number;
   /** Vec 权重（0-1），0=纯 FTS，1=纯 Vec，默认 0.4（偏信任 FTS） */
   alpha: number;
-  /** Vec 相似度阈值，低于此值的结果被过滤，默认 0.3 */
+  /** Vec 相似度阈值，低于此值的结果被过滤，默认 0.1 */
   vecSimilarityThreshold: number;
+  /** Vec 候选池深度（vec0 KNN k），默认 20。原池深跟随 query.limit（search-memory.ts）隐式耦合，
+   *  与 FTS 池 50 不对称；评测 t0.1-k20-h14 验证池深 20 且扫描延迟不增（全表扫，k 不影响扫描量级）。 */
+  vecCandidateLimit?: number;
   /** 两路命中（source=both）的加成系数，默认 1.2 */
   bothBoost: number;
   /** 本对话来源记忆条目的排序加成系数（>1），默认 1.5——
@@ -101,6 +104,9 @@ export const DEFAULT_RERANK_WEIGHTS: RerankWeights = {
   bConv: 0.05,
   freqCap: 10,
 };
+
+/** Vec 候选池深度缺省：配置为可选字段，构造回填与跨 usecase 接线共用此常量防漂移。 */
+export const DEFAULT_VEC_CANDIDATE_LIMIT = 20;
 
 export interface RrfHit {
   entryId: string;
@@ -153,6 +159,7 @@ export class SearchEngine {
       rerank: config.rerank ?? DEFAULT_RERANK_WEIGHTS,
       supersededPenalty: config.supersededPenalty ?? 0.3,
       beliefBoost: config.beliefBoost ?? 2.0,
+      vecCandidateLimit: config.vecCandidateLimit ?? DEFAULT_VEC_CANDIDATE_LIMIT,
     };
   }
 
