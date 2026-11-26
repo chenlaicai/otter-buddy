@@ -183,15 +183,17 @@ export function checkMergeFactResource(
   // 否定形态（NOT MERGED / NOT CLOSED / 未合入 / 未合并）不计终态。
   // 残余边界：同一行内混排多个 PR 时以「号在行内出现 + 行内有终态词」近似绑定，
   // 构造性行内错配靠 evidence 全文审计留痕兜底（事后可查可追责）。
-  const hasTerminal = evidence
-    .split(/\r?\n|；|;/)
-    .some(rawLine => {
-      // 日期形态先剥离（日期年份恰好等于声明 PR 号时会误配；对抗回归用例钉住）
-      const line = rawLine.replace(/\d{4}-\d{2}-\d{2}/g, "[date]");
-      if (!/\b(MERGED|CLOSED)\b/i.test(line)) return false;
-      if (/\bNOT[ -]?MERGED\b|\bNOT[ -]?CLOSED\b|未合入|未合并/i.test(line)) return false;
-      return prNums.some(n => new RegExp(`(?<!\\d)${n}(?!\\d)`).test(line));
-    });
+  // 终态证据采用结构化格式钉（delta 2 根治）：自由文本上的语义近似（词/号聚合、
+  // 行绑定）均被对抗输入证伪（跨行拼合、行内混排、日期撞号、否定变体）——改为钉
+  // 「gh pr view <对应号> … → MERGED/CLOSED」单行单 PR 终态结构：号与终态词在同一
+  // gh 命令引用内、箭头后紧跟终态词（容许 --json state 等查询参数与 state: 前缀），
+  // 中间不得跨行或插入其他 PR 引用。伪造该结构属故意作弊，由 evidence 全文审计留痕兜底。
+  const hasTerminal = prNums.some(n =>
+    new RegExp(
+      `gh\\s+pr\\s+view\\s+#?${n}(?!\\d)\\s+[^\\n]*?(?:→|->|-->|==>)\\s*(?:state\\s*[:=]\\s*)?"?(MERGED|CLOSED)"?`,
+      "i",
+    ).test(evidence),
+  );
   if (!hasTerminal) return { ok: false, reason: "no_terminal_evidence" };
   return { ok: true, prNums };
 }

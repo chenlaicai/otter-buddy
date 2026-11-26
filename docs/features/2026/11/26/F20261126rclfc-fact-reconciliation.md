@@ -6,7 +6,7 @@ change_type: fix
 capability_test: "n/a: 集成测试 manage-key-info-reconciliation.integration.test.ts 新增 3 用例（现场放行 + 四类拒绝面 fail-closed），真实 sqlite 库验证审计三列落痕"
 intent:
   problem: "日报对账段（prompts/scheduled/daily-health-check.md）要求跨对话「合入事实」fact 经 archive_artifact_for_reconciliation 归档，但工具白名单仅 pr/worktree/branch——fact 一律拒绝。已合入事实长期滞留 active，反复制造对账噪声；其他对话无合法替代入口，直接改库绕过审计与归属闸。"
-  solution: "实体层新增 checkMergeFactResource 结构判据（单一真相源）：resourceType=fact + title 含「合入」+ body #N PR 号可解析 + evidence 含 MERGED/CLOSED 终态词且提及对应号 → 放行并写审计三列；三类结构缺陷（非合入事实/无法解析 PR/非终态证据缺失）分类 fail-closed 报错；file/url/game 白名单外仍一律拒绝。工具 description 同步契约。"
+  solution: "实体层 checkMergeFactResource 结构判据（单一真相源）：resourceType=fact + title 含「合入」+ body #N PR 号可解析 + evidence 存在「gh pr view <对应号> … → MERGED/CLOSED」结构化终态（号与终态词同一 gh 引用内，箭头后紧跟终态词）→ 放行并写审计三列；三类结构缺陷（非合入事实/无法解析 PR/非终态证据缺失）分类 fail-closed 报错；file/url/game 白名单外仍一律拒绝。工具 description 同步契约。"
   expected_effect: "跨对话合入事实可带机器证据经对账路径归档（issue 现场样本形态：title「AI 雷达持久化入库完成（PR #1378 已合入）」+ evidence「gh pr view 1378 --json state → MERGED」）；非合入事实、无号、无终态证据、号不匹配四类仍拒绝且不写库。"
   verify_by:
     type: behavior_check
@@ -44,6 +44,14 @@ modules: [src/entities/conversation/conversation.ts, src/usecases/conversation/m
   - 修复后：新增 3 用例全绿——现场放行（审计三列落痕断言）+ 四类拒绝面（非合入/无号/无终态词/号不匹配，全部不写库）。
 - **全量**：tsc --noEmit 0 错误；eslint 0 错误（第一稿判据内联触发 max-lines/max-statements/unused-import 三错，重构为实体层单一真相源后归零——判据收敛顺带修设计冗余）；tests/usecases + architecture + interface-adapters 全目录 3196/3196。
 
+### Delta 1 复核处置（发现 1 未闭环 + 文档漂移 + CI no_review）
+
+| 发现 | 处置 |
+| --- | --- |
+| 发现 1 未闭环：行内混排/双空格否定/斜杠日期三类变体仍放行 | **根治换型**：放弃自由文本语义近似（行绑定被同类变体证伪），改为结构化格式钉——evidence 须含「gh pr view <对应号> … → MERGED/CLOSED」单行单 PR 终态结构；delta 1 三变体 + 行内混排竖线/斜杠日期两个 delta 2 变体全部回归钉死 |
+| 文档/PR body 口径漂移（6/6→7/7、3196→3197、行绑定旧口径） | 本节与残留表已更新至结构化判据口径 |
+| CI head_not_covered | delta 2 复核回执覆盖新 head 后解锁 |
+
 ## 影响范围
 
 - archive_artifact_for_reconciliation 工具（fact 判据扩展；pr/worktree/branch 路径零变化）；日报对账段与工具契约一致化；审计三列模型原样。
@@ -52,7 +60,8 @@ modules: [src/entities/conversation/conversation.ts, src/usecases/conversation/m
 
 | 项 | 需要搭档介入 | 说明 |
 | --- | --- | --- |
-| 跨仓 fact 的 #N 归属仓未区分 | 不需要 | evidence 号匹配只做数字交集，跨仓同号概率极低且审计 evidence 全文留痕可查；如现网出现误配再收紧 |
+| 结构化证据格式是准入门槛 | 不需要 | evidence 须含 `gh pr view <对应号> … → MERGED/CLOSED` 结构（与日报对账段操作指引同型）；自由文本近似判据被对抗输入证伪后放弃（delta 2 收紧） |
+| 跨仓 fact 的 #N 归属仓未区分 | 不需要 | gh 引用号与 fact 声明号精确绑定（非集合交集），跨仓同号各查各的证据；审计 evidence 全文留痕可查 |
 | 日报对账段 prompt 无需改动 | 不需要 | 真相源本来就是它，本修复是工具侧对齐 |
 
 ## Rollback

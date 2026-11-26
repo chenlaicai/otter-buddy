@@ -63,25 +63,37 @@ describe("对抗回归：拼凑证据不再被放行（终态词与号同行绑�
       await linkFactArtifactAt(repo, ids[1]);
       await linkFactArtifactAt(repo, ids[2]);
 
-      // 日期年份撞号：evidence 实际查的是 9999（OPEN），日期年份恰好等于 title 声明的 PR 号
+      // 日期年份撞号 + 邻行 MERGED（delta 1 变体 a）：实际查 9999（OPEN）
       await expect(uc.archiveResourceForReconciliation({
         artifactId: ids[0], operatorOtterId: "otter-operator",
         evidence: "gh pr view 9999 --json state → OPEN\n审计时间 2026-11-26 已 MERGED 归档完成",
       })).rejects.toThrow("PR 终态");
 
-      // 跨行拼合：9999 MERGED 行 + 1378 OPEN 行——号与终态词不在同一行
+      // 跨行拼合（delta 1 变体 b）：9999 MERGED 行 + 1378 OPEN 行
       await expect(uc.archiveResourceForReconciliation({
         artifactId: ids[1], operatorOtterId: "otter-operator",
         evidence: "gh pr view 9999 --json state → MERGED\ngh pr view 1378 --json state → OPEN",
       })).rejects.toThrow("PR 终态");
 
-      // 否定形态：1378 行写 NOT MERGED 不算终态
+      // 否定形态（delta 1 变体 c）：OPEN; NOT MERGED（含双空格变体）
       await expect(uc.archiveResourceForReconciliation({
         artifactId: ids[2], operatorOtterId: "otter-operator",
-        evidence: "gh pr view 1378 --json state → OPEN; NOT MERGED，还在改",
+        evidence: "gh pr view 1378 --json state → OPEN; NOT  MERGED，还在改",
       })).rejects.toThrow("PR 终态");
 
-      // 合法对照：同行「号 + 终态」照常放行
+      // delta 2 变体：行内混排竖线（9999 MERGED | 1378 OPEN 同一行）——号与终态不在同一 gh 引用内
+      await expect(uc.archiveResourceForReconciliation({
+        artifactId: ids[1], operatorOtterId: "otter-operator",
+        evidence: "gh pr view 9999 --json state → MERGED | gh pr view 1378 --json state → OPEN",
+      })).rejects.toThrow("PR 终态");
+
+      // delta 2 变体：斜杠日期撞号（2026/11/26 撞 #2026）+ gh 引用查的是 9999
+      await expect(uc.archiveResourceForReconciliation({
+        artifactId: ids[0], operatorOtterId: "otter-operator",
+        evidence: "gh pr view 9999 --json state → OPEN；审计 2026/11/26 MERGED 完成",
+      })).rejects.toThrow("PR 终态");
+
+      // 合法对照：单行单 PR 结构化终态（gh pr view 1378 … → MERGED）
       await tool.execute("atk-ok", { artifactId: ids[2], evidence: "gh pr view 1378 --json state → MERGED" });
       expect(db.prepare("SELECT status FROM linked_resources WHERE id = ?").pluck().get(ids[2])).toBe("archived");
       for (const id of [ids[0], ids[1]]) {
