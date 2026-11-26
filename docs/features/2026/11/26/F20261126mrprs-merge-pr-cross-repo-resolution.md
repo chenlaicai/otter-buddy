@@ -50,6 +50,16 @@ modules: [src/interface-adapters/agent-runtime/tools/tool-factory.ts, scripts/ch
 - **全量**：tsc --noEmit 0 错误；tests/interface-adapters/ 全目录 + check-pr-review-closure.test.ts = 886/886 通过；merge-pr-tool.test.ts 46/46。
 - **环境既有失败排除**：tests/scripts/memory-vec-hygiene.test.ts 4 失败为 sqlite 环境依赖，main 基线（主仓直接跑）同样失败，与本修复无关（改动面不含 memory_vec）。
 
+## Delta（检视发现处置，PR #2065 第一轮审视 2 严重 + 3 建议）
+
+| 发现 | 处置 |
+| --- | --- |
+| 1（B1 CI）PR body 测试改动声明缺「方向」字段被闸拦 | 补声明段（方向：收紧——闭环脚本加 --repo 缺参 fail-closed 校验，防线增强） |
+| 2（B2/B3 声明不符）body/文档声称 title 带 repo 实际只有 content | **补 title**（选修复不选订正声明：审计 title 是列表视图唯一可见行，同号跨仓区分正是本修复目标位），新增用例钉住 |
+| 3（建议）URL 号不可解析形态静默丢号 | 正则收紧：pull/pulls 路径形态号不可解析（pull/abc、pull//123）显式拒绝；pulls/123 复数形态顺手支持（号可解析即走核对），新增 3 形态判别用例 |
+| 4（建议）跨仓 docs-only 豁免恒失效 | 记录为已知边界（残留表新增行，fail-closed 方向不修） |
+| 5（建议）裸仓库主页 URL（无尾斜杠）被拒 | 正则放宽：github.com/o/n 合法（解析 repo-only），新增用例 |
+
 ## 影响范围
 
 - merge_pr 工具（新增可选入参，存量调用零破坏）；check-pr-review-closure.mjs（新增可选 --repo）；授权闸/时间闸/短话术闸/审计判定语义零改动。
@@ -59,6 +69,7 @@ modules: [src/interface-adapters/agent-runtime/tools/tool-factory.ts, scripts/ch
 | 项 | 需要搭档介入 | 说明 |
 | --- | --- | --- |
 | 「工作区 remote 回退」层未实现 | 不需要 | ToolContext 无数据源，事实边界（见设计取舍）；跨仓显式传 repo 已覆盖全部现网场景 |
+| 跨仓 docs-only 豁免恒失效 | 不需要 | 闭环脚本豁免判定用本地 git diff，跨仓 headRefOid 不在本地仓必败 → 跳过豁免（fail-closed 方向，非绕过面）；跨仓 docs-only PR 将被要求检视回执，与本仓行为不对称（检视发现 4，PR #2065 delta 记录） |
 | #2037 提到的「诱使绕闸」历史案例审计缺失 | 不需要 | 属既有事故（11-25 已手工合入），本修复防止复发，不追溯 |
 
 ## Rollback

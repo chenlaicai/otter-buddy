@@ -802,3 +802,45 @@ describe('F20261126mrprs merge_pr 跨仓解析（repo 入参 + gh 显式 --repo�
     expect(warnCalls.some(m => m.includes('AUTHORIZATION') && m.includes('colink-group/CoLink'))).toBe(true);
   });
 });
+
+describe('F20261126mrprs delta：检视发现处置（URL 边界收紧 + 审计 title 带 repo）', () => {
+  beforeEach(() => {
+    execFileMock.mockReset();
+  });
+
+  it('检视发现 3：PR 路径形态号异常 → 不静默丢号（可解析则走号核对，不可解析则显式拒绝）', async () => {
+    stubGh('OPEN');
+    const tool = findMergePr(makeCtx());
+    // 号不可解析形态 → 结构化拒绝（防止线静默消失）
+    for (const bad of ['https://github.com/o/n/pull/abc', 'https://github.com/o/n/pull//123', 'https://github.com/o/n/pulls/abc']) {
+      const r = await tool.execute('d1', { prNumber: 1095, partnerApproval: '1095合入，你更新下', repo: bad });
+      expect(JSON.stringify(r), `形态 ${bad} 应拒绝`).toContain('无法解析出编号');
+    }
+    // pulls/123（复数形态）→ 号可解析 → 走号核对拒绝（而非旧实现的静默 repo-only）
+    const typoPlural = await tool.execute('d1b', { prNumber: 1095, partnerApproval: '1095合入，你更新下', repo: 'https://github.com/o/n/pulls/123' });
+    expect(JSON.stringify(typoPlural)).toContain('不一致');
+    expect(execFileMock.mock.calls.length).toBe(0); // 全部在参数校验层拒绝
+  });
+
+  it('检视发现 5：裸仓库主页 URL（无尾斜杠）合法 → 解析 repo-only', async () => {
+    stubGh('OPEN', '2026-11-26T09:00:00.000Z');
+    const tool = findMergePr(makeCtx(vi.fn().mockResolvedValue({ id: 'res-1' }), vi.fn().mockResolvedValue([
+      { id: 'ue-c1', entryType: 'user', senderType: 'user', senderId: 'user', body: '4052合入', sequenceNum: 201, createdAt: '2026-11-26T10:00:00.000Z' },
+    ])));
+    await tool.execute('d2', { prNumber: 4052, partnerApproval: '4052合入', repo: 'https://github.com/colink-group/CoLink' });
+    const mergeCall = execFileMock.mock.calls.find(c => (c[1] as string[])[1] === 'merge');
+    expect(mergeCall).toBeDefined();
+    expect((mergeCall![1] as string[])).toContain('colink-group/CoLink');
+  });
+
+  it('检视发现 2：审计 title 也带 repo（列表视图同号跨仓可区分）', async () => {
+    stubGh('OPEN', '2026-11-26T09:00:00.000Z');
+    const linkMock = vi.fn().mockResolvedValue({ id: 'res-d3' });
+    const tool = findMergePr(makeCtx(linkMock, vi.fn().mockResolvedValue([
+      { id: 'ue-c1', entryType: 'user', senderType: 'user', senderId: 'user', body: '4052合入', sequenceNum: 201, createdAt: '2026-11-26T10:00:00.000Z' },
+    ])));
+    await tool.execute('d3', { prNumber: 4052, partnerApproval: '4052合入', repo: 'colink-group/CoLink' });
+    const linkArg = linkMock.mock.calls[0]![0];
+    expect(linkArg.title).toContain('colink-group/CoLink');
+  });
+});

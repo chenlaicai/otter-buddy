@@ -1030,8 +1030,14 @@ function createWaitTool(): AgentTool {
 export function resolveTargetRepo(raw: unknown): { repo?: string; urlPrNumber?: number; error?: string } {
   if (raw == null || raw === "") return {};
   const text = String(raw).trim();
-  const url = /^https?:\/\/(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)\/(?:pull\/(\d+))?/i.exec(text);
-  if (url) {
+  // 裸仓库主页 URL（github.com/o/n，无尾斜杠）同样合法——浏览器复制常态（检视发现 5，PR #2065）
+  const url = /^https?:\/\/(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)?(?:\/(?:pull(?:s)?\/((?:\d+)?)))?/i.exec(text);
+  if (url && url[2]) {
+    // PR 路径形态但号不可解析（pulls/123 复数 typo、pull/abc、pull// 等）→ 显式拒绝：
+    // 号核对防线不能在捕获失败时静默消失（检视发现 3，PR #2065）
+    if (/\/pulls?\//i.test(text) && !url[3]) {
+      return { error: `[错误] repo 参数中的 PR 路径无法解析出编号：「${text.slice(0, 80)}」。请传完整 PR URL（https://github.com/owner/name/pull/123）或 owner/name + prNumber。` };
+    }
     return { repo: `${url[1]}/${url[2]}`, ...(url[3] ? { urlPrNumber: Number(url[3]) } : {}) };
   }
   if (!/^[\w.-]+\/[\w.-]+$/.test(text)) {
@@ -1237,12 +1243,12 @@ function buildMergeAuditRecord(
     s.length > 480 ? `${s.slice(0, 480)}…（超长截断）` : s;
   if (rejected) {
     return {
-      title: `PR #${prNumber} 合入授权拒绝记录`,
+      title: `PR #${prNumber}${repoDesc} 合入授权拒绝记录`,
       content: cap500(`PR #${prNumber}${repoDesc} 合入授权拒绝（AUTHORIZATION_REJECTED ${rejected.reasonCode}）：搭档原话「${truncQuote(partnerApproval)}」${anchorDesc}（拒绝理由：${rejected.reasonBrief.slice(0, 60)}，调用獭 ${otterId}）`),
     };
   }
   return {
-    title: `PR #${prNumber} 合入授权记录`,
+    title: `PR #${prNumber}${repoDesc} 合入授权记录`,
     content: cap500(`PR #${prNumber}${repoDesc} 合入授权：搭档原话「${truncQuote(partnerApproval)}」${anchorDesc}（策略 ${strategy}，调用獭 ${otterId}）`),
   };
 }
