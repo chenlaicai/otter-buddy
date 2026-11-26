@@ -49,7 +49,7 @@ healing `273b6ed5-7f5e-4ac8-b559-9be82bc39733` 记录：`create_otter` 拒绝 sk
 - `npm run lint:skills` → 16 skills OK（14 条存量 warning）。
 - `git diff --check` → 通过。
 
-契约测试锁两点：模型分配段必须引用运行时清单与 `get_active_participants`；不得再出现固定任务→别名映射和 mimo 族推荐。
+契约测试锁两点：模型分配段必须引用运行时清单与 `get_active_participants`；不得再出现固定任务→别名映射和 mimo 族推荐。独立审视后，固定映射检测从三个旧任务名扩展为通用的「任务特征 → ASCII 别名」形态，并用大小写与新任务名变体做正则自检；mimo 检测同步改为大小写不敏感。
 
 锚点重放：n/a——本单只改模型选择资料来源，没有对应 LLM golden 场景；机械防回归由文档契约测试承担。
 
