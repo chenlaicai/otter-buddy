@@ -29,7 +29,7 @@ modules: [src/entities/conversation/conversation.ts, src/usecases/conversation/m
 
 - 修法类别：**narrow-fix**（机制识别：修复工具与日报真相源的既有契约不一致——日报段早已定义「合入事实可归档」的行为，工具白名单未跟上；不新增防线/决策点，审计三列模型原样复用）。
 - 改动点：
-  1. 实体层 `checkMergeFactResource`（判据单一真相源，结构校验不含外部命令）：fact + title 含「合入」+ body `#N` 可解析 + evidence 含 `\b(MERGED|CLOSED)\b` 终态词且词边界数字含对应号 → `{ok:true}`；三类缺陷返回结构化 reason。
+  1. 实体层 `checkMergeFactResource`（判据单一真相源，结构校验不含外部命令）：fact + title 含「合入」+ body `#N` 可解析 + evidence 存在「gh pr view <对应号> … → MERGED/CLOSED」结构化终态（号与终态词同一 gh 引用内）→ `{ok:true}`；三类缺陷返回结构化 reason。〔僵局状态：此判据经两轮对抗证伪后收敛至结构化钉，当前冻结待搭档裁决方向——见「僵局记录」节〕
   2. `archiveResourceForReconciliation`：白名单外且非 fact → 原「非机械可判」拒绝；fact → 调判据，按 reason 分类报错（非合入事实 / 无法解析 PR 号 / 非终态证据缺失）。
   3. 工具 description 同步契约（可归档面、拒绝面、GOTCHA 不变）。
 - 设计取舍：
@@ -41,8 +41,8 @@ modules: [src/entities/conversation/conversation.ts, src/usecases/conversation/m
 
 - **失败用例证据（bugfix）**：
   - 修复前：issue 现场形态（fact + title 含合入 + #1378 + evidence MERGED）调用 → `非机械可判资源（fact）不能经对账路径归档`（issue 案发现场记录 + 修复前代码路径 `isReconciliationArchivableType` 白名单不含 fact，静态可证）。
-  - 修复后：新增 3 用例全绿——现场放行（审计三列落痕断言）+ 四类拒绝面（非合入/无号/无终态词/号不匹配，全部不写库）。
-- **全量**：tsc --noEmit 0 错误；eslint 0 错误（第一稿判据内联触发 max-lines/max-statements/unused-import 三错，重构为实体层单一真相源后归零——判据收敛顺带修设计冗余）；tests/usecases + architecture + interface-adapters 全目录 3196/3196。
+  - 修复后：7/7 用例全绿——现场放行（审计三列落痕断言）+ 四类拒绝面 + 对抗回归组（8 形态拼凑证据全部不写库；合法同行结构放行对照）。
+- **全量**：tsc --noEmit 0 错误；eslint 0 错误；tests/usecases + architecture + interface-adapters 全目录 3197/3197。
 
 ### Delta 1 复核处置（发现 1 未闭环 + 文档漂移 + CI no_review）
 
@@ -63,6 +63,17 @@ modules: [src/entities/conversation/conversation.ts, src/usecases/conversation/m
 | 结构化证据格式是准入门槛 | 不需要 | evidence 须含 `gh pr view <对应号> … → MERGED/CLOSED` 结构（与日报对账段操作指引同型）；自由文本近似判据被对抗输入证伪后放弃（delta 2 收紧） |
 | 跨仓 fact 的 #N 归属仓未区分 | 不需要 | gh 引用号与 fact 声明号精确绑定（非集合交集），跨仓同号各查各的证据；审计 evidence 全文留痕可查 |
 | 日报对账段 prompt 无需改动 | 不需要 | 真相源本来就是它，本修复是工具侧对齐 |
+
+## 僵局记录（2026-11-26，检视獭-rclfc 宣布）
+
+- 判据方向修补循环触发 review-loop 停止条件（连续 2 轮修复验证不通过）：
+  - 首轮「词/号全文聚合」→ delta 1「行绑定」→ delta 2「结构化格式钉」，每轮均被新对抗变体证伪（当前 head 仍可被「分号跨 gh 引用」「MERGED_BUT_NOT 词尾」两类输入误放行）。
+  - 教训：自由文本 evidence 的语义判定属**不可机械判定域**（每轮收紧只会移动变体空间，不收敛）。
+- 判据代码当前冻结于结构化钉形态（含已知两类残余绕过），等搭档裁决后续方向：
+  - **A 回退白名单**：撤销 fact 扩展，合入事实归档改人工路径（日报列「待人工」清单）——最保守，消灭噪声源
+  - **B 全锚定模板**：evidence 要求整体匹配单一 gh 输出模板（^gh pr view N … → MERGED$，锚定首尾）——残余变体空间趋零，代价是 evidence 格式硬约束
+  - **C 人工确认闸**：fact 归档提请后须经搭档/日报人工确认才落库——保留自动化但决策权归人
+- delta 2 复核报告：.review/review-2068.md（覆盖 edc1b5962）
 
 ## Rollback
 
