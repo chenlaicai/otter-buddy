@@ -63,31 +63,31 @@ describe("对抗回归：拼凑证据不再被放行（终态词与号同行绑�
       await linkFactArtifactAt(repo, ids[1]);
       await linkFactArtifactAt(repo, ids[2]);
 
-      // 日期年份撞号 + 邻行 MERGED（delta 1 变体 a）：实际查 9999（OPEN）
+      // 日期年份撞号 + 邻行 MERGED（对抗审视 变体 a）：实际查 9999（OPEN）
       await expect(uc.archiveResourceForReconciliation({
         artifactId: ids[0], operatorOtterId: "otter-operator",
         evidence: "gh pr view 9999 --json state → OPEN\n审计时间 2026-11-26 已 MERGED 归档完成",
       })).rejects.toThrow("PR 终态");
 
-      // 跨行拼合（delta 1 变体 b）：9999 MERGED 行 + 1378 OPEN 行
+      // 跨行拼合（对抗审视 变体 b）：9999 MERGED 行 + 1378 OPEN 行
       await expect(uc.archiveResourceForReconciliation({
         artifactId: ids[1], operatorOtterId: "otter-operator",
         evidence: "gh pr view 9999 --json state → MERGED\ngh pr view 1378 --json state → OPEN",
       })).rejects.toThrow("PR 终态");
 
-      // 否定形态（delta 1 变体 c）：OPEN; NOT MERGED（含双空格变体）
+      // 否定形态（对抗审视 变体 c）：OPEN; NOT MERGED（含双空格变体）
       await expect(uc.archiveResourceForReconciliation({
         artifactId: ids[2], operatorOtterId: "otter-operator",
         evidence: "gh pr view 1378 --json state → OPEN; NOT  MERGED，还在改",
       })).rejects.toThrow("PR 终态");
 
-      // delta 2 变体：行内混排竖线（9999 MERGED | 1378 OPEN 同一行）——号与终态不在同一 gh 引用内
+      // 对抗审视 变体：行内混排竖线（9999 MERGED | 1378 OPEN 同一行）——号与终态不在同一 gh 引用内
       await expect(uc.archiveResourceForReconciliation({
         artifactId: ids[1], operatorOtterId: "otter-operator",
         evidence: "gh pr view 9999 --json state → MERGED | gh pr view 1378 --json state → OPEN",
       })).rejects.toThrow("PR 终态");
 
-      // delta 2 变体：斜杠日期撞号（2026/11/26 撞 #2026）+ gh 引用查的是 9999
+      // 对抗审视 变体：斜杠日期撞号（2026/11/26 撞 对应编号）+ gh 引用查的是 9999
       await expect(uc.archiveResourceForReconciliation({
         artifactId: ids[0], operatorOtterId: "otter-operator",
         evidence: "gh pr view 9999 --json state → OPEN；审计 2026/11/26 MERGED 完成",
