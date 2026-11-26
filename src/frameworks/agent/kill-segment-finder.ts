@@ -10,9 +10,11 @@
  * (1) bash -c 支持引号包裹的内嵌命令（'kill N'/"kill N"/kill N）
  *                (2) 全模式加 i 标志（大小写不敏感）
  */
-export const KILL_COMMANDS = /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:~\/[^\s]+\/)?(?:[A-Za-z_]\w*=\S+\s+)*(?:env\s+|timeout\s+\S+\s+|nohup\s+|command\s+|nice\s+-?n?\s*\d*\s+)*(?:kill|skill)\b|(?:bash|sh)\s*-c\s*[\s'"]?(?:kill|skill|pkill|killall)\b[^|;&]*/i;
-/** pkill/killall 族（含路径穿透，加 i 标志） */
-export const PKILL_COMMANDS = /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:~\/[^\s]+\/)?(?:pkill|pgrep|killall|killall5)\b/i;
+export const KILL_COMMANDS = /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:~\/[^\s]+\/)?(?:(?<!-)[A-Za-z_]\w*=\S+\s+)*(?:env\s+|timeout\s+\S+\s+|nohup\s+|command\s+|nice\s+-?n?\s*\d*\s+)*(?:kill|skill)\b|(?:bash|sh)\s*-c\s*[\s'"]?(?:kill|skill|pkill|killall)\b[^|;&]*/i;
+/** pkill/killall 族（含路径穿透，加 i 标志）。
+ *  注：pgrep 是「查询进程 PID」非「杀进程」，不在此族；
+ *  纯 pgrep 查询放行，「pgrep → kill」数据流由 psgrep 通道（pgrepMatchesMain）回收。 */
+export const PKILL_COMMANDS = /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:~\/[^\s]+\/)?(?:pkill|killall|killall5)\b/i;
 
 /**
  * 位置感知匹配——regex match 必须出现在命令位置（段首或 shell 操作符后）。
@@ -90,9 +92,17 @@ function operatorCharIsQuoted(text: string, i: number): boolean {
 
 /** 命令位置前缀词剥除——这些词的语义是「执行后面的命令」，循环剥除直到词元抵段首。
  * 覆盖 攻击链 wrapper 变体（sudo/env/nohup/timeout/xargs/nice/command + 赋值前缀）。 */
-const COMMAND_PREFIX_WORD = /^(?:sudo|env|nohup|command|xargs|nice|watch|exec|time|timeout|do)\b\s+/;
+const COMMAND_PREFIX_WORD = /^(sudo|env|nohup|command|xargs|nice|watch|exec|time|timeout|do)\b\s+/;
 /** 前缀词的参数（-n1 / -I{} / 5 / VAR=val 等，timeout 的时长、nice 的优先级、赋值） */
 const PREFIX_ARG = /^(?:-\S+|\d+|[A-Za-z_]\w*=\S+)\s+/;
+/** xargs 带参短旗标（独立出现，后随空格）：下一 word 是参数，须连参数一并剥。
+ *  与 psgrep-token-scan.ts 的 XARGS_FLAGS_WITH_ARG 同口径（POSIX -E/-I/-L/-n/-s +
+ *  GNU -a/-d/-P 与弃用别名 -e）。 */
+const XARGS_FLAG_WITH_ARG = /^-(?:[adeEILnPs])(?=\s)/;
+/** xargs 带参长选项（GNU，独立出现，后随空格）：下一 word 是参数，须连参数一并剥。
+ *  与 psgrep-token-scan.ts 的 XARGS_LONG_WITH_ARG 同口径；--xxx=V 粘连形态参数已并入
+ *  token，由 PREFIX_ARG 的 -\S+ 整剥，不需额外跳。 */
+const XARGS_LONG_WITH_ARG = /^--(?:arg-file|delimiter|eof|replace|max-lines|max-args|max-procs|max-chars)(?=\s)/;
 
 /** 循环剥除命令前缀词及其参数；返回剥除后的剩余串（空串 = 词元前只有前缀词序列） */
 function stripCommandPrefixes(text: string): string {
@@ -100,11 +110,20 @@ function stripCommandPrefixes(text: string): string {
   for (let i = 0; i < 8; i++) { // 循环上限防御：前缀词嵌套深度有界（sudo env timeout 5 nice -n3 ...）
     const wordMatch = rest.match(COMMAND_PREFIX_WORD);
     if (!wordMatch) break;
+    const prefix = wordMatch[1];
     rest = rest.slice(wordMatch[0].length);
     while (true) { // 剥该前缀词的参数（timeout 5 / nice -n3 / xargs -n1 -I{} / FOO=1）
       const argMatch = rest.match(PREFIX_ARG);
       if (!argMatch) break;
       rest = rest.slice(argMatch[0].length);
+      // xargs 带参旗标（短 -d/-n/-I 或长 --delimiter/--replace/--arg-file/--eof/--max-*）
+      // 独立出现时（-d '\n' / --delimiter '\n'）：参数是下一个 shell word（可为引号词/花括号/裸词），
+      // PREFIX_ARG 的 flag/数字/赋值三分支不覆盖——不连参数一并剥会把参数当链尾命令名，
+      // kill 段定位不到，漏拦 pgrep | xargs --delimiter '\n' kill。
+      if (prefix === "xargs" && (XARGS_FLAG_WITH_ARG.test(argMatch[0]) || XARGS_LONG_WITH_ARG.test(argMatch[0]))) {
+        const paramMatch = rest.match(/^(?:'[^']*'|"(?:[^"\\]|\\[\s\S])*"|\S+)\s+/);
+        if (paramMatch) rest = rest.slice(paramMatch[0].length);
+      }
     }
   }
   return rest;
