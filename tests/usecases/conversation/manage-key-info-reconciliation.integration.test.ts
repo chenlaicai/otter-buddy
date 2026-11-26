@@ -63,7 +63,7 @@ describe("对抗回归：拼凑证据不再被放行（终态词与号同行绑�
       await linkFactArtifactAt(repo, ids[1]);
       await linkFactArtifactAt(repo, ids[2]);
 
-      // 日期年份撞号：evidence 实际查的是 9999（OPEN），日期 2026-11-26 的年份撞 #2026
+      // 日期年份撞号：evidence 实际查的是 9999（OPEN），日期年份恰好等于 title 声明的 PR 号
       await expect(uc.archiveResourceForReconciliation({
         artifactId: ids[0], operatorOtterId: "otter-operator",
         evidence: "gh pr view 9999 --json state → OPEN\n审计时间 2026-11-26 已 MERGED 归档完成",
