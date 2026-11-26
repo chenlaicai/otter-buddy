@@ -197,7 +197,7 @@ export class ManageKeyInfo {
    * 与普通 update_artifact_status 的关键差异：
    * 1. 不需 conversation 归属——按资源 ID 全局定位（resolve 目标是别的对话的产物）；
    * 2. 只能归档（status → archived），不能 superseded / 不能改其他字段；
-   * 3. 仅限机械终态可判资源类型（pr/worktree/branch）——fact/file/url/game 一律拒绝；
+   * 3. 机械终态可判资源类型 = pr/worktree/branch + 「合入事实」fact（结构判据见实体层）——file/url/game 及非合入 fact 一律拒绝；
    * 4. 必须附机器证据（如 `gh pr view 1801 --json state → MERGED`），写入审计列；
    * 5. 审计三列（archivedByOtterId / archivedAt / archiveEvidence）与目标 conversation 均留痕。
    *

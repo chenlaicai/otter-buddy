@@ -13,6 +13,86 @@ import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
  * 受控对账归档路径（archive_artifact_for_reconciliation）是唯一合法跨对话写入口；
  * 普通 update_artifact_status 对非所属对话仍 404。
  */
+const RECON_TARGET_CONVERSATION = "a9260c50-cef6-412e-a0b4-282287a13103";
+const RECON_OPERATOR_CONVERSATION = "3241317b-99d6-4d78-9248-ff208a7461bc";
+
+function linkFactArtifactAt(repo: SqliteConversationRepository, id: string, overrides: { title?: string; content?: string | null } = {}) {
+  return repo.linkResource({
+    id,
+    conversationId: RECON_TARGET_CONVERSATION,
+    resourceType: "fact",
+    url: null,
+    title: overrides.title ?? "AI 雷达持久化入库完成（PR #1378 已合入）",
+    content: overrides.content ?? null,
+    category: null,
+    userFlagged: false,
+    metadata: null,
+    linkedBy: "test",
+    otterId: null,
+    autoLinked: false,
+    createdAt: new Date().toISOString(),
+    status: "active",
+    groupId: null,
+    supersededBy: null,
+    archivedByOtterId: null,
+    archivedAt: null,
+    archiveEvidence: null,
+  });
+}
+
+describe("对抗回归：拼凑证据不再被放行（终态词与号同行绑定 + 日期剥离 + 否定排除）", () => {
+  function buildFixture() {
+    const db = createTestDb();
+    const now = new Date().toISOString();
+    db.prepare("INSERT INTO conversations (id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
+      RECON_TARGET_CONVERSATION, "target", "active", now, now,
+    );
+    const repo = new SqliteConversationRepository(db);
+    const memoryIndex = { indexLinkedResource: async () => {} } as unknown as MemoryIndexGateway;
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+    const client = { resource: buildResourceClient({ manageKeyInfo: uc } as never) } as unknown as OtterToolClient;
+    const ctx: ToolContext = { client, otterId: "otter-operator", conversationId: RECON_OPERATOR_CONVERSATION, currentMessageId: "msg-1" };
+    return { db, repo, uc, tool: createArchiveArtifactForReconciliationTool(ctx) };
+  }
+
+  it("拼凑证据三形态（跨行拼合/日期年份撞号/否定形态）拒绝；合法同行形态放行", async () => {
+    const { db, repo, uc, tool } = buildFixture();
+    try {
+      const ids = ["atk-a", "atk-b", "atk-c"];
+      await linkFactArtifactAt(repo, ids[0], { title: "评测工具集沉淀（#2026 已合入）" });
+      await linkFactArtifactAt(repo, ids[1]);
+      await linkFactArtifactAt(repo, ids[2]);
+
+      // 日期年份撞号：evidence 实际查的是 9999（OPEN），日期 2026-11-26 的年份撞 #2026
+      await expect(uc.archiveResourceForReconciliation({
+        artifactId: ids[0], operatorOtterId: "otter-operator",
+        evidence: "gh pr view 9999 --json state → OPEN\n审计时间 2026-11-26 已 MERGED 归档完成",
+      })).rejects.toThrow("PR 终态");
+
+      // 跨行拼合：9999 MERGED 行 + 1378 OPEN 行——号与终态词不在同一行
+      await expect(uc.archiveResourceForReconciliation({
+        artifactId: ids[1], operatorOtterId: "otter-operator",
+        evidence: "gh pr view 9999 --json state → MERGED\ngh pr view 1378 --json state → OPEN",
+      })).rejects.toThrow("PR 终态");
+
+      // 否定形态：1378 行写 NOT MERGED 不算终态
+      await expect(uc.archiveResourceForReconciliation({
+        artifactId: ids[2], operatorOtterId: "otter-operator",
+        evidence: "gh pr view 1378 --json state → OPEN; NOT MERGED，还在改",
+      })).rejects.toThrow("PR 终态");
+
+      // 合法对照：同行「号 + 终态」照常放行
+      await tool.execute("atk-ok", { artifactId: ids[2], evidence: "gh pr view 1378 --json state → MERGED" });
+      expect(db.prepare("SELECT status FROM linked_resources WHERE id = ?").pluck().get(ids[2])).toBe("archived");
+      for (const id of [ids[0], ids[1]]) {
+        expect(db.prepare("SELECT status FROM linked_resources WHERE id = ?").pluck().get(id)).toBe("active");
+      }
+    } finally {
+      db.close();
+    }
+  });
+});
+
 describe("archiveResourceForReconciliation（#1835）", () => {
   const RESOURCE_ID = "cb44aec8-b1a3-4616-bff8-8331bd0d3067"; // 真实资源 ID（issue 案发现场）
   const TARGET_CONVERSATION = "a9260c50-cef6-412e-a0b4-282287a13103"; // 资源所属对话
@@ -106,12 +186,12 @@ describe("archiveResourceForReconciliation（#1835）", () => {
     }
   });
 
-  // ── #2046：合入事实 fact 经对账路径归档（与日报对账段契约统一）──
+  // ── 合入事实 fact 经对账路径归档（与日报对账段契约统一）──
 
   function linkFactArtifact(repo: SqliteConversationRepository, overrides: { id?: string; title?: string; content?: string | null } = {}) {
     return repo.linkResource({
       id: overrides.id ?? RESOURCE_ID,
-      conversationId: TARGET_CONVERSATION,
+      conversationId: RECON_TARGET_CONVERSATION,
       resourceType: "fact",
       url: null,
       title: overrides.title ?? "AI 雷达持久化入库完成（PR #1378 已合入）",
@@ -132,7 +212,7 @@ describe("archiveResourceForReconciliation（#1835）", () => {
     });
   }
 
-  it("#2046 现场：跨对话合入事实 fact（title 含合入 + #N + evidence 终态含对应号）可归档，审计三列留痕", async () => {
+  it("现场：跨对话合入事实 fact（title 含合入 + #N + evidence 终态含对应号）可归档，审计三列留痕", async () => {
     const { db, repo, uc } = buildFixture();
     try {
       await linkFactArtifact(repo);
@@ -146,17 +226,18 @@ describe("archiveResourceForReconciliation（#1835）", () => {
       expect(result.status).toBe("archived");
       expect(result.archiveEvidence).toContain("1378");
       const row = db.prepare(
-        "SELECT status, archived_by_otter_id, archive_evidence FROM linked_resources WHERE id = ?",
-      ).get(RESOURCE_ID) as { status: string; archived_by_otter_id: string | null; archive_evidence: string | null };
+        "SELECT status, archived_by_otter_id, archived_at, archive_evidence FROM linked_resources WHERE id = ?",
+      ).get(RESOURCE_ID) as { status: string; archived_by_otter_id: string | null; archived_at: string | null; archive_evidence: string | null };
       expect(row.status).toBe("archived");
       expect(row.archived_by_otter_id).toBe("otter-operator");
+      expect(row.archived_at).toBeTruthy();
       expect(row.archive_evidence).toContain("MERGED");
     } finally {
       db.close();
     }
   });
 
-  it("#2046 拒绝面：非合入事实 / 无法解析 PR 号 / 无终态证据 / 号不匹配，四类均 fail-closed 不写库", async () => {
+  it("拒绝面：非合入事实 / 无法解析 PR 号 / 无终态证据 / 号不匹配，四类均 fail-closed 不写库", async () => {
     const { db, repo, uc } = buildFixture();
     try {
       // 每个子场景独立资源 ID（避免 UNIQUE 冲突），最后统一断言全部仍 active
@@ -174,13 +255,13 @@ describe("archiveResourceForReconciliation（#1835）", () => {
         artifactId: ids[1], operatorOtterId: "otter-operator", evidence: "gh pr view 1378 --json state → MERGED",
       })).rejects.toThrow("无法解析 PR 号");
 
-      // 合入事实 + #N 但 evidence 无终态词
+      // 合入事实但 evidence 无 PR 号与终态词
       await linkFactArtifact(repo, { id: ids[2] });
       await expect(uc.archiveResourceForReconciliation({
         artifactId: ids[2], operatorOtterId: "otter-operator", evidence: "看过了，没问题",
       })).rejects.toThrow("PR 终态");
 
-      // evidence 终态词在但号不匹配（#1378 vs evidence 只提 9999）
+      // evidence 终态词在但提及的是别的 PR（号不匹配）
       await linkFactArtifact(repo, { id: ids[3] });
       await expect(uc.archiveResourceForReconciliation({
         artifactId: ids[3], operatorOtterId: "otter-operator", evidence: "gh pr view 9999 --json state → MERGED",

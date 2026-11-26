@@ -150,7 +150,7 @@ export function canTransitionArtifactStatus(
  * 受控对账归档的资源类型白名单。
  * 机械终态可判的资源类型 = 有明确外部机器证据的交付物：
  * pr（PR MERGED/CLOSED）、worktree（路径不存在/PR 已合入）、branch（PR 已合入）。
- * fact 不在此列但可走 merge-fact 判据（isMergeFactResource——日报对账段真相源口径：
+ * fact 不在此列但可走 merge-fact 判据（checkMergeFactResource——日报对账段真相源口径：
  * title 含「合入」+ PR 号可解析 + evidence 含终态词与对应号）；file/url/game 一律拒绝。
  */
 export const RECONCILIATION_ARCHIVABLE_RESOURCE_TYPES: ReadonlySet<string> = new Set(["pr", "worktree", "branch"]);
@@ -178,9 +178,21 @@ export function checkMergeFactResource(
   const body = `${title} ${resource.content ?? ""}`;
   const prNums = [...body.matchAll(/#(\d+)/g)].map(m => m[1]);
   if (prNums.length === 0) return { ok: false, reason: "no_pr_number" };
-  if (!/\b(MERGED|CLOSED)\b/i.test(evidence)) return { ok: false, reason: "no_terminal_evidence" };
-  const evidenceNums = new Set([...evidence.matchAll(/\b(\d+)\b/g)].map(m => m[1]));
-  if (!prNums.some(n => evidenceNums.has(n))) return { ok: false, reason: "no_terminal_evidence" };
+  // 证据行绑定（对抗审视发现 1 修复）：终态词与对应 PR 号必须在**同一行**内绑定出现——
+  // 全文聚合匹配可被拼凑证据绕过（A 行 9999 MERGED + B 行 1378 OPEN、日期年份撞 #N 号）。
+  // 否定形态（NOT MERGED / NOT CLOSED / 未合入 / 未合并）不计终态。
+  // 残余边界：同一行内混排多个 PR 时以「号在行内出现 + 行内有终态词」近似绑定，
+  // 构造性行内错配靠 evidence 全文审计留痕兜底（事后可查可追责）。
+  const hasTerminal = evidence
+    .split(/\r?\n|；|;/)
+    .some(rawLine => {
+      // 日期形态先剥离（2026-11-26 的年份会撞 #N 号；对抗回归用例钉住）
+      const line = rawLine.replace(/\d{4}-\d{2}-\d{2}/g, "[date]");
+      if (!/\b(MERGED|CLOSED)\b/i.test(line)) return false;
+      if (/\bNOT[ -]?MERGED\b|\bNOT[ -]?CLOSED\b|未合入|未合并/i.test(line)) return false;
+      return prNums.some(n => new RegExp(`(?<!\\d)${n}(?!\\d)`).test(line));
+    });
+  if (!hasTerminal) return { ok: false, reason: "no_terminal_evidence" };
   return { ok: true, prNums };
 }
 export function isReconciliationArchivableType(resourceType: string): boolean {
