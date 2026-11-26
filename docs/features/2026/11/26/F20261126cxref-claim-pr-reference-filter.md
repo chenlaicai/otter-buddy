@@ -55,6 +55,7 @@ healing `e36685b9-f7b2-42fe-876b-a1bd06577ca2`：PR body 的「上一轮 #1974�
 - `npm run build`、`npm run lint:intent` 与 `git diff --check` 均通过。
 - 真实 GitHub API 正向：`node scripts/check-pr-claim.mjs --json-file /tmp/pr2001-narrative-pr.json`（body 仅「上一轮 #1974」）→ exit 0，明确跳过 PR/closed 引用。
 - 真实 GitHub API 负向：同脚本 `--json-file /tmp/pr2001-open-issue.json`（OPEN #2000、无有效认领）→ exit 1，`claim_missing_or_mismatch` 仅指向 #2000。
+- 主流程层回归（spawn + stub gh，检视发现 2 处置）：`npx vitest run tests/scripts/check-pr-claim.main-gate.test.ts` → **3/3 passed**——closed PR 引用零触达认领查询（exit 0）、类型/状态查询失败 exit 2 拒判、真实 OPEN issue 未认领 exit 1 仍拦。
 
 ## 验收标准
 
