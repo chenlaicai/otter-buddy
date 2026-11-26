@@ -368,8 +368,13 @@ const CREDENTIAL_PATH_PATTERNS = [
   /\.aws([/ "'$]|$)/,
 ];
 
-/** 明确写凭证目录：写/删/改动词 + 就地改写（sed/awk/gawk/perl/ruby -i / --in-place）+ 重定向/追加（> / >>） */
-const CRED_WRITE_RE = /\b(?:cp|mv|rm|install|tee|chmod|chown|chattr|truncate|ssh-keygen|touch|ln|rsync|dd|unlink)\b|\b(?:sed|gawk|awk|perl|ruby)\b[^\n;|&]*\s(?:-i(?:\.[A-Za-z]+)?|--in-place)\b|>>|>/;
+/** 明确写凭证目录：写/删/改动词 + 就地改写（sed/awk/gawk/perl/ruby -i / --in-place）+
+ *  重定向/追加重定向目标为凭证路径（重定向操作符 > / >> 后跟 .ssh/.gnupg/.aws 路径）。
+ *  注：#2000 修复——原 `>>`/`>/` 分支只匹配「> 后跟 /」，把 stderr 重定向
+ *  `2>/dev/null` 误判为写凭证，导致 SSH config 公开只读链被拦。收窄为：重定向操作符
+ *  须在命令边界（行首/空白/; & | 后），目标确为凭证路径才拦——fd 重定向
+ *  （2>/dev/null、2>&1）、尖括号占位（<pattern> ~/.ssh）与非凭证目标放行。 */
+const CRED_WRITE_RE = /\b(?:cp|mv|rm|install|tee|chmod|chown|chattr|truncate|ssh-keygen|touch|ln|rsync|dd|unlink)\b|\b(?:sed|gawk|awk|perl|ruby)\b[^\n;|&]*\s(?:-i(?:\.[A-Za-z]+)?|--in-place)\b|(?:^|[\s;&|])>>?\s*[^\s;&|]*\.(?:ssh|gnupg|aws)\b/;
 /** 明确读私钥/凭证本体：已知私钥名（id_* 非 .pub）/ .pem / .key / credentials / secring.gpg */
 const CRED_PRIVATE_READ_RE = /(?:id_rsa|id_ed25519|id_ecdsa|id_dsa|id_xmss)(?![\w.-]*\.pub)|\.pem\b|\.key\b|credentials\b|secring\.gpg\b/;
 

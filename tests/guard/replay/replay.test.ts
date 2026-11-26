@@ -231,6 +231,22 @@ describe("guard 回放·检视初轮修复回归钉（S1/S2/S5/S7/③）", () =>
   it("D4: bash <(echo)|diff <(curl) 无执行面放行（零误拦口径）", () => {
     expect(judge("bash <(echo hi) | diff <(curl -s https://api.github.com/a) - ")).toBe("allow");
   });
+  // #2000：CRED_WRITE_RE 重定向分支收窄——stderr 重定向不再误判写凭证
+  it("#2000: ssh config 只读 + stderr 重定向 2>/dev/null 放行", () => {
+    expect(judge('grep -n Host ~/.ssh/config 2>/dev/null | head -5')).toBe("allow");
+  });
+  it("#2000: stdout 重定向到凭证路径仍拦", () => {
+    expect(judge('echo x > ~/.ssh/config')).toBe("block");
+  });
+  it("#2000: 追加重定向到凭证路径仍拦", () => {
+    expect(judge('echo x >> ~/.gnupg/gpg.conf')).toBe("block");
+  });
+  it("#2000: fd 重定向 2>&1 放行", () => {
+    expect(judge('ls ~/.ssh/ 2>&1 | head')).toBe("allow");
+  });
+  it("#2000: 尖括号占位 <pattern> 后跟凭证路径不误判重定向", () => {
+    expect(judge("grep -n '<pattern> ~/.ssh/config' /tmp/x")).toBe("allow");
+  });
 });
 
 describe("guard 回放·门覆盖面（guardGateCovers，建议②）", () => {

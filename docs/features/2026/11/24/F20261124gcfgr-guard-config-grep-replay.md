@@ -1,18 +1,18 @@
 ---
 id: F20261124gcfgr
 title: 部署公开配置 grep 只读链误拦回放固化
-summary: 将 2026-11-23/24 的公开配置只读误拦与五条现行负门命令固化为回放，保留可证伪的守卫政策现场。
+summary: 将 2026-11-23/24 的公开配置只读误拦与现行负门命令固化为回放，并修复 CRED_WRITE_RE 重定向分支把 stderr 重定向误判为写凭证的根因（#2000）。
 change_type: bugfix
 tags: [guard, replay, regression]
 modules: [tests/guard/replay/cases-2026-10-29.ts]
 created_at: 2026-11-24
 intent:
   problem: "healing d536ca28 的部署只读命令在末段 grep SSH config 时被 cred_dir_access 拦截，与 #1892 已固化的公开配置只读放行政策不一致。"
-  expected_effect: "精确真实命令进入 ALLOW 回放；当前返回 BLOCK 时测试失败，修复后该样本与既有私钥负门同时通过。"
+  expected_effect: "精确真实命令进入 ALLOW 回放；修复 CRED_WRITE_RE 重定向分支后，d536ca28/55e01e59/4935d204 三条 SSH 公开只读样本转绿，0dea2289 按政策 A 改向 allow，既有私钥负门（cat/cp 私钥）不退化。"
   verify_by:
     type: static_only
     evidence:
-      - "npx vitest run tests/guard/replay/replay.test.ts：healing d536ca28 必须 allow，其他负门不退化。"
+      - "npx vitest run tests/guard/replay/replay.test.ts：healing d536ca28/55e01e59/4935d204 必须 allow，私钥负门必须 block。"
 capability_test: "n/a: 纯命令判定器静态回放，无 LLM 场景"
 ---
 
@@ -40,9 +40,27 @@ healing `d536ca28-692a-41eb-83bd-d68181a90e60` 的完整 toolcall 在读取部�
 | 79cd0623-d401-40ef-b961-1fd8faa305ea | 53b315ba-e53c-4e1b-a840-6ced0e6e0820 | 135 | 2026-11-24T08:59:46.726Z |
 | 2a658702-cc88-40d0-aae4-8d1d4c69b59c | bec0da17-134e-4300-b86f-c71183427c80 | 76 | 2026-11-24T10:33:30.762Z |
 
+## 守卫修复（#2000）
+
+### 根因
+
+`src/frameworks/agent/bash-safety-guard.ts` 的 `CRED_WRITE_RE` 重定向分支原为 `|>>|>/`——`>` 后紧跟 `/` 即判「写凭证」。SSH config 公开只读链普遍携带 `2>/dev/null`（stderr 重定向抑制错误输出），其中 `>` 后跟 `/dev/null` 命中 `>/`，被 cred_dir_access 误拦为「写凭证」。
+
+### 修复
+
+收窄重定向分支为 `(?:^|[\s;&|])>>?\s*[^\s;&|]*\.(?:ssh|gnupg|aws)\b`——重定向操作符须在命令边界（行首/空白/; & | 后），且目标确为凭证路径（.ssh/.gnupg/.aws）才拦。fd 重定向（`2>/dev/null`、`2>&1`）、尖括号占位（`<pattern> ~/.ssh`）、非凭证目标均放行。
+
+### 样本政策对齐
+
+`0dea2289`（2026-11-12 固化的负门：`grep -R ~/.ssh/config 2>/dev/null`）本是「含 .ssh 即拦」旧政策（#1892 前）遗留，其 block 判定依赖 `>/` 误拦 stderr 重定向。修复后按「政策 A 改向」惯例 expect block→allow（样本留在 mustBlockCases，测试自动按 allow 断言）。
+
+### 范围外披露（不修，交大獭裁决）
+
+`49a9b0c7`（pgrep 红）是 `0f9874302` 追加的第 4 个缺陷，根因 `kill-segment-finder.ts:15` 的 `PKILL_COMMANDS` 误含 `pgrep`（查询误当杀）。与 #2000（SSH config cred_dir_access）无关；简单移除 pgrep 会导致 `kill $(pgrep -f "dist/src/main.js")` 漏拦（安全退化，违反「不改变安全语义」），需独立方案分离「pgrep 查询」与「pgrep→kill 数据流」，不并入本 PR。
+
 ## Rollback
 
-Revert 本切片即删除该新增回放，不影响守卫实现。
+Revert 本切片即删除该新增回放与守卫修复，不影响其它实现。
 
 ## Golden Gate
 
@@ -50,4 +68,4 @@ Golden Gate: n/a（verify_by=static_only）。
 
 ## 测试改动声明
 
-方向：收紧。本分支合计新增 8 条回放（ALLOW 3 / BLOCK 5），零存量断言删改。
+方向：收紧。本分支合计新增 8 条回放（ALLOW 3 / BLOCK 5）+ `0dea2289` expect block→allow（政策 A 改向，非删改断言，属政策演进同步）。
