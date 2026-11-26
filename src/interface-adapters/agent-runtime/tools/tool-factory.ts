@@ -1021,17 +1021,42 @@ function createWaitTool(): AgentTool {
   };
 }
 
+/** merge_pr 子步骤：目标仓库解析——repo 入参（owner/name 或整条 PR URL）。
+ *  Why：gh 不带 --repo 时用进程 cwd 所属仓解析 PR 号，服务进程 cwd 是 otter-buddy 主仓，
+ *  被管理项目上的调用必然 "Could not resolve to a PullRequest"（100% 失效 +
+ *  授权审计随之断链，诱使绕闸）。ToolContext 无工作区路径数据源，「工作区 remote 回退」层不存在，
+ *  缺省保持 gh 进程 cwd 行为（本仓调用零变化），跨仓由入参显式声明。
+ *  返回 repo（owner/name 形态）与 urlPrNumber（URL 形态捎带的 PR 号，供与 prNumber 核对）。 */
+export function resolveTargetRepo(raw: unknown): { repo?: string; urlPrNumber?: number; error?: string } {
+  if (raw == null || raw === "") return {};
+  const text = String(raw).trim();
+  // 裸仓库主页 URL（github.com/o/n，无尾斜杠）同样合法——浏览器复制常态
+  const url = /^https?:\/\/(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)?(?:\/(?:pull(?:s)?\/((?:\d+)?)))?/i.exec(text);
+  if (url && url[2]) {
+    // PR 路径形态但号不可解析（pulls/123 复数 typo、pull/abc、pull// 等）→ 显式拒绝：
+    // 号核对防线不能在捕获失败时静默消失
+    if (/\/pulls?\//i.test(text) && !url[3]) {
+      return { error: `[错误] repo 参数中的 PR 路径无法解析出编号：「${text.slice(0, 80)}」。请传完整 PR URL（https://github.com/owner/name/pull/123）或 owner/name + prNumber。` };
+    }
+    return { repo: `${url[1]}/${url[2]}`, ...(url[3] ? { urlPrNumber: Number(url[3]) } : {}) };
+  }
+  if (!/^[\w.-]+\/[\w.-]+$/.test(text)) {
+    return { error: `[错误] repo 参数格式不正确：「${text.slice(0, 60)}」。请传 owner/name（如 example-org/example-repo）或整条 PR URL（https://github.com/owner/name/pull/123）。` };
+  }
+  return { repo: text };
+}
+
 /** merge_pr 子步骤：PR 状态门——返回 null 放行执行，否则返回终态响应（幂等/错误）。 */
-async function checkPrMergeable(prNumber: number): Promise<{ state: string; createdAt: string } | { terminal: ReturnType<typeof textResponse> | ReturnType<typeof errorResponse> }> {
+async function checkPrMergeable(prNumber: number, repo?: string): Promise<{ state: string; createdAt: string } | { terminal: ReturnType<typeof textResponse> | ReturnType<typeof errorResponse> }> {
   let prState: string;
   let prCreatedAt: string;
   try {
-    const { stdout } = await execFileAsync("gh", ["pr", "view", String(prNumber), "--json", "state,createdAt"], { timeout: 30_000 });
+    const { stdout } = await execFileAsync("gh", ["pr", "view", String(prNumber), ...(repo ? ["--repo", repo] : []), "--json", "state,createdAt"], { timeout: 30_000 });
     const pr = JSON.parse(stdout) as { state: string; createdAt: string };
     prState = pr.state;
     prCreatedAt = pr.createdAt;
   } catch (err) {
-    return { terminal: errorResponse(`[错误] 查询 PR #${prNumber} 状态失败：${err instanceof Error ? err.message : String(err)}`) };
+    return { terminal: errorResponse(`[错误] 查询 PR #${prNumber} 状态失败${repo ? `（repo=${repo}）` : ""}：${err instanceof Error ? err.message : String(err)}${repo ? "" : "\n提示：若目标是其他仓库（如 example-org/example-repo）的 PR，请传 repo 参数——gh 缺省用进程工作目录所属仓解析 PR 号，跨仓必 404。"}`) };
   }
   if (prState === "MERGED") return { terminal: textResponse(`PR #${prNumber} 已合入（幂等），无需重复操作`) };
   if (prState !== "OPEN") return { terminal: errorResponse(`[错误] PR #${prNumber} 状态为 ${prState}，不可合入`) };
@@ -1164,9 +1189,10 @@ async function writeMergeAudit(
     partnerApproval: string;
     approvalAnchor?: { id: string; sequenceNum: number; createdAt: string; body?: string };
     rejected?: { reasonCode: string; reasonBrief: string };
+    repo?: string;
   },
 ): Promise<void> {
-  const { prNumber, strategy, partnerApproval, rejected } = info;
+  const { prNumber, strategy, partnerApproval, rejected, repo } = info;
   const { title, content } = buildMergeAuditRecord(info, ctx.otterId);
   try {
     await ctx.client.resource.link({
@@ -1182,9 +1208,9 @@ async function writeMergeAudit(
     logger?.warn("[merge_pr] audit linked_resource failed (non-fatal)", { prNumber, reasonCode: rejected?.reasonCode, error: err instanceof Error ? err.message : String(err) });
   }
   if (rejected) {
-    logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED ${rejected.reasonCode} prNumber=${prNumber} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)} audit=linked_resource`);
+    logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED ${rejected.reasonCode} prNumber=${prNumber}${repo ? ` repo=${repo}` : ""} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)} audit=linked_resource`);
   } else {
-    logger?.warn(`[merge_pr] AUTHORIZATION prNumber=${prNumber} strategy=${strategy} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
+    logger?.warn(`[merge_pr] AUTHORIZATION prNumber=${prNumber}${repo ? ` repo=${repo}` : ""} strategy=${strategy} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
   }
 }
 /** merge_pr 子步骤：审计记录构造（纯函数，成功/拒绝两形态）。
@@ -1196,10 +1222,13 @@ function buildMergeAuditRecord(
     partnerApproval: string;
     approvalAnchor?: { id: string; sequenceNum: number; createdAt: string; body?: string };
     rejected?: { reasonCode: string; reasonBrief: string };
+    repo?: string;
   },
   otterId: string,
 ): { title: string; content: string } {
-  const { prNumber, strategy, partnerApproval, approvalAnchor, rejected } = info;
+  const { prNumber, strategy, partnerApproval, approvalAnchor, rejected, repo } = info;
+  // 跨仓标识：同号 PR 在不同仓库同名，审计不含 repo 则授权语境无法唯一回查
+  const repoDesc = repo ? `，repo=${repo}` : "";
   const hitExcerpt = approvalAnchor?.body ? `原文「${approvalAnchor.body.slice(0, 80)}」` : "";
   const anchorDesc = approvalAnchor
     ? `，命中锚点 entryId=${approvalAnchor.id} seq=${approvalAnchor.sequenceNum} createdAt=${approvalAnchor.createdAt} ${hitExcerpt}`.trimEnd()
@@ -1214,13 +1243,13 @@ function buildMergeAuditRecord(
     s.length > 480 ? `${s.slice(0, 480)}…（超长截断）` : s;
   if (rejected) {
     return {
-      title: `PR #${prNumber} 合入授权拒绝记录`,
-      content: cap500(`PR #${prNumber} 合入授权拒绝（AUTHORIZATION_REJECTED ${rejected.reasonCode}）：搭档原话「${truncQuote(partnerApproval)}」${anchorDesc}（拒绝理由：${rejected.reasonBrief.slice(0, 60)}，调用獭 ${otterId}）`),
+      title: `PR #${prNumber}${repoDesc} 合入授权拒绝记录`,
+      content: cap500(`PR #${prNumber}${repoDesc} 合入授权拒绝（AUTHORIZATION_REJECTED ${rejected.reasonCode}）：搭档原话「${truncQuote(partnerApproval)}」${anchorDesc}（拒绝理由：${rejected.reasonBrief.slice(0, 60)}，调用獭 ${otterId}）`),
     };
   }
   return {
-    title: `PR #${prNumber} 合入授权记录`,
-    content: cap500(`PR #${prNumber} 合入授权：搭档原话「${truncQuote(partnerApproval)}」${anchorDesc}（策略 ${strategy}，调用獭 ${otterId}）`),
+    title: `PR #${prNumber}${repoDesc} 合入授权记录`,
+    content: cap500(`PR #${prNumber}${repoDesc} 合入授权：搭档原话「${truncQuote(partnerApproval)}」${anchorDesc}（策略 ${strategy}，调用獭 ${otterId}）`),
   };
 }
 
@@ -1270,12 +1299,12 @@ function checkApprovalGates(
  *  dist/interface-adapters（实际是 dist/src/interface-adapters，深一层），
  *  拼出不存在的 dist/scripts 路径，首次真实合入即崩且被 fail-closed
  *  包装成「无有效检视回执」误导排障方向。 */
-async function checkReviewClosureOnPr(prNumber: number): Promise<{ terminal?: ReturnType<typeof errorResponse> }> {
+async function checkReviewClosureOnPr(prNumber: number, repo?: string): Promise<{ terminal?: ReturnType<typeof errorResponse> }> {
   try {
     const scriptPath = resolve(getRepoRoot(), "scripts", "check-pr-review-closure.mjs");
     await execFileAsync(
       "node",
-      [scriptPath, "--pr-number", String(prNumber)],
+      [scriptPath, "--pr-number", String(prNumber), ...(repo ? ["--repo", repo] : [])],
       { timeout: 60_000, maxBuffer: 1024 * 1024 },
     );
     return {}; // exit 0 = 闭环放行
@@ -1301,10 +1330,10 @@ async function checkReviewClosureOnPr(prNumber: number): Promise<{ terminal?: Re
 type MergeFailedCheck = { name: string; url?: string; conclusion: string };
 
 /** 合入拒绝后的只读诊断：把 GitHub 的通用 policy 文案落到可定位的 PR 状态与失败检查。 */
-async function queryMergeFailureDiagnostics(prNumber: number): Promise<{ mergeStateStatus: string; failedChecks: MergeFailedCheck[] }> {
+async function queryMergeFailureDiagnostics(prNumber: number, repo?: string): Promise<{ mergeStateStatus: string; failedChecks: MergeFailedCheck[] }> {
   const { stdout } = await execFileAsync(
     "gh",
-    ["pr", "view", String(prNumber), "--json", "mergeStateStatus,statusCheckRollup"],
+    ["pr", "view", String(prNumber), ...(repo ? ["--repo", repo] : []), "--json", "mergeStateStatus,statusCheckRollup"],
     { timeout: 30_000 },
   );
   const pr = JSON.parse(stdout) as {
@@ -1322,11 +1351,11 @@ async function queryMergeFailureDiagnostics(prNumber: number): Promise<{ mergeSt
   return { mergeStateStatus: pr.mergeStateStatus ?? "UNKNOWN", failedChecks };
 }
 
-async function buildMergeFailureResponse(prNumber: number, err: unknown): Promise<ToolResponse> {
+async function buildMergeFailureResponse(prNumber: number, err: unknown, repo?: string): Promise<ToolResponse> {
   const originalError = err instanceof Error ? err.message : String(err);
-  const base = `[错误] 合入 PR #${prNumber} 失败：${originalError}`;
+  const base = `[错误] 合入 PR #${prNumber}${repo ? `（repo=${repo}）` : ""} 失败：${originalError}`;
   try {
-    const diagnostics = await queryMergeFailureDiagnostics(prNumber);
+    const diagnostics = await queryMergeFailureDiagnostics(prNumber, repo);
     const checkText = diagnostics.failedChecks.length > 0
       ? diagnostics.failedChecks.map(check => `${check.name} [${check.conclusion}]${check.url ? ` ${check.url}` : ""}`).join("\n")
       : "未检测到已失败 check（可能仍在等待检查，或受其他分支规则限制）";
@@ -1352,21 +1381,32 @@ async function performMerge(
     strategy: string;
     partnerApproval: string;
     approvalAnchor: { id: string; sequenceNum: number; createdAt: string; body?: string };
+    repo?: string;
   },
 ): Promise<ToolResponse> {
-  const { prNumber, strategy, partnerApproval, approvalAnchor } = info;
+  const { prNumber, strategy, partnerApproval, approvalAnchor, repo } = info;
   // 检视闭环闸（授权通过后、合入执行前）——当前 head 必须被独立检视回执覆盖。
-  const closureCheck = await checkReviewClosureOnPr(prNumber);
+  const closureCheck = await checkReviewClosureOnPr(prNumber, repo);
   if (closureCheck.terminal) return closureCheck.terminal;
   // 审计先落（执行失败也留有授权依据记录），再执行合入。
   // 工具内部 exec 通道——不过 bash 守卫，与 halt_otter 等管理工具同型。
-  await writeMergeAudit(ctx, logger, { prNumber, strategy, partnerApproval, approvalAnchor });
+  await writeMergeAudit(ctx, logger, { prNumber, strategy, partnerApproval, approvalAnchor, repo });
   try {
-    const { stdout } = await execFileAsync("gh", ["pr", "merge", String(prNumber), `--${strategy}`], { timeout: 60_000 });
+    const { stdout } = await execFileAsync("gh", ["pr", "merge", String(prNumber), ...(repo ? ["--repo", repo] : []), `--${strategy}`], { timeout: 60_000 });
     return textResponse(`PR #${prNumber} 已合入（${strategy}）。${stdout.trim()}\n审计：授权原话已落 linked_resources（category=merge-authorization）+ 日志`);
   } catch (err) {
-    return buildMergeFailureResponse(prNumber, err);
+    return buildMergeFailureResponse(prNumber, err, repo);
   }
+}
+
+/** merge_pr 子步骤：跨仓解析段（execute 抽出控复杂度）——非法格式/号不匹配返回终态。 */
+function resolveMergeTarget(params: Record<string, unknown>, prNumber: number): { repo?: string; terminal?: ReturnType<typeof errorResponse> } {
+  const target = resolveTargetRepo(params.repo);
+  if (target.error) return { terminal: errorResponse(target.error) };
+  if (target.urlPrNumber != null && target.urlPrNumber !== prNumber) {
+    return { terminal: errorResponse(`[错误] repo 参数中的 PR 号（${target.urlPrNumber}）与 prNumber（${prNumber}）不一致——请确认目标 PR 后重试。`) };
+  }
+  return { repo: target.repo };
 }
 
 function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
@@ -1379,6 +1419,7 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
         prNumber: { type: "number", description: "PR 编号" },
         partnerApproval: { type: "string", description: "搭档授权原话（必填，原样引用，不得转述/概括/编造）。机械校验：必须逐字命中搭档历史消息的连续片段（引一次说过的原话，如「1095合入」），推断/拼接/转述文本会被拒绝" },
         strategy: { type: "string", enum: ["squash", "merge", "rebase"], description: "合入策略，缺省 squash（本仓惯例）" },
+        repo: { type: "string", description: "目标仓库（跨仓必带）：owner/name 或整条 PR URL（如 example-org/example-repo 或 https://github.com/example-org/example-repo/pull/123）。缺省 = 进程工作目录所属仓，其他仓库的 PR 不带此参数必 404" },
       },
       required: ["prNumber", "partnerApproval"],
     },
@@ -1389,10 +1430,13 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
       if (!prNumber || prNumber <= 0) {
         return errorResponse("[错误] prNumber 必须是正整数");
       }
+      // 跨仓解析：owner/name 或整条 PR URL；URL 形态带号时与 prNumber 核对防错配
+      const { repo, terminal: repoTerminal } = resolveMergeTarget(params, prNumber);
+      if (repoTerminal) return repoTerminal;
       if (!partnerApproval) {
         return errorResponse("[错误] partnerApproval 为空——必须原样引用搭档的授权原话。搭档尚未拍板时先呈终审简报（决策简报卡），不得调用本工具。");
       }
-      const gate = await checkPrMergeable(prNumber);
+      const gate = await checkPrMergeable(prNumber, repo);
       if ("terminal" in gate) return gate.terminal;
       // 原话校验闸（物理闸）——逐字命中搭档历史消息才放行，否则拒绝；
       // 位于 PR 状态门之后、审计/执行之前——未命中不执行 merge；起拒绝也落审计（REJECTED approval_not_found）+ warn 日志。
@@ -1401,7 +1445,7 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
         logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED approval_not_found prNumber=${prNumber} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
         // 拒绝补审计（判定不变）；子形态由 userMessage 区分，审计码统一
         const notFoundBrief = "引用文本未逐字命中搭档历史消息（含查询 fail-closed / 无实义内容形态）";
-        await writeMergeAudit(ctx, logger, { prNumber, strategy, partnerApproval, rejected: { reasonCode: "approval_not_found", reasonBrief: notFoundBrief } });
+        await writeMergeAudit(ctx, logger, { prNumber, strategy, partnerApproval, rejected: { reasonCode: "approval_not_found", reasonBrief: notFoundBrief }, repo });
         return approvalCheck.error;
       }
       // 时间维度闸 + 通用短话术闸（方案 A + C）：过期授权/短话术误配一律拒绝（细节见 checkApprovalGates）。
@@ -1417,6 +1461,7 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
           prNumber, strategy, partnerApproval,
           approvalAnchor: approvalCheck.hit,
           rejected: { reasonCode: gateRejection.reasonCode, reasonBrief: gateRejection.userMessage.slice(0, 120) },
+          repo,
         });
         return errorResponse(gateRejection.userMessage);
       }
@@ -1426,6 +1471,7 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
         strategy,
         partnerApproval,
         approvalAnchor: approvalCheck.hit,
+        repo,
       });
     },
   };
