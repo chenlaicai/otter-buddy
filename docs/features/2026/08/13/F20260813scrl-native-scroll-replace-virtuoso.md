@@ -18,7 +18,6 @@ causal_links:
     - F20260810p7zg   # Virtuoso 方案未能根治，本方案彻底替换
 
 # 元数据
-status: development
 change_type: refactor
 tags: [scroll, jitter, virtuoso, native-scrolling, performance]
 modules: [web/src/pages/conversation]

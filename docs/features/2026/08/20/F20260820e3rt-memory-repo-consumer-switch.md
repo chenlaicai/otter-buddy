@@ -12,7 +12,6 @@ causal_links:
   from:
     - F20260817a3rt
 
-status: development
 change_type: refactor
 tags: [memory, port, refactor, clean-architecture]
 modules:

@@ -22,7 +22,6 @@ causal_links:
   to: []
 
 # 元数据
-status: implemented   # 代码已实现（测试全绿），待对抗审视
 change_type: feature
 capability_test: "n/a: 纯 IO 管线（粘贴事件/飞书下载/上传复用），无 LLM 行为；vision 注入链路与 Phase 1 同构（AttachmentInjectionService 复用）；验证走 vitest（fetch 全 mock 不出网）"
 tags: [multimodal, attachments, paste, drag-drop, feishu, ingress, media]

@@ -2,7 +2,6 @@
 id: F20261110drain
 title: 修复终止边界的回执注入与队列续跑
 change_type: fix
-status: development
 created_at: 2026-11-10
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 capability_test: tests/capability/matter-loop/matter-loop.capability.test.ts

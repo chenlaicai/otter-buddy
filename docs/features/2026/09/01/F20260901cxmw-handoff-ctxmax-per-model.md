@@ -9,7 +9,6 @@ summary: |
   走 usecases/ports 窄端口注入避免 interface-adapters 越层依赖 frameworks，含三级回退链与
   可观测日志。
 change_type: fix
-status: active
 capability_test: "n/a: 确定性阈值解析逻辑，无 LLM 行为变更"
 created_in_conversation: 9d326c9d-9818-40a2-9982-898315fe7aa4
 from: F20260831hndp

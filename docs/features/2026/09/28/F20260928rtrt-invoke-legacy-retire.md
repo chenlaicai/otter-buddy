@@ -16,7 +16,6 @@ summary: |
 
 type: Refactor
 domain: web
-status: implemented
 created: 2026-09-28
 created_in_conversation: 5603032d-569c-42c1-b318-1e3b4629ab1f
 related_issues: [1160]

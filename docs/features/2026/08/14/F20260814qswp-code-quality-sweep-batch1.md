@@ -12,7 +12,6 @@ summary: |
 causal_links:
   from: []
 
-status: implemented
 change_type: fix
 tags: [quality, frontend, lint, architecture]
 modules:

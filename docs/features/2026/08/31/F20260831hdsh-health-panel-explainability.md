@@ -1,7 +1,6 @@
 ---
 id: F20260831hdsh
 title: 健康面板可解释性：D2 校准 + 评分说明 + 链/信号人话化
-status: development
 change_type: feature
 created_in_conversation: 7c6e78b5-6fdc-462e-9383-4d96cf95dcd7
 created_at: 2026-08-31

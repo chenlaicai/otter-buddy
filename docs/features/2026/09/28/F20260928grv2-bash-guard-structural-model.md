@@ -14,7 +14,6 @@ summary: >
 created: 2026-09-28
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 change_type: feature
-status: implemented
 related_issues: ["#1170", "#1171", "#1169"]
 related:
   - F20260830bsgr          # 守卫初版

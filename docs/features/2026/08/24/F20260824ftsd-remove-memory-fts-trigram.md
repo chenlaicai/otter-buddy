@@ -5,7 +5,6 @@ summary: |
   memory_fts（trigram 分词表）自 F20260805hybrid 引入 jieba 分词后只写不查，
   每条记忆白写一份 FTS 索引。移除 schema 定义 + INSERT/DELETE 路径 + 测试引用。
 change_type: refactor
-status: implemented
 capability_test: "n/a: 纯死代码清理，无新增功能行为，搜索行为由现有 search-memory 测试覆盖"
 created_in_conversation: d88f66dc-07f0-457a-a9f9-341a9e13fdd9
 tags:

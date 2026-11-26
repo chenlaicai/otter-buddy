@@ -11,7 +11,6 @@ summary: |
   P1 三项（Anchor Lookup、Passage Context Window、Edges 1-hop 图），P2 八项候选。
   砍掉的项含明确理由与状态变更记录（Signal-Driven Trigger 第三轮恢复为 P2 候选）。
 
-status: draft
 exploration_type: technical
 tags: [memory, retrieval, recall, rrf, embedding, architecture]
 modules:

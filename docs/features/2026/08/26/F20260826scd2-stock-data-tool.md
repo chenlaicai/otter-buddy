@@ -4,7 +4,6 @@ title: 股票数据 TS 工具注册（stock_data 聚合工具）
 summary: "PR2: stock_data TS 工具 — child_process 调桥脚本 + manifest 挂 stock capabilityBlock + mock 子进程单测"
 change_type: feature
 created_in_conversation: "7df22e6e-caba-4fc9-a3ab-1e9e2a3ff02d"
-status: development
 capability_test: "n/a: 纯 A 类工具封装，无 LLM 参与行为"
 ---
 

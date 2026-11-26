@@ -13,7 +13,6 @@ tags:
   - design-token
   - swimlane
   - ui
-status: final
 capability_test: "n/a: 纯视觉 token 改动，无 LLM 行为变化；色值锁定由既有单元测试断言（SwimlaneTimeline.test.tsx），并附 mock 数据视觉截图验证（DOM stroke=#6B4924 取证）"
 intent:
   problem: "n/a——本改动是纯视觉 token 对齐，不涉及 LLM 行为、prompt 或 agent 能力，无 intent 验证可做。理由：色值是设计纪律的确定性映射（观澜 §3.4 色彩语义表），正确性由单元测试断言 + 视觉截图覆盖，不存在概率性行为。"

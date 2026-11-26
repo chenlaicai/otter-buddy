@@ -2,7 +2,6 @@
 id: F20261110hbind
 title: healing 批量归口仅允许开放 issue
 change_type: fix
-status: development
 created_at: 2026-11-10
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 capability_test: "n/a: 工具入口与 GitHub 外部边界修复，无 LLM 参与行为"

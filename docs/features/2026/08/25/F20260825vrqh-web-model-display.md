@@ -7,7 +7,6 @@ summary: |
   本特性打通后端 HTTP 链路（ParticipantDTO/OtterDTO 补 modelAlias）+ 前端展示
   （参与者卡片模型 badge + 详情弹窗模型字段），搭档可直观看到每只獭用什么模型。
 change_type: feature
-status: active
 capability_test: "n/a: 纯 A 类 DTO 透传 + UI 渲染，无 LLM 参与行为"
 created_in_conversation: f8bf2fbe-6da0-4861-8f48-9ccb27f50c07
 ---

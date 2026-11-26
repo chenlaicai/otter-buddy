@@ -10,7 +10,6 @@ summary: |
   修复方式：在两个通道的 assistant_text 处理器中，提取 text 类型的 content blocks 并追加到 m.content，
   与重试流处理器行为一致。message.complete 最终会用 DB 中的完整 body 替换，保证最终结果正确。
 
-status: implemented
 change_type: fix
 tags: [conversation, sse, streaming, text-accumulation]
 modules:

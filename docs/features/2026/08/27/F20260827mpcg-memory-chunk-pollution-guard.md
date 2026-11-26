@@ -11,7 +11,6 @@ causal_links:
   from:
     - R20260826rcmm
 
-status: development
 change_type: fix
 tags: [memory, chunking, data-quality, regression-guard]
 modules:

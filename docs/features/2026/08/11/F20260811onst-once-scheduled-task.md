@@ -11,7 +11,6 @@ causal_links:
   from:
     - F20260721x8k9
 
-status: development
 change_type: feature
 tags: [scheduler, agent-tool, reminder]
 modules:

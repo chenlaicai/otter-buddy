@@ -3,7 +3,6 @@ id: F20261105btbrx
 title: 批量处置工具误撞循环熔断收口（#1761）
 doc_type: feature
 change_type: fix
-status: implemented
 created: 2026-11-05
 created_at: 2026-11-05
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103

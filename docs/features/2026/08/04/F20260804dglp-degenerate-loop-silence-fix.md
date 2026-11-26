@@ -12,7 +12,6 @@ causal_links:
     - F20260728cbwt    # circuit-breaker-event-driven：per-event 超时只覆盖工具执行，生成静默无兜底
   to: []
 
-status: implemented
 change_type: fix
 tags: [agent, output-guard, degenerate-output, session-persistence, streaming, pi-sdk]
 modules:

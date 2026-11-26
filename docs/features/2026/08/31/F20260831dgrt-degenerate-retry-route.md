@@ -4,7 +4,6 @@ title: "退化循环 P1 修复：首次退化路由变更（直接熔断）"
 summary: "首次退化直接熔断替代无效重试（87.5% 重试退化走向熔断），仅在 2h 窗口内熔断创建的 session 保留重试路径。"
 feature_id: F20260831dgrt
 change_type: fix
-status: implemented
 created_in_conversation: 7df22e6e-caba-4fc9-a3ab-1e9e2a3ff02d
 date: 2026-08-31
 modules:

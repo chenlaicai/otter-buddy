@@ -15,7 +15,6 @@ causal_links:
     - F20260804dglp   # OutputGuard 双机制检测
     - F20260730heal   # self-healing-system
 
-status: development
 change_type: prompt
 tags: [agent-architecture, sub-otter, prompt-engineering, degenerate-prevention]
 modules:

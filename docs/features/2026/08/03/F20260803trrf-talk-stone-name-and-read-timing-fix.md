@@ -22,7 +22,6 @@ causal_links:
     - F20260723mk75   # 问题2的 getUnreadMessages / updateLastReadTurnNumber 由 mk75 引入
 
 # 元数据
-status: draft
 change_type: fix
 tags: [talking-stone, routing, speak, roster, read-receipt, turn, unread, timing]
 modules:

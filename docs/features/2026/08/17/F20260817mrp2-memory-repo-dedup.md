@@ -13,7 +13,6 @@ causal_links:
   from:
     - F20260814qswp
 
-status: implemented
 change_type: refactor
 tags: [memory, database, refactor]
 modules:

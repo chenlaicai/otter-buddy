@@ -14,7 +14,6 @@ causal_links:
     - F20260713i5k2   # infra-llm-agent-embedding
 
 # 元数据
-status: locked
 change_type: feature
 tags: [llm, config, provider, api, architecture]
 modules: [src/frameworks/llm/, config/]

@@ -7,7 +7,6 @@ summary: |
   ②工具层 commit-msg 钩子 + CI PR 标题追加日期语义校验（F 类偏差 > 2 天拒绝）；
   ③流程层 skill 提示「先跑 date 再生成特性 ID」。
 change_type: fix
-status: active
 capability_test: "n/a: 日期注入是 deterministic 逻辑（toLocaleString），钩子/CI 是 shell/node 脚本，无 LLM 参与行为"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 ---

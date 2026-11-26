@@ -13,7 +13,6 @@ tags:
   - layout
 from:
   - F20260903bdhp
-status: implemented
 capability_test: "n/a: 纯 CSS class 变更（truncate/whitespace-nowrap），无 LLM 行为；由 RightPanel.test.tsx 断言覆盖"
 intent:
   problem: "#756 修了 model badge 的换行（whitespace-nowrap shrink-0），但《对话中invoke机制》右侧栏大獭卡仍变形（118px vs 其他卡 61px）——真凶是另一行：活跃会话时间戳「第6世 · 2026-09-02 09:32:06」19 字符在窄卡内换行成两行（实测高 54px vs 常规 16px），副行「大獭 · 持久」同样换行（30px）。badge 不是唯一长文本源。"

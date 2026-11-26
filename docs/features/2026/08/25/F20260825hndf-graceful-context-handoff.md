@@ -6,7 +6,6 @@ summary: |
   而非等到 87% 被 Pi SDK 被动压缩。三层触发 × 四件套上下文包（结构化摘要/文件轨迹/近期原文/活状态盘点）
   × 三道降级防线。Phase 1 交付触发链路 + 机械四件套 + Phase 0 约定（SYSTEM.md 滚动状态）。
 change_type: feature
-status: active
 capability_test: "n/a: 机械链路改动（阈值触发+数据搬运），LLM 合成摘要属 Phase 2"
 created_in_conversation: 9d326c9d-9818-40a2-9982-898315fe7aa4
 ---

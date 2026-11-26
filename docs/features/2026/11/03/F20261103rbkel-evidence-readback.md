@@ -2,7 +2,6 @@
 id: F20261103rbkel
 title: 处置自述不作证据：回读铁律条款（#1743）
 change_type: prompt
-status: implemented
 created: 2026-11-03
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

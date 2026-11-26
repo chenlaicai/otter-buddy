@@ -12,7 +12,6 @@ causal_links:
   from:
     - F20260901sgpv   # 信号路由器 P1：第一个消费未读视图 talkingStonePassedTo 的调用方
 
-status: final
 change_type: fix
 tags: [signal-protocol, dispatch, conversation, bugfix]
 modules:

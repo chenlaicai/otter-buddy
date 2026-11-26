@@ -3,7 +3,6 @@ id: F20260831dgim
 title: "历史特性文档不可变：追加新文档，记录变化过程而非最终状态"
 summary: 搭档多次口头强调的「特性更新追加新文档、不改历史文档」铁律落地：skill 四处落规 + pre-commit 机械拦截（lint-historical-docs）+ 测试锁定。起因是 PR #607 两次修改历史文档 F20260829cstd 违规（已回滚），根因是规则只存在于口头，整条链路（开发獭/检视獭）无处可拦。
 change_type: prompt
-status: implemented
 created_in_conversation: fe63e059-635f-4387-9dcd-5b685a58e6e8
 capability_test: tests/lint-historical-docs.test.ts
 from:

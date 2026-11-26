@@ -6,7 +6,6 @@ change_type: prompt
 created: 2026-10-14
 created_in_conversation: f3567df1-e24b-49cd-a020-cdb39572f853
 summary: "PR #1480（cwd 统一工作区）合入后的配套拆分交付——SYSTEM.md 新增 R4.5 bash 工作目录语义段（休眠无状态提示激活重写）、prompt/skill 命令形态相对路径扫改、writing-skills 主仓文件引用约定。承载 issue #1481。"
-status: implemented
 capability_test: "n/a: 纯 prompt/skill 文档改动，无代码行为面；验收走 lint-prompt-anchors / lint-prompt-size / lint-skills 静态闸 + 主服务重启后首工作日观察"
 causal_links:
   from:

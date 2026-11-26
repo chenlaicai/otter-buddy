@@ -2,7 +2,6 @@
 id: F20261110wdsgn
 title: workspace_delete 按路径区分循环签名
 change_type: fix
-status: development
 created_at: 2026-11-10
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 capability_test: "n/a: 确定性工具签名与熔断单测，无 LLM 参与行为"

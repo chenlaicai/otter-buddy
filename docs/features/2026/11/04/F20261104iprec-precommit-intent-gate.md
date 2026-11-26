@@ -2,7 +2,6 @@
 id: F20261104iprec
 title: pre-commit 链补 lint:intent 接线（#1755）
 change_type: fix
-status: implemented
 created: 2026-11-04
 created_at: 2026-11-04
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103

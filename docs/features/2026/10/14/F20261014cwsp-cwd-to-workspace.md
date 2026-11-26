@@ -5,7 +5,6 @@ change_type: refactor
 created: 2026-10-14
 created_in_conversation: f3567df1-e24b-49cd-a020-cdb39572f853
 summary: 海獭全部工具 cwd 统一切换对话工作区——createAgentSession({cwd}) 唯一事实源 + invoke 入口重置 cwd（池复用时跟随当前对话）；删除整套工具 override（描述引导未生效 15% bash grep、bash [cwd:] 前缀从未生效 S9、统一工作区下冗余）；守卫 projectRoot 显式注入；命令向量守卫 rewrite
-status: implemented
 capability_test: tests/frameworks/agent/bash-guard-session-cwd.test.ts
 ---
 

@@ -5,7 +5,6 @@ summary: 修复 chain_stall 信号对从未有 commit 的 draft/proposed 文档�
 change_type: fix
 created_in_conversation: fe63e059-635f-4387-9dcd-5b685a58e6e8
 created_at: 2026-08-29T09:50:00+08:00
-status: development
 modules: [health]
 tags: [rhi, signal-detection, bugfix]
 ---

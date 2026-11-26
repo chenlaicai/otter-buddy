@@ -15,7 +15,6 @@ causal_links:
     - F20260806tstr   # 测试体系重构（能力测试层捕获本问题）
   to: []
 
-status: proposed
 change_type: fix
 tags: [llm-behavior, mimo, speak-protocol, memory-recall, capability-test, finding]
 modules:

@@ -13,7 +13,6 @@ causal_links:
     - F20260806dgrf   # degenerate_output 梯度介入
   to: []
 
-status: development
 change_type: feature
 tags: [agent, retry, resilience]
 modules:

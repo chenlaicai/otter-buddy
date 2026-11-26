@@ -11,7 +11,6 @@ summary: |
   架构解耦：系统侧与渲染层分离，未来切自研 Swift 渲染端（DFR 私有接口）只换 renderer。
   MTMR 无局部刷新接口，字符动画=整条闪烁不可用，真动画归自研课题（#721）。
 
-status: final
 change_type: feature
 tags: [touchbar, mtmr, status-display, observability, local-tooling]
 modules:

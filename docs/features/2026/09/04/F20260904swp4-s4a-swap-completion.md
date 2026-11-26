@@ -9,7 +9,6 @@ summary: |
   ② 招聘桥接入口同款换轨；③ 执行记录启动对账（僵尸 running 翻篇）；④ seq 刻度存量
   回填 + markBatchRead 停写旧 turn 刻度（观察项①收尾）；⑤ 路由器头注释/pendingClause
   引证失真更正。判定：v2「五入口全部经闸门+台账」语义闭环，无残留直连链。
-status: implemented
 change_type: fix
 tags: [signal-protocol, scheduler, dispatch-ledger, cursor-migration, gate]
 modules:

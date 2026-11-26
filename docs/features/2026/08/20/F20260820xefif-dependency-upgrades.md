@@ -10,7 +10,6 @@ causal_links:
   from:
     - F20260813x9xh
 
-status: development
 change_type: feature-update
 tags: [deps, dependencies, upgrade, dependabot]
 modules:

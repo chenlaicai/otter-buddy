@@ -8,7 +8,6 @@ summary: |
   核心补正：记忆系统"缺陷"是 v0.3 愿景换代的主动取舍而非能力不足；tutu 与 otter 差异 70%
   在设计哲学层（让人离场 vs 让人不想离场），不是优劣；需求结晶五问是 otter 最缺的防呆门。
 
-status: draft
 exploration_type: technical
 tags: [multi-agent, agent-society, pi-sdk, supplement, phase-transition, engineering-ops, memory-attribution]
 causal_links:

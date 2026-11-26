@@ -12,7 +12,6 @@ causal_links:
     - F20260826mwrd
     - F20260821evaf
 
-status: development
 change_type: fix
 tags: [database, migration, reconcile, restart-recovery]
 modules:

@@ -17,7 +17,6 @@ causal_links:
     - F20260716t2ab
   to: []
 
-status: design
 change_type: prompt
 tags: [agent, skill, tool, system-prompt, infrastructure]
 modules:

@@ -12,7 +12,6 @@ causal_links:
 
 capability_test: "n/a: 分页批量参数调整，无 prompt 行为变更，通过 web 全量 vitest 验证（33 files / 287 passed）"
 
-status: implemented
 change_type: feature
 tags: [web, conversation, pagination, performance]
 modules:

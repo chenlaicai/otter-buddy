@@ -1,7 +1,6 @@
 ---
 id: F20260924thnk
 title: 合成影子通道 thinking 关闭：修复思考型模型烧光 max_tokens 正文零输出
-status: draft
 change_type: fix
 created: 2026-09-24
 created_in_conversation: f4982c33-edbf-4156-913d-aaac095ff485

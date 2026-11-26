@@ -12,7 +12,6 @@ causal_links:
     - F20260805f146
     - F20260804dglp
 
-status: development
 change_type: fix
 tags: [output-guard, degenerate, retry, bge-m3, worktree]
 modules:

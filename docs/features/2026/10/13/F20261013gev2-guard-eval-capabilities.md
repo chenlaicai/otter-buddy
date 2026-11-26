@@ -4,7 +4,6 @@ title: bash 求值器 v2 能力补全 1-8——judge 考试基线、读写判据
 summary: 主体工程（派工单 2026-10-13：求值器能力补全 1-8）的验收门先立：judge 考试 harness 对 988 条试金石全量复跑（放行 763 必须正面 ALLOW / 拦截 52 必须 BLOCK / 条件期望 106 双态），加开发棘轮（只许单调缩小，能力完成后清零删除）。判据基建：WriteTarget.access 读写区分（能力 8 先行，修影子实战「读当写」误判）+ evaluateWriteVerdict 终局裁决助手（考试与影子同判据）+ startCwd 双态维度。基线缺口 247 = 放行 191（heredoc 载荷 fail-closed 141 大头）/ 拦截 22 全放水 / 条件 34——能力 1-8 作战地图。
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 date: 2026-10-13
-status: development
 modification_class: narrow-fix
 intent:
   problem: "求值器 v2 能力缺口基线 247（放行 191 fail-closed 为主 / 拦截 22 全放水 / 条件 34）无验收门；读文件被当写文件（WriteTarget 无读写区分）；影子与考试判据不同源"

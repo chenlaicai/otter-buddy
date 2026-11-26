@@ -2,7 +2,6 @@
 id: F20260829wxui
 title: 微信连接管理 UI：web 扫码登录 + 多账号管理
 summary: 把微信扫码登录从 CLI 搬到 web（/weixin 页）：登录会话状态机 + QR PNG + 热启动轮询 + 多账号管理，零配置可用（首次登录后自动补写 config.yaml）
-status: draft
 change_type: feature
 created: 2026-08-29
 created_in_conversation: 479d3c9a-19c7-468e-a7b6-ec29c3a42c81

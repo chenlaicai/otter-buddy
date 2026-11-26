@@ -8,7 +8,6 @@ summary: |
   ③ 游标 seq 化（lastReadTurnNumber → lastReadSeq 双写迁移，刻度从 turn 换消息 seq）；
   ④ turn 写路径退役评估（读路径 #677 已派生视图化，写路径 createTurn/closeTurn 的
   消费面盘点后决定拆或留）。分四个独立 PR，每段可回滚。
-status: draft
 change_type: feature
 tags: [signal-protocol, scheduler, watchdog, cursor-migration, turn-retirement]
 modules: [src/usecases/scheduler/, src/usecases/conversation/, src/frameworks/db/]

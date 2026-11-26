@@ -13,7 +13,6 @@ causal_links:
   from:
     - F20260728cbwt   # 事件驱动两档制改造（引入 maxExecutionTimeMs 作为 B-4 规则）
 
-status: final
 change_type: fix
 tags: [circuit-breaker, timeout, per-event, ui-message]
 modules:

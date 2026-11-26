@@ -15,7 +15,6 @@ causal_links:
   from:
     - F20260724tsrr
 
-status: draft
 change_type: feature
 tags: [ui, glass, design-system, css, tokens, accessibility, terminology, ci]
 modules:

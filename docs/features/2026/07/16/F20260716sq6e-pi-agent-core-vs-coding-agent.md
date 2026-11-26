@@ -15,7 +15,6 @@ causal_links:
     - R20260717y3k8   # Pi 集成方式对比
 
 # 元数据
-status: locked
 change_type: refactor
 tags: [architecture, agent-framework, pi, design-decision, migration]
 modules: [src/frameworks/agent/, src/interface-adapters/agent-runtime/]

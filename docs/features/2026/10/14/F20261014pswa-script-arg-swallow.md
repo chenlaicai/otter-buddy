@@ -4,7 +4,6 @@ title: "otter-buddy.sh 参数探测循环吞参修复：全命令落 usage 回�
 summary: "脚本回归修复：F20261014alps（#1473）新增的 port_explicit 预探测 while 循环用 shift 遍历参数，循环结束 $@ 已空，下方正式解析循环拿不到任何 token——start/stop/restart/status 全部落 usage 退出 1，脚本整体不可用。修复：预探测改 for 遍历 \"$@\"（只读不消费），机械闸语义不变。10-14 现场：用户升级代码后 scripts/otter-buddy.sh stop 直接打印 Usage。"
 change_type: fix
 capability_test: "n/a: 纯 shell 脚本参数解析逻辑（A 类），无 LLM 参与行为"
-status: development
 modules:
   - scripts/otter-buddy.sh
 intent:

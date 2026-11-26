@@ -18,7 +18,6 @@ causal_links:
     - F20260909smsp   # speak 多 message 模型被 entries 模型取代（收编见前身章节）
     - F20260908rlcp   # 信号机制收敛（含 session 热池）收编——热池部分由 F20260911pspl 取代
 
-status: draft
 change_type: refactor
 tags: [data-model, ui-architecture, timeline, invoke-entity, session-panel, entry-model, invoke-events, signal-protocol, architecture-convergence, cursor-semantics, rate-limit]
 modules:

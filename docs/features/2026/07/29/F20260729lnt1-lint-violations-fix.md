@@ -13,7 +13,6 @@ causal_links:
   from:
     - F20260729cbpt   # per-event 超时改造（引入行数超限）
 
-status: final
 change_type: fix
 tags: [lint, ci, code-quality]
 modules:

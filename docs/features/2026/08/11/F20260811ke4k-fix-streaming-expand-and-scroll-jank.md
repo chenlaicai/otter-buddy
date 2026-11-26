@@ -9,7 +9,6 @@ summary: |
   2. 消息多时滚动抖动：followOutput 用 Virtuoso 即时判断 vs newMessagesCount 用 debounce ref，
      两套"是否在底部"的状态时序矛盾，300ms debounce 放大冲突窗口
 
-status: implemented
 change_type: fix
 tags: [conversation, virtuoso, scroll, streaming, debounce]
 modules:

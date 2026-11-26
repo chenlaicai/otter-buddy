@@ -11,7 +11,6 @@ causal_links:
   from:
     - F20260810ka23  # Skill 系统结构优化
 
-status: development
 change_type: feature
 tags: [skills, prompt, review]
 modules: [.pi/skills/]

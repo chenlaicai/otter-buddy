@@ -2,7 +2,6 @@
 id: F20261113hlprm
 title: healing 改 speak 独立参数，废除 body 内嵌标签（根治乱码泄漏）
 change_type: fix
-status: development
 created_at: 2026-11-13
 capability_test: "n/a: speak 新增结构化 healing 参数，不改变任何工具能力语义，仅上报通道形态变更"
 intent:

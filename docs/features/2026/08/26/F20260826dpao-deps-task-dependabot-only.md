@@ -4,7 +4,6 @@ title: 依赖升级自动化模板对齐「仅 Dependabot 驱动」决策
 summary: |
   搭档 2026-08-25 在 PR #419 的决策（定时任务只处理 Dependabot PR、不再主动 npm update）未被写入 PR #428 迁移的 git 模板——#428 迁移的是旧 DB body 逐字节副本（#419 关闭 01:08 早于 #428 创建 01:14，决策与迁移擦肩而过）。本 PR 修正 prompts/scheduled/依赖升级自动化.md：无 Dependabot PR 直接收工、升级范围 = 关闭的 Dependabot PR 覆盖的包、明令禁止主动 npm update，并同步 DB 运行时副本。
 change_type: feature
-status: active
 capability_test: "n/a: 定时任务模板文案变更，无代码改动"
 created_in_conversation: a3758263-dfac-4396-93ee-37d89efb5b0e
 ---

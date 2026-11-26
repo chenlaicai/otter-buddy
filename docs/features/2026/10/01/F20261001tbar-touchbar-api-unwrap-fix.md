@@ -10,7 +10,6 @@ summary: |
   形态，后续聚合逻辑零改动。验证：双形态单元测试 + 限时真实脚本全链路
   （产出 model：4 未读会话 / 3 场干活中）。
 
-status: final
 change_type: fix
 tags: [touchbar, status-core, api-compat, bugfix]
 modules:

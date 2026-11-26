@@ -11,7 +11,6 @@ summary: |
   两个不同模型的对抗审视，修正了论证链跳跃、补充了行业文献对标、
   明确了与 R2 流程规则的兼容路径。
 
-status: draft
 exploration_type: technical
 tags: [review, adversarial, multi-model, shadow-mind, architecture, quality, prompt-injection]
 modules:

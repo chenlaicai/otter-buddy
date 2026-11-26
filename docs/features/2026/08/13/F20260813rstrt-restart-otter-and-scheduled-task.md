@@ -12,7 +12,6 @@ causal_links:
   from:
     - F20260805rsto   # agent-restart-otter-tool
 
-status: implemented
 change_type: feature
 tags: [agent, session, restart, scheduled-task]
 modules:

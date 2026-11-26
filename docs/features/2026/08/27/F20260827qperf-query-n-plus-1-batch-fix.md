@@ -14,7 +14,6 @@ causal_links:
     - F20260824aibd
     - F20260825vrqh
 
-status: development
 change_type: fix
 tags: [performance, database, n-plus-1, participants, model-alias]
 modules:

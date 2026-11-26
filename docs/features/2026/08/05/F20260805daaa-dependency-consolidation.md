@@ -8,7 +8,6 @@ summary: |
   减少 review 噪音，一次性验证所有依赖兼容性。
 
 change_type: feature-update
-status: implemented
 tags: [dependencies, maintenance]
 modules:
   - package.json

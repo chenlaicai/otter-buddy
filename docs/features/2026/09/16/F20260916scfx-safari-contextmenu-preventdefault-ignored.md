@@ -3,7 +3,6 @@ id: F20260916scfx
 title: Safari 26 右键原生菜单拦截失效修复（工作区 reveal 菜单）
 summary: Safari 26 不尊重 contextmenu 的 preventDefault 致右键菜单不可达，改在 mousedown 阶段兑底拦截 button===2
 change_type: fix
-status: implemented
 tags: [web-ui, safari, bugfix, contextmenu, workspace]
 modules: [web/src/pages/conversation/WorkspacePanel.tsx, web/src/pages/conversation/WorkspacePanel.test.tsx]
 from: [F20260910wrev]

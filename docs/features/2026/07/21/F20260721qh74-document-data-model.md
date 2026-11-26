@@ -16,7 +16,6 @@ causal_links:
     - F20260720n5p1   # merge-key-fact-into-resource
 
 # 元数据
-status: draft
 change_type: feature
 tags: [memory, document, data-model, frontmatter]
 modules: [entities/memory, usecases/memory]

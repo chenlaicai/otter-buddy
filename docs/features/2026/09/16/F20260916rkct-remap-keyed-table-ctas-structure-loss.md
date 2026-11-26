@@ -13,7 +13,6 @@ causal_links:
   from:
     - F20260915midu   # 引入 CTAS 换键复制的迁移
 
-status: implemented
 change_type: fix
 tags: [db, migration, sqlite, memory]
 modules:

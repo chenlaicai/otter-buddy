@@ -14,7 +14,6 @@ causal_links:
     - F20260716ttf7   # system-integration-and-startup
 
 # 元数据
-status: locked
 change_type: refactor
 tags: [code-quality, refactor, review, error-handling]
 modules: [src/, web/, tests/]

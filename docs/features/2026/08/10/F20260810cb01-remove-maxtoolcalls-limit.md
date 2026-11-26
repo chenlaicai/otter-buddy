@@ -6,7 +6,6 @@ summary: |
   根因：maxToolCalls 不区分是否重复，对正常工作调用次数也做了限制，容易误杀复杂任务。
   主机制：删除 maxToolCalls/warningThreshold 配置，保留连续相同检测和滑动窗口循环检测。
 
-status: implemented
 change_type: fix
 tags: [agent, circuit-breaker]
 ---

@@ -2,7 +2,6 @@
 id: F20261101tcdlc
 title: toolCallCount 兜底死链收口 + getToolCallCount 全链退役（#1116）
 change_type: fix
-status: implemented
 created: 2026-11-01
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

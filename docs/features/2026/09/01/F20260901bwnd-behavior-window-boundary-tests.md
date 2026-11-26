@@ -14,7 +14,6 @@ causal_links:
   from:
     - F20260901rhdet
 
-status: development
 change_type: feature
 tags: [health, signals, tests, coverage]
 modules:

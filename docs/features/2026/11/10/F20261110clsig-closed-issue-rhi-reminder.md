@@ -2,7 +2,6 @@
 id: F20261110clsig
 title: 关单 issue 的遗留 RHI 信号日报提醒
 change_type: fix
-status: development
 created_at: 2026-11-10
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 capability_test: "n/a: 日报仅调用新增确定性只读过滤；sqlite 状态不动与 gh CLOSED/OPEN/失败边界由行为测试覆盖，无需生成式能力评估"

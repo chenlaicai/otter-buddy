@@ -15,7 +15,6 @@ causal_links:
     - F20260815rstrt   # restartBeforeInvoke 后端实现
 
 # 元数据
-status: development
 change_type: feature
 tags: [scheduler, web-ui, restart-before-invoke, scheduled-task]
 modules: [web/src, src/interface-adapters/http]

@@ -9,7 +9,6 @@ summary: |
   断链，跳过豁免）。顺带修复 lint-historical-docs 对 R 形态 rename 的双重误拦（.doc-fix 声明
   + 纯 rename 放行 / rename+编辑按两侧 frontmatter 边界校验）。MAX_WARNINGS 271→3 锁死成果。
 change_type: feature
-status: active
 capability_test: "n/a: 文档元数据批量订正 + lint 脚本行为变更（A/B 类），行为变化由 tests/lint-historical-docs.test.ts 与 lint:docs 自身验收"
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 ---

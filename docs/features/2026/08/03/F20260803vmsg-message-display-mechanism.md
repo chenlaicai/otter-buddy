@@ -10,7 +10,6 @@ causal_links:
   from: []
   to: []
 
-status: implemented
 change_type: feature
 tags: [web, conversation, message, virtual-scroll, react-virtuoso, pagination, unread, sse, cqrs]
 modules:

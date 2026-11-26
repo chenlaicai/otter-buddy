@@ -9,7 +9,6 @@ summary: |
   （闸门限流/停机判定 + source='retry' 记账 + 与自动点火共用 invokeTarget），
   message-controller 的 startRetryChain 换轨调用；路由器未注入降级保留直连链。
   附带 routeTarget/invokeTarget 的 source 参数化与 HALT 守卫方法抽取（lint 复杂度收敛）。
-status: final
 change_type: fix
 tags: [signal-protocol, retry, dispatch-gate, incident-hardening]
 modules: [src/usecases/conversation/signal-router.ts, src/interface-adapters/http/controllers/message-controller.ts]

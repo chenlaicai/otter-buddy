@@ -9,7 +9,6 @@ summary: |
 causal_links:
   from:
     - F20260903deps
-status: development
 change_type: feature-update
 tags: [deps, github-actions, major-upgrade]
 modules:

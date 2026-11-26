@@ -12,7 +12,6 @@ causal_links:
   from:
     - F20260722d3k7   # AI 行为模式强化
 
-status: proposed
 change_type: feature-update
 tags: [context-engine, identity, values, coding-style, comments]
 modules: [prompts/platform, skills/code-implementation, skills/adversarial-review]

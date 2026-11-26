@@ -14,7 +14,6 @@ causal_links:
     - F20260902uspr   # 揭开第二起事故的投影修复
   supersedes: []   # 不 supersede sgpv：类与测试保留，装配恢复即重新启用
 
-status: final
 change_type: fix
 tags: [signal-protocol, dispatch, rollback, incident]
 modules:

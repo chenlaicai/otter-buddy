@@ -12,7 +12,6 @@ causal_links:
   from:
     - F20260813dr27
 
-status: development
 change_type: prompt
 tags: [prompts, big-otter, prompt, question-mode]
 modules:

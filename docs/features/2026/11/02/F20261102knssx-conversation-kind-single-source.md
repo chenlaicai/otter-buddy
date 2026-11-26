@@ -2,7 +2,6 @@
 id: F20261102knssx
 title: ConversationKind 枚举单源化（#1224）：四处平行硬编码收敛 + 三道防线测试锁
 change_type: refactor
-status: implemented
 created: 2026-11-02
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

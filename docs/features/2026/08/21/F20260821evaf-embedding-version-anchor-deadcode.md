@@ -15,7 +15,6 @@ causal_links:
   from:
     - F20260811mrpy
 
-status: final
 change_type: fix
 tags: [embedding, memory, migration, bootstrap]
 modules:

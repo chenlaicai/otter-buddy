@@ -8,7 +8,6 @@ summary: |
   核心动机：这些行为此前依赖搭档每次主动提醒，缺的是"何时必须做"的触发，而非"怎么做"的 know-how。
   主机制：SYSTEM.md 只加一条元原则（流程纪律）做委托，职权进身份层，触发与流程步骤全部内置进 skill——消灭"事后触发"，改写成"流程内置步骤"。
 
-status: development
 change_type: prompt
 tags: [agent, skill, workflow, prompt]
 modules:

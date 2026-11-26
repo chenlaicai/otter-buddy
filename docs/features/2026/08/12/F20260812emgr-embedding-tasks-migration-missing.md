@@ -11,7 +11,6 @@ causal_links:
   from:
     - F20260812mrcq
 
-status: implemented
 change_type: fix
 tags: [db, migration, startup]
 modules:

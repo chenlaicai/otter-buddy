@@ -11,7 +11,6 @@ causal_links:
   from:
     - F20260811a3k7
 
-status: development
 change_type: fix
 tags: [ui, frontend, utils, conversation]
 modules:

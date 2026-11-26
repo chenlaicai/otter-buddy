@@ -12,7 +12,6 @@ causal_links:
   references:
     - "#368"
 
-status: development
 change_type: feature-update
 created_at: "2026-08-21"
 created_in_conversation: "e2fa3ea3-3efc-43e4-ba56-2436d0ee930d"

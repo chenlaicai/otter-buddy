@@ -22,7 +22,6 @@ causal_links:
 
 
 # 元数据
-status: locked
 change_type: feature
 tags: [architecture, frameworks, clean-architecture, db, llm, embedding, agent, pi-agent-core]
 modules: [src/frameworks/]

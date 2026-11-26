@@ -3,7 +3,6 @@ id: F20260829hviz
 title: 健康面板数据断链修复 + 可视化看板
 summary: 修 RHI 健康面板两条数据断链（scanOnce 不写指标、CLI 写错库），新增 GET /api/health/trends 历史序列端点与 recharts 可视化看板（趋势折线图/类型环形图/模块热区/五态堆叠条），并用真实 git 历史回填 30 天快照让面板立刻有内容。
 change_type: feature
-status: development
 created_in_conversation: 09bf83a5-8a9a-4aba-815e-a92c783b4800
 capability_test: tests/usecases/health/rhi-scan-worker.test.ts
 tags: [rhi, health-dashboard, metrics, recharts, visualization, bugfix]

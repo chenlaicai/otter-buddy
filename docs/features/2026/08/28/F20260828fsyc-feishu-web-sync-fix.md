@@ -1,7 +1,6 @@
 ---
 id: F20260828fsyc
 title: Web/飞书双向消息同步修复：广播链路空内容段 + 出站身份标签
-status: development
 summary: send() 返回的内存对象 segments 恒空导致 Web 首推空气泡/飞书显示「(空消息)」（存量 bug）；出站标签硬编码「用户」未接身份机制。回填 segments + 三级身份回退
 capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 change_type: fix

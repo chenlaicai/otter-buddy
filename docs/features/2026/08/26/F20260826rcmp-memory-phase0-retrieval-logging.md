@@ -3,7 +3,6 @@ id: F20260826rcmp
 title: 记忆系统 Phase 0 检索埋点
 summary: 记忆系统 Phase 0 评估基线的埋点基建：search_query_logs 表 + RecordSearchQuery use case + tool 层接线。记录 search_memory 真实调用（查询 + top-5 命中 + 对话上下文快照最近 5 条），fire-and-forget 不阻断检索。落地 R20260826rcmm Phase 0 的前置依赖。
 change_type: feature
-status: development
 created_in_conversation: 9e709aca-dd74-42fa-9fe1-4e7bbaf24bdb
 capability_test: "n/a: 纯代码逻辑改动（埋点写入 + 接线），无 LLM 参与行为"
 tags: [memory, evaluation, logging, retrieval, phase0]

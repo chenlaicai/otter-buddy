@@ -13,7 +13,6 @@ causal_links:
     - F20260716t2ab
 
 # 元数据
-status: design
 change_type: feature
 tags: [skills, refactoring, capability]
 modules: [skills/]

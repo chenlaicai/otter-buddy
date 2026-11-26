@@ -15,7 +15,6 @@ causal_links:
   to:
     - F20260806ovgl   # L3 弹层「近实底」实现被本特性改写为磨砂玻璃+色染（对比度目标保留）
 
-status: development
 change_type: fix
 tags: [web, ux, otter, terminology]
 modules:

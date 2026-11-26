@@ -14,7 +14,6 @@ causal_links:
     - F20260805f146   # degenerate_output 梯度介入
   to: []
 
-status: development
 change_type: feature
 tags: [agent, refactor, error-handling, retry, abort]
 modules:

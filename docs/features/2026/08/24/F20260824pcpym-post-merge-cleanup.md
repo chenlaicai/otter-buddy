@@ -5,7 +5,6 @@ summary: |
   新增 post-merge-cleanup skill，覆盖 PR 合入后的资源回收：worktree、本地分支、远程分支、源头 issue、产物状态、检视獭。
   支持单 PR 清理和批量扫尾模式，每步 check-then-act 保证幂等，仅"确认 PR 合入"为强制步骤。
 change_type: feature
-status: active
 capability_test: "n/a: 纯 skill/prompt 定义，无 LLM 参与行为变更"
 created_in_conversation: b7ca473c-4033-4e29-a098-7a3f05e02852
 tags:

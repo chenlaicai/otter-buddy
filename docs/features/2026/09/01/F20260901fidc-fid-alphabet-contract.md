@@ -12,7 +12,6 @@ summary: |
   后缀下限经 #670 审视回修收紧为 4（两个消费面实查最短均为 4，初版的 3 位兼容
   依据系幻影 ID），新增真相源锁死元测试防 hook 镜像漂移。
 change_type: fix
-status: development
 tags: [health, commit-parser, document, contract, single-source-of-truth]
 modules:
   - src/entities/document/fid-format.ts

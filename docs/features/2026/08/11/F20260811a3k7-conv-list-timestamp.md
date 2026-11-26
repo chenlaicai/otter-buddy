@@ -10,7 +10,6 @@ summary: |
 causal_links:
   from: []
 
-status: implemented
 change_type: feature
 tags: [conversation, ux, timestamp, relative-time, left-panel]
 modules:

@@ -6,7 +6,6 @@ summary: |
   S4 合并设计前置分析（搭档要求的消息机制全景对齐）：三类发送者的产生场景穷举、
   八个对话场景时序、信号/pending/attempt/闸门四概念关系总表、D1-D5 缺漏清单。
   结论：判据特例清零（删除 sender_type 排除，自指精确化），scheduler/招聘换轨。
-status: final
 change_type: feature
 tags: [signal-protocol, message-matrix, s4]
 modules: []

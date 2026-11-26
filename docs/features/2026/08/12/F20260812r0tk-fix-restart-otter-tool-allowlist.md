@@ -13,7 +13,6 @@ causal_links:
   from:
     - F20260810rstart
 
-status: implemented
 change_type: fix
 tags: [agent, restart-otter, tool-allowlist, bugfix]
 modules:

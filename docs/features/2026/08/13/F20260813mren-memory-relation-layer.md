@@ -12,7 +12,6 @@ causal_links:
     - F20260811mrpy   # 记忆召回链路三项核心优化（检索基础设施）
     - F20260812mrcq   # 召回质量与稳定性（RetrievalSource 契约收敛后的基线）
 
-status: development
 change_type: feature
 tags: [memory, relations, graph, provenance]
 modules:

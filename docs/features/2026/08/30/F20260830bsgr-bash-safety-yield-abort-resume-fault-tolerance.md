@@ -2,7 +2,6 @@
 id: F20260830bsgr
 title: 8/30 三处修复：bash安全守卫 + failed消息abort + resume容错
 date: 2026-08-30
-status: development
 summary: 防止LLM通过bash直接kill主进程、消息failed后强制abort SDK session、resume消费每conversation独立容错+429退避重试
 created_in_conversation: a359984d-6069-41ca-bfc9-cd08fc44b53e
 capability_test: "n/a: 纯 A 类改动，安全守卫和状态机修复不涉及 LLM 行为"

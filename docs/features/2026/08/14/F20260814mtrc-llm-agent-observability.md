@@ -15,7 +15,6 @@ causal_links:
   from:
     - F20260813rstrt
 
-status: development
 change_type: feature
 tags: [observability, metrics, agent]
 modules:

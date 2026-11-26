@@ -5,7 +5,6 @@ summary: |
   manage_healing_events 工具新增 batch_resolve action，支持按 filter 条件（status/errorType/日期范围）
   批量 resolve healing events，含 dryRun 预览和单批 100 上限。解决 8/25 健康检查逐条 resolve 漏事件的问题。
 change_type: feature
-status: active
 capability_test: "n/a: 纯 A 类改动（SQL + 工具参数），无 LLM 行为依赖"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 tags: [healing, batch, tool]

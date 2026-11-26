@@ -2,7 +2,6 @@
 id: F20261117rlcon
 title: scheduler 启动对账分级与历史误标回补：#1510 已完成执行被记「执行被中断」收口
 change_type: fix
-status: implemented
 created: 2026-11-17
 modules:
   - src/usecases/scheduler/scheduler-service.ts

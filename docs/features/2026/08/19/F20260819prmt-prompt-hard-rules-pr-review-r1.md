@@ -3,7 +3,6 @@ id: F20260819prmt
 title: PR 审视硬规则 + 检视复核流程 + 小獭 R1 红线约束
 summary: 增加三条 prompt 层硬规则：PR 创建后必须走对抗审视（#308）、处置检视意见后必须传检视獭复核（#213）、小獭 systemPrompt 必须包含 R1 红线约束（#307）。
 change_type: prompt
-status: locked
 created_in_conversation: bbcfaa33-f036-4493-94de-3faf1c6df6cf
 modules:
   - prompts/identity/BIG_OTTER.md

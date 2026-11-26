@@ -3,7 +3,6 @@ id: F20260902imsc
 title: IM 页滚动修复与双列布局重组 + AppLayout 骨架滚动兜底
 summary: IM 页内容超出视口且无滚动条（同类问题第三次现场），根因是 h-screen+body overflow:hidden 骨架下页面忘写滚动容器；本次修复 IM 页并重组布局（微信/飞书双列并排），同时在 AppLayout 骨架层加滚动兜底，系统性消灭"新页面忘写滚动类→内容被裁"这一反复发生的 bug 类。
 change_type: fix
-status: implemented
 capability_test: "n/a: 纯前端 CSS 布局改动（A 类），无 LLM 参与行为"
 created_in_conversation: f24a341c-b20f-4676-a79e-57f5e812741c
 tags: [web-ui, bugfix, scroll, layout, im, app-layout]

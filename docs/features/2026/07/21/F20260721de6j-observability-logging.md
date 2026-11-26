@@ -13,7 +13,6 @@ causal_links:
   from: []
 
 # 元数据
-status: draft
 change_type: feature
 tags: [observability, logging, tracing, governance]
 modules: [frameworks/logger, interface-adapters/http, usecases]

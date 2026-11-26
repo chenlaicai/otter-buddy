@@ -8,7 +8,6 @@ summary: |
   根因：useEffect/useCallback 依赖数组缺失或写成复杂表达式，其中 1 条是有意 mount-only 需显式声明。
   做法：安全补 deps 为主、1 条 useCallback 化后补入、1 条 disable 注释写明行为等价理由。
 
-status: development
 change_type: fix
 tags: [web, cleanup, react-hooks]
 modules:

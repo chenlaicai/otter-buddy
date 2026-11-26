@@ -13,7 +13,6 @@ causal_links:
   from:
     - F20260722ctx0
 
-status: draft
 change_type: feature
 tags: [identity, system-prompt, otter, buddy, terminology, session, injection]
 modules:

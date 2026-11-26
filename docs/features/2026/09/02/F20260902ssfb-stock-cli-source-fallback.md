@@ -11,7 +11,6 @@ summary: |
   3) finance 的 NaN 字面量修复——akshare 返回的 NaN 经 json.dumps 输出
      非标准 JSON 字面量导致 JS JSON.parse 拒收（MCP 包装层报「输出非 JSON」），
      模块级 _normalize 将 NaN/Inf 归一化为 null + allow_nan=False 保险丝。
-status: final
 change_type: fix
 tags: [stock-cli, akshare, fallback, data-source, paper-trading, bugfix]
 modules: [scripts/stock-cli.py, tests/test_stock_cli.py]

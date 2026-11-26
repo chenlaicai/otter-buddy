@@ -4,7 +4,6 @@ title: 守卫回放库补 2 条 11-01 实录负门用例
 created: 2026-11-02
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 change_type: feature-update
-status: shipped
 modules:
   - tests/guard/replay/cases-2026-10-29.ts
 summary: "守卫回放库覆盖面补齐：11-01 healing 实录 3 条全 BLOCK 真负门，其中 2 条形态缺位固化——①curl 管道进 python 解释器（库内原只有 curl|sh/bash；定性政策性拦截·已知摩擦·精细化候选，非结构负门）；②长命令后段凭证字面量（commandHead 120 截断窗外，fixture 垫长 189 字符钉位）；另补 1 条非泛拦 companion 用例（同形态去字面量=ALLOW）。88 用例全绿。"

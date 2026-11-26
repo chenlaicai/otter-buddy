@@ -6,7 +6,6 @@ summary: |
   从未记账的信号槽位补 aborted/dissolve 墓碑；routeTarget 的 skipped_inactive
   分支补 healing 留痕。消灭「信号永远停在 pending 判据边缘、无账无痕、占扫描名额」
   的僵尸状态。
-status: implemented
 change_type: fix
 tags: [signal-protocol, dispatch-ledger, dissolve, tombstone, observability]
 modules:

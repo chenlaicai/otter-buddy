@@ -14,7 +14,6 @@ causal_links:
   to:
     - F20260806dgrf
 
-status: development
 change_type: fix
 tags: [memory, snippet, html, degenerate, mimo]
 modules:

@@ -3,7 +3,6 @@ id: F20260828gssf
 title: "golden 场景 selftest 层——断言判别力的先验校验"
 summary: 给 golden 评测体系加 selftest 层：每个场景配 good/bad 两套参考消息序列，runner 在跑真 LLM 采样之前先离线校验断言函数的判别力（good 必过 + bad 必拦），selftest 不过直接 fail，零 LLM 依赖。
 change_type: feature
-status: active
 created_at: 2026-08-28
 created_in_conversation: 325ef7b7-8e42-4edc-9abf-eae8f332a2c4
 intent:

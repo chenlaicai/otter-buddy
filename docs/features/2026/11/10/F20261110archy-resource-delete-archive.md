@@ -2,7 +2,6 @@
 id: F20261110archy
 title: 链接资源 DELETE 改为归档语义
 change_type: fix
-status: development
 created_at: 2026-11-10
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 capability_test: "n/a: 纯后端状态机与 HTTP/SQLite 行为，无 LLM 参与行为"

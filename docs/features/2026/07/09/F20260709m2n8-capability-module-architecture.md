@@ -15,7 +15,6 @@ causal_links:
 
 
 # 元数据
-status: draft
 change_type: feature
 tags: [architecture, design, c4, ddd]
 modules: [architecture]

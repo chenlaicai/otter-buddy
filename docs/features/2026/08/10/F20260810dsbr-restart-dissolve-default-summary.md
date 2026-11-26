@@ -12,7 +12,6 @@ causal_links:
   from: []
   to: []
 
-status: development
 change_type: fix
 tags: [web, ux, modal, summary]
 modules:

@@ -8,7 +8,6 @@ summary: |
   TopBar 新增健康面板入口）+ 自然语言日报（每日健康检查 prompt 接入 RHI 信号数据源，
   critical 信号成为日报优先素材）。
 change_type: feature
-status: development
 capability_test: "tests/api/rhi-api.test.ts"
 created_in_conversation: 9e709aca-dd74-42fa-9fe1-4e7bbaf24bdb
 ---

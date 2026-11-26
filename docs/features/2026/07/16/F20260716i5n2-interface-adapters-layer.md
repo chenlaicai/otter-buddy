@@ -15,7 +15,6 @@ causal_links:
 
 
 # 元数据
-status: locked
 change_type: feature
 tags: [architecture, interface-adapters, http, agent-runtime, sse]
 modules: [src/interface-adapters/, src/frameworks/agent/, src/main.ts, tests/]

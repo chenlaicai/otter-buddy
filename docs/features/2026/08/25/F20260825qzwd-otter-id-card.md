@@ -4,7 +4,6 @@ title: 海獭身份证·游戏角色面板
 summary: |
   右栏海獭卡片升级为游戏角色面板：hover 出快览卡（形象/称号/等级/武器），点击详情弹窗扩展装备区（武器=modelAlias+模型描述、技能槽=skills 清单、工具袋=注册工具分组、心法=systemPrompt 折叠展示）+ 战绩统计 + 转世履历。全字段映射真实数据源（等级=世数、EXP=发言×1+产物×10 可拆解、称号规则化派生），新增聚合端点 GET /api/otters/:id/profile + sender_id 索引。kimi 出主稿、mimo 对抗深化、大獭核验（反转发现1：modelAlias 链路 PR #445 已建）。
 change_type: feature
-status: draft
 capability_test: "n/a: 展示层特性，方案阶段"
 created_in_conversation: d1ac0eee-6e02-469e-af1b-dd4d8c30fe3e
 ---

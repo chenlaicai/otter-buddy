@@ -2,7 +2,6 @@
 id: F20260902rcp1
 title: 记忆召回 Phase 1：分词双写 + 层配额 + 半衰期分层——doc summary 召回修复
 change_type: feature
-status: implemented
 created: 2026-09-02
 created_in_conversation: 9e709aca-dd74-42fa-9fe1-4e7bbaf24bdb
 modules:

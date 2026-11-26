@@ -8,7 +8,6 @@ summary: |
   根因：context_tokens 取的是 Pi SDK getSessionStats() 的 session 累计 token 消耗（每次工具调用往返都重发完整上下文，累计值把同一份上下文重复计几十遍），并非上下文窗口占用。
   修复：改用末次 assistant 消息的 usage（input+output+cacheRead+cacheWrite，与 SDK compaction 判定同公式）作为窗口占用口径，落库与 SSE 实时展示同源切换。
 
-status: implemented
 change_type: fix
 tags: [agent-runtime, token-usage, observability]
 modules:

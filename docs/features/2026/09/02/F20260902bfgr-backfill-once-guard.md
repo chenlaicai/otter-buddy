@@ -6,7 +6,6 @@ summary: |
   S1 观察期二轮核查发现墓碑每次重启都重跑（3589→3607），会吞掉崩溃窗口的真 pending
   （R1 场景）。修复：settings CAS（tryInsertIfAbsent 先到先得）+ 存量墓碑行检查
   （老库无守卫期兼容）双防线，墓碑只跑一次；死亡证明不受守卫影响（记账面收尾非迁移）。
-status: final
 change_type: fix
 tags: [signal-protocol, backfill, guard, incident-prevention]
 modules: [src/bootstrap/database.ts]

@@ -4,7 +4,6 @@ id: F20261118lhist
 date: 2026-11-18
 module: extensions
 change_type: fix
-status: active
 summary: |
   scripts/lint-historical-docs.mjs 的 git() helper 继承 stderr，导致探测式调用（cat-file -e 查
   新增文档是否已在 base、frontmatterLastLineOf 的 git show）在**预期失败**时把 git 自己的

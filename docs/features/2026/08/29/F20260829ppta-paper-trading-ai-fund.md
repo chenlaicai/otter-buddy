@@ -4,7 +4,6 @@ title: 纸面交易账户：AI 操盘模拟系统（PR4 账本引擎 + PR5 操�
 summary: "搭档拍板路线1本机纸面账户：固定逻辑账本引擎（券商边界原则）+ AI 双操作面（行情/下单）+ 定时决策循环，模拟一个月验收。v2 含对抗审视 13 项处置（涨跌停/复权口径/交易日历/executor/日报结构化）"
 change_type: feature
 created_in_conversation: "7df22e6e-caba-4fc9-a3ab-1e9e2a3ff02d"
-status: development
 capability_test: "n/a: 账本引擎纯计算无 LLM 参与；操盘循环走单测+干跑验证"
 tags: [stock, paper-trading, ledger, agent-loop]
 from:

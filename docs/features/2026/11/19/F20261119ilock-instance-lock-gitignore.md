@@ -4,7 +4,6 @@ id: F20261119ilock
 date: 2026-11-19
 module: build
 change_type: fix
-status: active
 summary: |
   F20261118cldep（#1945）引入的单实例锁会在 <db-path> 旁创建
   `<db-path>.otter-instance.lock`（内容=持锁进程 PID，仅诊断展示不参与互斥；启动时覆写、

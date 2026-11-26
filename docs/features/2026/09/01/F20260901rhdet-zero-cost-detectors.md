@@ -14,7 +14,6 @@ causal_links:
   from:
     - F20260824rhib
 
-status: development
 change_type: feature
 tags: [health, signals, detectors, metrics, observability]
 modules:

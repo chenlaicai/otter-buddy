@@ -12,7 +12,6 @@ causal_links:
   from:
     - F20260811rtrd  # 检视模板重设计（消灭「记录」黑洞）——本轮在其之上重构分级框架
 
-status: development
 change_type: prompt
 tags: [skills, review, prompt]
 modules:

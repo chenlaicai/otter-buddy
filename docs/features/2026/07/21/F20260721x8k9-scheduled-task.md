@@ -15,7 +15,6 @@ causal_links:
     - F20260713e8n4  # message-streaming-model
 
 # 元数据
-status: draft
 change_type: feature
 tags: [conversation, scheduler, cron, system-message]
 modules: [src/entities/scheduled-task/, src/usecases/scheduled-task/, src/usecases/scheduler/, web/src/pages/conversation/]

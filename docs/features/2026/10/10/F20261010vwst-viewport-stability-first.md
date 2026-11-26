@@ -4,7 +4,6 @@ title: 滚动治理第 9 轮：视口稳定优先——删除 viewportObserver �
 summary: "搭档 10-10 报告「输入框输入多行时中间栏消息跳动」。第一性原理分析：8 轮滚动修复共享同一结构性根因——8/13 弃 Virtuoso 时关闭浏览器原生滚动锚定后，「视觉稳定」责任 100% 落在自研代码，而自研代码用「枚举高度变化源」的方式履职，源是开放集合永远枚举不完。本轮删除 viewportObserver（视口高度变化→贴底拉回）补偿分支：视口高度变化时浏览器对 scrollTop 的 clamp 语义天然保证内容稳定，程序补偿反而制造跳动。落地「用户意图 × 高度变化类型」闭合行为矩阵作为规范。"
 created: 2026-10-10
 created_in_conversation: 27398619-8e0b-4147-8230-93e23f1a01ac
-status: implemented
 module: conversation
 tags: [web, scroll, bugfix, design-principle]
 causal_links:

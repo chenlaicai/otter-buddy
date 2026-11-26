@@ -10,7 +10,6 @@ summary: |
   增加 finally 终态守卫——链结束（含 allSettled 吞错路径）后收尾仍处 streaming/
   speaking 的旧消息为 failed（半截内容保留），并发系统消息说明去向。
 change_type: fix
-status: active
 capability_test: "n/a: 纯代码锁语义与状态机修复，无 LLM 参与行为"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 ---

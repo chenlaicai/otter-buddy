@@ -14,7 +14,6 @@ causal_links:
   from:
     - F20260827he2f   # 探针引入（本次修复其生命周期断点）
 
-status: final
 change_type: fix
 tags: [healing, probe, lifecycle, observability, debt-cleanup]
 modules:

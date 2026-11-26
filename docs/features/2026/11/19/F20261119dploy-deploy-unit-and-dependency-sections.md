@@ -4,7 +4,6 @@ id: F20261119dploy
 date: 2026-11-19
 module: deploy
 change_type: fix
-status: active
 from: F20261118cldep
 summary: |
   #1941 合入后按 deploy.sh 部署 ECS 服务起不来：`npm ci --omit=dev` 后找不到 hono。根因是

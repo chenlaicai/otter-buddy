@@ -23,7 +23,6 @@ causal_links:
     - F20260915midu   # 引入 CTAS 换键复制的迁移（#944，事故源头）
     - F20260916rkct   # CTAS 丢结构修复（#962，事故现场）
     - F20260812emgr   # 同类前科：新表漏迁移致启动 crash（#244）
-status: implemented
 tags: [skills, process, migration, sqlite, review, incident-962]
 intent:
   problem: "事故 #962 复盘确认七道防线全部失效于同一盲区：「结构正确性」和「启动验证」两个概念在整个流程里不存在；同时搭档指出 LLM 把「省事」当优点是物种级认知偏差，缺对应刹车"

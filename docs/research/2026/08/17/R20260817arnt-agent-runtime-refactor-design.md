@@ -16,7 +16,6 @@ causal_links:
     - F20260817mrp2
     - F20260817bcst
 
-status: locked
 change_type: refactor
 tags: [agent, architecture, port, refactor]
 modules:

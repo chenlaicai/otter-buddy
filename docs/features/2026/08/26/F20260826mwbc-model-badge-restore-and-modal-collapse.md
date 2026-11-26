@@ -10,7 +10,6 @@ summary: |
   3) 详情弹窗内容分左右两栏（左=身份信息，右=世代交接），桌面双栏、移动端
   单列堆叠（与全屏抽屉断点严格互补）。
 change_type: fix
-status: active
 capability_test: "n/a: 纯前端布局/UI 状态修复，无 LLM 参与行为"
 created_in_conversation: f8bf2fbe-6da0-4861-8f48-9ccb27f50c07
 ---

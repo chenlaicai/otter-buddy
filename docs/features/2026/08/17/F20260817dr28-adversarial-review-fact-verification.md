@@ -12,7 +12,6 @@ causal_links:
   from:
     - F20260813dr28
 
-status: development
 change_type: prompt
 tags: [skills, adversarial-review, prompt, fact-verification]
 modules:

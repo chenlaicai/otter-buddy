@@ -2,7 +2,6 @@
 id: F20261103tsdkk
 title: T5 生效断言集成测试：真实 SDK execute + [cwd:] 前缀注入（#1222）
 change_type: fix
-status: implemented
 created: 2026-11-03
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

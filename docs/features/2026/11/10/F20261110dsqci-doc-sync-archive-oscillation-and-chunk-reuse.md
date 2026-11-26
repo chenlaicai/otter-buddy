@@ -2,7 +2,6 @@
 id: F20261110dsqci
 title: doc sync 归档-复活振荡根治与 chunk 内容寻址复用
 change_type: fix
-status: development
 created_at: 2026-11-10
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 capability_test: "n/a: 纯后端 sync/队列幂等修复，无 LLM 参与行为"

@@ -8,7 +8,6 @@ summary: |
   做 startsWith 比较，恒为 false，所有正常路径被误判为穿越攻击。修复：workspaceRoot()
   统一用 path.resolve() 归一化为绝对路径。附相对 dataDir 回归测试 2 例。
 change_type: fix
-status: active
 capability_test: "n/a: 纯代码修复，无 LLM 行为依赖"
 created_in_conversation: 9ee76bfa-4a06-4162-9c2b-05b9f1057232
 tags: [workspace, path-traversal, security, bugfix]

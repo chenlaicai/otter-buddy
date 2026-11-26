@@ -12,7 +12,6 @@ causal_links:
   from:
     - F20260812mtrc
 
-status: implemented
 change_type: fix
 tags: [tooling, metrics, gitignore]
 modules:

@@ -6,7 +6,6 @@ summary: |
   方案：抽取到 api-contract/api/html-card.ts 作为单一真相源，双端通过 @contract 别名引用同一常量。
   后端 speak 校验与前端降级渲染天然一致，漂移在编译期即被阻断。
 change_type: refactor
-status: active
 capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 created_in_conversation: f337381e-70aa-4334-ac1d-dc349c8a8dd4
 ---

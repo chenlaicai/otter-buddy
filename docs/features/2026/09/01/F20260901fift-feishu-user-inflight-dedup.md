@@ -13,7 +13,6 @@ causal_links:
   from:
     - F20260826fuid   # FeishuUserInfoClient 的引入方（本次在其缓存层上补并发合并）
 
-status: implemented
 change_type: feature-update
 tags: [feishu, user-info, concurrency, dedup, in-flight, tech-debt]
 modules: [src/frameworks/feishu/user-info-client.ts, tests/frameworks/feishu/user-info-client.test.ts]

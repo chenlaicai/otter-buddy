@@ -11,7 +11,6 @@ intent:
   verify_by:
     type: behavior_check
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
-status: implemented
 pr: ""
 related_issues: ["#1170", "#1207", "#1240", "#1304", "#1353"]
 causal_links: ["F20261008gfrc", "F20260928grv2", "F20261006c1240"]

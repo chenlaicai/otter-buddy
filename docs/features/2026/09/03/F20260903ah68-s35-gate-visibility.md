@@ -8,7 +8,6 @@ summary: >
   中断显式告知（abort toast + 恢复 toast）；熔断期发消息落系统消息（G6 沉默闭环）；
   徽标弱化模式（搭档 A 方案：正常流转只图标，FAILED/高优豁免）；G7 黑话映射
   （note 内部语言人话化，title 只带本轮原因）。
-status: implemented
 change_type: feature
 tags: [signal-protocol, gate-visibility, ux, sgp2-s35]
 modules: [src/usecases/conversation/, src/interface-adapters/http/, web/src/pages/conversation/, web/src/lib/]

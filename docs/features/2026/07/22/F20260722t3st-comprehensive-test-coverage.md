@@ -16,7 +16,6 @@ causal_links:
     - F20260715f4k9   # frameworks-layer-implementation
 
 # 元数据
-status: development
 change_type: feature
 tags: [testing, coverage, regression, entity, usecase, repository, mapper]
 modules: [tests/]

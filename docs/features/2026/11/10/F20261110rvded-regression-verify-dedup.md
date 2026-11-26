@@ -2,7 +2,6 @@
 id: F20261110rvded
 title: 回查清单排除已通过 issue
 change_type: fix
-status: development
 created_at: 2026-11-10
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 capability_test: "n/a: 调度清单生成与 gh 边界修复，无 LLM 参与行为"

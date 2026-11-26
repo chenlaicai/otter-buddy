@@ -13,7 +13,6 @@ causal_links:
     - F20260804dglp   # PR #138 发现的同构问题
   to: []
 
-status: development
 change_type: fix
 tags: [circuit-breaker, timeout, parallel]
 modules:

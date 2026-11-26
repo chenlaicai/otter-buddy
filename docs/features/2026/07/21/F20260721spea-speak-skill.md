@@ -16,7 +16,6 @@ causal_links:
     - F20260721m3r1
 
 # 元数据
-status: design
 change_type: feature
 tags: [agent, skills, message, body, speak, streaming]
 modules: [skills/, src/interface-adapters/agent-runtime/, src/frameworks/agent/]

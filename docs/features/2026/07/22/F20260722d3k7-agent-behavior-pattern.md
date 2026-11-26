@@ -14,7 +14,6 @@ causal_links:
     - F20260721cap0
 
 # 元数据
-status: design
 change_type: fix
 tags: [agent, skills, code-implementation, adversarial-review, behavioral-rules, compliance, worktree, pr-flow]
 modules: [skills/code-implementation/, skills/adversarial-review/]

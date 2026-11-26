@@ -2,7 +2,6 @@
 id: F20261110spown
 title: supersede 旧资源补对话归属校验
 change_type: fix
-status: development
 created_at: 2026-11-10
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 capability_test: "n/a: 纯后端 usecase 归属与状态机修复，无 LLM 参与行为"

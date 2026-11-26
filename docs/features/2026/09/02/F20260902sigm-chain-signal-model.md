@@ -16,7 +16,6 @@ tags:
   - doc-status
   - chain-model
   - refactor
-status: final
 capability_test: "n/a: 判定层重构为确定性规则（无 LLM 行为变化），由单元测试覆盖（chain-builder/pr-collector/rhi-scan-worker 共 268+ 用例）"
 intent:
   problem: "特性文档 status 字段被当作生命周期真相源驱动病态判定——手工字段必然腐烂（127 篇标 development 多数已合入）、生命周期叙事越权（zombie 判死）、51 条 stalled 全是 doc-only 噪音且合入后 BugFix 漏报"

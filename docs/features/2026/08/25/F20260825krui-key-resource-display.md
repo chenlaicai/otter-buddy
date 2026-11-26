@@ -4,7 +4,6 @@ title: 关键资源展示优化 + TopBar 版本号移除
 summary: |
   两项 UI 优化：(1) 移除 TopBar 调试版本号 v20260730-im；(2) 关键资源（RightPanel）展示统一为 stone 色系 key-value 结构——长内容截断（truncate）+ 悬停原生 tooltip 显示全文，链接类资源加类型色块（pr/url/file 等），FactItem 分类徽章与内容分行。
 change_type: feature-update
-status: active
 capability_test: "n/a: 纯前端展示改动（A 类），无 LLM 参与行为"
 created_in_conversation: f8bf2fbe-6da0-4861-8f48-9ccb27f50c07
 ---

@@ -11,7 +11,6 @@ causal_links:
     - F20260728htar   # html-card-dual-speak-format：纯契约无强制力的软肋是其设计文档自述的已知风险
   to: []
 
-status: implemented
 change_type: fix
 tags: [html-card, speak, tool-contract, interception, frontend-invisible]
 modules:

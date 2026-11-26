@@ -2,7 +2,6 @@
 id: F20260805hybr
 title: 混合搜索融合策略升级
 doc_type: feature
-status: implemented
 created: 2026-08-05
 updated: 2026-08-05
 authors:

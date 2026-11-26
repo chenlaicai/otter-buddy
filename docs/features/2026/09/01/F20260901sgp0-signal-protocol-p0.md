@@ -3,7 +3,6 @@ id: F20260901sgp0
 title: '协作机制 v2：信号协议 P0 — 信号元数据铺轨'
 summary: '为信号协议（F20260901sgp0）铺轨：messages 表加 signal_level/signal_meta 列，yield 工具接受 level 参数（NORMAL/URGENT/HALT），HALT 权限约束落地（仅用户/大獭可投）。P0 阶段行为零变化——不做路由、不改调度逻辑。'
 change_type: feature
-status: draft
 capability_test: n/a — P0 阶段无新增能力，仅铺轨数据层
 created_in_conversation: 52bfdd91-a61e-4323-b1f7-1fe3daaadc32
 ---

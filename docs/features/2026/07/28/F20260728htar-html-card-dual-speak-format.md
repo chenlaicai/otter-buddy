@@ -11,7 +11,6 @@ summary: |
   FTS 索引改应用层写入（废触发器），写剥离后文本；FTS body 存优化投影，messages.body 原文不动。
 causal_links:
   from: [F20260724skch, F20260724tsrr]
-status: draft
 change_type: feature
 tags: [conversation, web, agent-tools, ux, db-migration]
 modules:

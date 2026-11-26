@@ -3,7 +3,6 @@ id: F20260902wh68
 title: core.hooksPath 自愈脚本：worktree/环境覆盖场景的本地钩子防线（#684）
 summary: 新增 scripts/ensure-hooks.mjs 检测并自愈失效的 core.hooksPath（.husky/_ 残留、绝对路径覆盖、未配置、部分钩子缺失），prepare 接管为自愈入口，新增 hooks:check/hooks:fix，附真实 git 仓库 + worktree 的 8 用例防回归测试。
 change_type: feature
-status: implemented
 tags: [git-hooks, worktree, engineering-hygiene, self-heal]
 modules: [scripts/ensure-hooks.mjs, package.json, README.md, README.en.md]
 from: [F20260821kgts, F20260826hk47]

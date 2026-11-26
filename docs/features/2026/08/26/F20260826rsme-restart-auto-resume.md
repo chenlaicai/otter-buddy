@@ -9,7 +9,6 @@ summary: |
   segments) + 链引擎 re-invoke（#332：直接 invoke 丢 yield 目标）。恢复上限 1 次，
   超限/失败降级现状语义（不比现状差）。
 change_type: feature
-status: active
 capability_test: "n/a: 恢复编排为确定性逻辑（DB 查询+状态机+链引擎复用），无新 LLM 行为面"
 created_in_conversation: a7f5b5c0-cef0-4851-9e6d-67260622bb6d
 ---

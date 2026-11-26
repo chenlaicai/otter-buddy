@@ -15,7 +15,6 @@ causal_links:
     - F20260730sbrt   # speak-retry-thinking-only：困境上报机制是 self-healing 的前身
     - F20260724skch   # skill-tool-channel-consolidation：信道分层原则（协议跟着工具走）
 
-status: final
 change_type: feature
 tags: [agent, healing, self-healing, feedback-loop, speak, tool, observability]
 modules:

@@ -16,7 +16,6 @@ causal_links:
     - F20260805abpp   # abort 投影（已知 terminate 工具路径例外）
   to: []
 
-status: development
 change_type: fix
 tags: [agent, circuit-breaker, speak, steer, incident]
 modules:

@@ -8,7 +8,6 @@ summary: |
   3 个中等问题（工具 execute 签名截断、双层重试冲突、依赖未文档化行为）、若干未用能力。
   核心根因：集成时误以为 SDK 无公开 system prompt setter，实际有两条正规路径未使用。
 
-status: draft
 exploration_type: audit
 tags: [agent, pi-sdk, integration-quality]
 modules:

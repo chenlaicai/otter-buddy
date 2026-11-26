@@ -2,7 +2,6 @@
 id: F20260820x334
 title: "#334 #335 联合修复：审视流程链断点 + 大獭管理者角色"
 summary: "三方会诊共识方案：6 项 prompt 层修复，解决多獭编排场景下审视流程链断裂和管理者角色缺失问题。"
-status: active
 change_type: prompt
 created_in_conversation: e81ab209-9173-4836-9d66-7f5e7fd281a0
 feature_number: F20260820x334

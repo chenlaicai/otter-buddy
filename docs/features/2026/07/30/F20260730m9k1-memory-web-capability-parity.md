@@ -16,7 +16,6 @@ causal_links:
 
 
 # 元数据
-status: draft
 change_type: feature
 tags: [memory, web, frontend, parity, retrieval]
 modules: [web/src/pages/memory, web/src/api, interface-adapters/http]

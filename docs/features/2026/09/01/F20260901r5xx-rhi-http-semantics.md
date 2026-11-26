@@ -3,7 +3,6 @@ id: F20260901r5xx
 title: "RHI HTTP 端点错误响应统一：废除守门人模式，catch 兜底改 5xx（#581）"
 summary: "rhi-controller 8 个端点的 catch 兜底从「200+error body」改为经 handleError 统一返回 5xx（DomainError 自动映射 4xx）；全局盘点确认守门人残留仅在 rhi-controller，memory health 端点的 200+healthy:false 是健康度数据语义予以保留；前端清理 ok:false 死代码；ADR 记录决策依据。"
 change_type: refactor
-status: development
 created_at: 2026-09-01
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 capability_test: "n/a: HTTP 错误状态码语义修正，无 LLM 行为变更"

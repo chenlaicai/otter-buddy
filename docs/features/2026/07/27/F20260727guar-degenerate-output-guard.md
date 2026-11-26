@@ -14,7 +14,6 @@ causal_links:
     - F20260716bte2   # agent-circuit-breaker
 
 # 元数据
-status: development
 change_type: feature
 tags: [agent, output-guard, safety, streaming]
 modules: [src/frameworks/agent/]

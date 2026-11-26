@@ -15,7 +15,6 @@ causal_links:
     - F20260720qs9y   # per-conversation-otter：每对话独立大獭是召唤的前提
     - F20260724skch   # skill-tool-channel-consolidation：信道分层原则（本特性的设计依据）
 
-status: draft
 change_type: prompt
 tags: [agent, prompt, otter, summon, collaboration, identity, skill, channel]
 modules:

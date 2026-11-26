@@ -3,7 +3,6 @@ id: F20260901tmfx
 title: "#605 rhi-scan-worker 测试时间敏感 flaky 治理：时钟冻结 + 窗口对齐陷阱实证"
 summary: Issue #605「chain_states 断言随日内时间翻转」的根因确认与修复。系统性时间旅行实验证伪了 issue 的「日内判定窗口跨界」假说（无法复现）；确认 fixture「now - offset」相对时间构造是非确定性土壤，且「绝对固定时间戳」方向存在 git --since committer date 过滤的窗口错位陷阱。修复采时钟冻结（真实时钟快照），零生产代码改动。
 change_type: fix
-status: development
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 ---
 

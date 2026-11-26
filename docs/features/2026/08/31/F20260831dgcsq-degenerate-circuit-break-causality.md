@@ -3,7 +3,6 @@ id: F20260831dgcsq
 title: "退化循环 P2：healing_events 因果链路可观测性"
 summary: "degenerate 与 circuit_break 事件的因果链断裂修复——用 messageId 锚替代根因报告原案的事件 ID 锚（零签名变更，语义等价）。healing_events context 新增 preRetryMessageId（degenerate 事件）和 firstMessageId（circuit_break 事件），因果链可检索。"
 change_type: fix
-status: implemented
 created_in_conversation: 7df22e6e-caba-4fc9-a3ab-1e9e2a3ff02d
 modules:
   - src/usecases/conversation/agent-turn-orchestrator/orchestrator.ts

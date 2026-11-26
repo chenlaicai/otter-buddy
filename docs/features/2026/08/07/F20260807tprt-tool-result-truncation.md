@@ -13,7 +13,6 @@ causal_links:
     - F20260807snip
   to: []
 
-status: development
 change_type: fix
 tags: [agent, context-management, degenerate-detection]
 modules:

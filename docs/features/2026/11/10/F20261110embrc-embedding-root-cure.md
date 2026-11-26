@@ -3,7 +3,6 @@ id: F20261110embrc
 title: embedding 子系统根治——通道分离、token 预算调度与进度看门狗
 summary: live/backfill 双 lane 物理隔离、token 预算领取、逐条进度看门狗与生产分布混沌验收，消除回填洪峰下实时阻塞和死容量。
 change_type: refactor
-status: development
 created_at: 2026-11-10
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 capability_test: "n/a: 后台子系统重构；验证=行为测试（含 soak 混沌用例）+ alpha.sh 真实模型冒烟；无用户可感界面"

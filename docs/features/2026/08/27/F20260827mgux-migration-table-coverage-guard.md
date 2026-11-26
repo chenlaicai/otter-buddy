@@ -7,7 +7,6 @@ summary: |
   删除 migration.ts 中 6 个誊抄 ensure 函数及 1 段内联 CREATE（净 -200 行），
   新增表级等价性守卫测试防退化（8/5 基线夹具），第 4 案随机制自动修复。
 change_type: refactor
-status: implemented
 created_in_conversation: 02e892ea-b291-4108-bacf-0d6148790511
 tags: [database, migration, idempotent-schema, guard-test, single-source-of-truth]
 modules:

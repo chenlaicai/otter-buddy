@@ -7,7 +7,6 @@ summary: >
   streaming 5min 墙钟窗」切换为 dispatch_attempts 台账，状态盒三态扩四态（新增 FAILED）。
   三条验收：多獭会话「永远排队」徽标痊愈 / 5min 墙钟窗状态倒退消除 / 失败首次可见（❌+note，
   手动 retry 的 UI 面闭合）。四态全部是持久层纯函数，Date.now() 从判定路径消失。
-status: implemented
 change_type: feature
 tags: [signal-protocol, dispatch-ledger, signal-trail-ui, sgp2-s1b]
 modules: [src/usecases/conversation/, src/frameworks/db/conversation/, web/src/lib/, web/src/pages/conversation/]

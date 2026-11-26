@@ -3,7 +3,6 @@ id: F20260915rgte
 title: 审视闭环机械化身：review state 闸门 + main 分支保护
 summary: 修复 #824——检视 review 全为 COMMENTED state（GitHub 机械层不挡合并）且 main 分支保护未开 required reviews，审视闭环纯靠 prompt 纪律（跳环率 8 月 20%→9 月 28%）。修复：检视獭 review 按结论带 state（严重→request-changes / delta 通过→approve / 初轮仅建议→comment）+ 两检视 skill 体检（3 个真实缺陷已修）。分支保护 required reviews 曾开启，r2 实证 GitHub 拒绝 self-approval（同账号下无人能发 APPROVE），经搭档 9/15 决策「海獭与搭档对外一体、不追求 GitHub 独立身份」后回滚——机械层不设闸，state 留痕保留作可见性，防线回归流程纪律（#941 按决策关闭）。
 type: feature
-status: development
 created: 2026-09-15
 created_in_conversation: c2f347c6-7e59-4e2e-ab48-10f64a5a1258
 modules: [review-protocol, adversarial-review, github-branch-protection]

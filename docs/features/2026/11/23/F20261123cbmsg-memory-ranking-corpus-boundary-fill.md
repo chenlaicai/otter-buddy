@@ -10,7 +10,6 @@ summary: >
   缺口核算（分母/命中集/数字）、四类共 10 条补语料的行级规格、地板漂移处置协议与五条机械验收断言，
   并附同日撞车审计（11/12 与 11/11 四个未开 PR 的载体、两处口径漂移）。已落地 60 语料、49 查询与三族锚点。
 change_type: refactor
-status: implemented
 created_at: 2026-11-12
 created_in_conversation: 276c08db-a82f-4e42-a78d-610d7f413baa
 tags: [memory, retrieval, ranking, golden-eval, corpus, conversation-boost, layer-aware, conflict-audit]

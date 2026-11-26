@@ -10,7 +10,6 @@ causal_links:
   from:
     - F20260811safen
 
-status: development
 change_type: fix
 tags: [bugfix, realtime-update, SSE]
 modules:

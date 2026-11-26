@@ -15,7 +15,6 @@ causal_links:
     - F20260720n5p1   # merge-key-fact-into-resource（fact 作为 LinkedResource 存储）
 
 # 元数据
-status: development
 change_type: feature-update
 tags: [linked-resource, fact, content-limit, context-window]
 modules: [src/interface-adapters/agent-runtime/tools/, src/usecases/conversation/]

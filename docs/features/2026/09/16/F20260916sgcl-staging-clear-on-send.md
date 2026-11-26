@@ -3,7 +3,6 @@ id: F20260916sgcl
 title: 附件中转区发送后不清空修复（悬浮截图发送后不消失）
 summary: 发送链路绕过 takeForSend/clearAll，中转区 staged 状态无复位入口，发送后悬浮缩略图残留且会被下一条消息重复携带；在 ChatView 包一层 onSend，成功后 clearAll
 change_type: fix
-status: implemented
 tags: [web-ui, multimodal, attachments, bugfix]
 modules: [web/src/pages/conversation/ChatView.tsx, web/src/pages/conversation/ChatView.test.tsx, web/src/pages/conversation/index.tsx]
 from: [F20260828mmwb]

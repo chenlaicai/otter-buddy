@@ -2,7 +2,6 @@
 id: F20260902rcq3
 title: 记忆召回 Phase 1·三：doc ID 锚点注入——文档编号直查可命中
 change_type: feature
-status: implemented
 created: 2026-09-02
 created_in_conversation: 9e709aca-dd74-42fa-9fe1-4e7bbaf24bdb
 modules:

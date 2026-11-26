@@ -14,7 +14,6 @@ causal_links:
     - F20260716t2ab   # Tool/Skill 机制
     - F20260722ta2k   # Session 复用机制
 
-status: proposed
 change_type: feature
 tags: [agent, llm, multi-model, routing, pi-ai]
 modules: [src/frameworks/llm/, src/frameworks/agent/, src/interface-adapters/agent-runtime/tools/]

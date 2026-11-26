@@ -2,7 +2,6 @@
 id: F20261023wxbr
 title: 微信扫码 binded_redirect 终态语义补全（#1112）
 change_type: fix
-status: implemented
 created: 2026-10-23
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

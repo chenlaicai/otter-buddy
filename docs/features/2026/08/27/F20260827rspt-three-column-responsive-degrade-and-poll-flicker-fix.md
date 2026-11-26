@@ -13,7 +13,6 @@ causal_links:
   from:
     - F20260826pfix
 
-status: development
 change_type: fix
 tags: [web, responsive, layout, react, polling, performance]
 modules:

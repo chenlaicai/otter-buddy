@@ -18,7 +18,6 @@ causal_links:
   from:
     - F20260723mk75
 
-status: draft
 change_type: fix
 tags: [sender-name, dto, projection, sse, contract, talking-stone, chain, circuit-breaker]
 modules:

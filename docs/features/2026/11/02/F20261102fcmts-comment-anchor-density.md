@@ -2,7 +2,6 @@
 id: F20261102fcmts
 title: 注释 F 编号密度收敛：条款 + 存量甄别清理（#1482）
 change_type: prompt
-status: implemented
 created: 2026-11-02
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

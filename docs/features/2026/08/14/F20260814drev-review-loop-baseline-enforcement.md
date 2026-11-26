@@ -15,7 +15,6 @@ causal_links:
     - F20260811brd2   # 检视维度增加基础维度（CI状态、文档完整性、全链路验证）
     - F20260813actk   # 大獭召唤派工缺口修复：发言石→行动权 reframe
 
-status: development
 change_type: prompt
 tags: [agent-architecture, review-loop, prompt-engineering, baseline-dimensions]
 modules:

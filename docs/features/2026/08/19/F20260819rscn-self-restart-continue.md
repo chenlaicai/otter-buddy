@@ -14,7 +14,6 @@ causal_links:
     - F20260813rstrt   # restart-otter-and-scheduled-task：自重启机制
     - F20260818cbkr    # degenerate-session-reset-circuit-breaker：重启+续跑模式参考
 
-status: implemented
 change_type: feature
 tags: [agent, session, restart, self-restart, continue, re-invoke]
 modules:

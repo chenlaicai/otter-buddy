@@ -12,7 +12,6 @@ causal_links:
     - F20260804dglp   # 退化输出修复：首个实践 Acceptance Test 的案例
   to: []
 
-status: design
 change_type: feature-update
 tags: [documentation, testing, acceptance-test, capability-test, evaluability]
 modules:

@@ -2,7 +2,6 @@
 id: F20260831prvg
 title: "pre-existing 失败声明硬门禁：skill 层三落点防「自引入失败误报无关」"
 created: 2026-08-31
-status: implemented
 summary: 自检报告中的 pre-existing 失败声明必须附 stash 基线复跑/对照证据，无证据不得写入；检视侧对无证据声明直接打回。生成侧/核验侧/召唤侧三落点。
 change_type: prompt
 tags: [skill, self-check, review-protocol, trust-gate]

@@ -3,7 +3,6 @@ id: F20261008sbss
 title: 左栏对话状态回归收口：可见性立即刷新 + 状态一致性回归测试
 type: BugFix
 change_type: fix
-status: implemented
 created_at: 2026-09-30
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 causal_links:

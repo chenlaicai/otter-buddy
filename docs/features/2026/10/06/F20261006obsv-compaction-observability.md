@@ -3,7 +3,6 @@ id: F20261006obsv
 title: 每日体检补上下文压缩观测（#1246 风暴复盘）
 change_type: fix
 capability_test: "n/a: prompt 软代码改动，无 LLM 行为面可跑场景（golden gate 豁免口径）"
-status: implemented
 created_at: 2026-10-06
 created_in_conversation: d7377cfd-8497-4338-9fb5-366967ffe87e
 causal_links:

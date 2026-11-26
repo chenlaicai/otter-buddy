@@ -3,7 +3,6 @@ id: F20260826scd4
 title: 港股命令与操作参考层 — stock-cli.py 扩展 + stock-analysis skill 升级
 summary: 新增港股日线和估值命令（hkline/hvaluation），skill 结论层新增可执行操作参考。
 change_type: feature
-status: development
 capability_test: "n/a: 代码变更（stock-cli.py 扩展）+ prompt 层 skill 定义；通过单测+lint 验证"
 created_at: 2026-08-26
 created_in_conversation: 7df22e6e-caba-4fc9-a3ab-1e9e2a3ff02d

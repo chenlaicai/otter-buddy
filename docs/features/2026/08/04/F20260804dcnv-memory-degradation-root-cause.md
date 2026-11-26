@@ -13,7 +13,6 @@ causal_links:
     - F20260803frmt   # frontmatter-backfill：F20260803vmsg 缺 frontmatter 是该批回填遗漏
   to: []
 
-status: implemented
 change_type: fix
 tags: [memory, sync, frontmatter, convention, observability, json-import, reconcile-gap]
 modules:

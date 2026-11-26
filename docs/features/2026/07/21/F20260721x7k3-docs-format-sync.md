@@ -15,7 +15,6 @@ causal_links:
     - F20260721qh74   # 文档数据模型设计
 
 # 元数据
-status: development
 change_type: refactor
 tags: [documentation, frontmatter, format, memory-index]
 modules: [docs/]

@@ -4,7 +4,6 @@ id: F20261118climg
 date: 2026-11-18
 module: extensions
 change_type: feature
-status: active
 capability_test: "n/a: 不新增工具/检索行为，双向图片由海獭 attachment 注入链路与 CoLink files/messages API 表现；行为门禁为 colink-agent-app 单测（54 项中新增/更新 17 项）"
 intent:
   problem: "CoLink 与海獭 app 的双向图片链路都是断的：接收方向海獭 app 丢弃事件 fileIds 从不下载图片字节，发送方向海獭 app 只 ctx.reply({text}) 无法带附件，而 CoLink 平台只把 png/jpeg/gif/webp 识别为可预览图片（SVG 不在白名单）。"

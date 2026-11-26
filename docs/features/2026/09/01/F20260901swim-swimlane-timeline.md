@@ -3,7 +3,6 @@ id: F20260901swim
 title: "健康面板链泳道时间线：自绘 SVG 五态线尾表达 + 异常筛选 + 链详情抽屉（Issue #649）"
 summary: "健康面板重设计 PR3（Issue #649，五期收官）：chains 视图从 slice(0,50) 列表升级为泳道时间线——每链一行，commit 圆点线性映射共享 60 天 x 轴（窗口外老链贴左缘截断标注）；五态线尾表达（active=teal 实线+末端呼吸动画全场唯一动效、stalled=虚化尾+空心圆+停滞天数、regressed=caramel 回卷弧、zombie=otter-300 降饱和+末端 ×、orphan=lavender 悬空空心起点）；异常筛选 chips 视觉反转（异常实心+计数、活跃描边灰显，点选泳道只留命中链）；点行展开详情抽屉（#644 全量 commits+stateReason+docStatus）。列表端点扩展轻量 commits（sha8+date+changeType，全量走 chainDetail）；手写窗口化渲染（零新依赖）。五态元数据收编 chain-state-meta.ts 单一真相源。"
 change_type: feature
-status: implemented
 substatus: active
 created_at: 2026-09-01
 created_in_conversation: 7c6e78b5-6fdc-462e-9383-4d96cf95dcd7

@@ -7,7 +7,6 @@ summary: |
   消费由派发尝试记账（链引擎插桩），无自动重试无孤儿扫描，游标回归上下文注入本职。
   分段迁移 S1（记账铺轨）→S2（路由器重挂）→S3/S4（入口全量换轨 + turn 退役），
   每段独立可回滚。三条事故回放判据 R1-R3 贯穿验收。
-status: final
 change_type: feature
 tags: [signal-protocol, dispatch-ledger, incident-response, cursor-migration, turn-retirement]
 modules: [src/usecases/conversation/, src/frameworks/db/, src/bootstrap/]

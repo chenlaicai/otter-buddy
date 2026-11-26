@@ -15,7 +15,6 @@ causal_links:
     - F20260716t2ab   # tool-skill-mechanism
 
 # 元数据
-status: locked
 change_type: fix
 tags: [memory, recall, agent-tool, architecture]
 modules: [src/interface-adapters/agent-runtime/, src/frameworks/agent/]

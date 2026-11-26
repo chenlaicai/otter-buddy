@@ -15,7 +15,6 @@ causal_links:
     - F20260709p4q7   # data-model-design
 
 # 元数据
-status: development
 change_type: refactor
 tags: [key-fact, linked-resource, memory, unification]
 modules: [src/entities/conversation/, src/usecases/conversation/, src/frameworks/db/conversation/]

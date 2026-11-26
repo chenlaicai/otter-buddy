@@ -12,7 +12,6 @@ causal_links:
   from:
     - F20260722c4nv
 
-status: draft
 change_type: feature
 tags: [talking-stone, dispatch, conversation, mention]
 modules:

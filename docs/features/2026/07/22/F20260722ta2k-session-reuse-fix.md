@@ -14,7 +14,6 @@ causal_links:
     - F20260716sq6e
 
 # 元数据
-status: draft
 change_type: fix
 tags: [session, pi-sdk, reuse, performance]
 modules: [src/frameworks/agent/, src/frameworks/db/]

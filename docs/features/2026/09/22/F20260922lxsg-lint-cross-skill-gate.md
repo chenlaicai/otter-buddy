@@ -2,7 +2,6 @@
 id: F20260922lxsg
 title: lint 跨 skill 裸写引用非法化（#773）：E1c 门禁 + ../ 前缀写死
 change_type: fix
-status: implemented
 created: 2026-09-22
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

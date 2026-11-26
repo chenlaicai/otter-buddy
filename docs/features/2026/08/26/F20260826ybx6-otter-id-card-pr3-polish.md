@@ -4,7 +4,6 @@ title: 海獭身份证 PR-3 打磨期：移动端抽屉+EXP动效+时序测试
 summary: |
   PR-3 打磨期收尾海獭身份证特性：① Modal 移动端全屏抽屉（<640px，iOS 安全区适配）② EXP 经验条 CSS @keyframes 动画（scaleX + reduced-motion）③ hover 卡 400ms debounce 时序组件级测试（@testing-library/react）。三轮对抗审视收敛。
 change_type: feature-update
-status: draft
 from:
   - F20260825qzwd
 capability_test: "n/a: 展示层特性"

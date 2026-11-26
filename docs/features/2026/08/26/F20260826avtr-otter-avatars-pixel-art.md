@@ -14,7 +14,6 @@ causal_links:
   from: []
 
 # 元数据
-status: development
 change_type: feature
 capability_test: "n/a: 纯前端 UI 组件变更（头像渲染），无 LLM 参与行为；逻辑验证走 web 单测（vitest）"
 tags: [avatar, web-ui, pixel-art, otter-identity]

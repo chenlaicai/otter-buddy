@@ -3,7 +3,6 @@ id: F20260829cstd
 title: 成本/产出看板（RHI 效率维指标组）
 summary: 新增 LLMCallCollector（解析 session JSONL 聚合 per-otter per-day token/cost）+ OtterOutputCollector（查询 messages 表聚合发言计数），接入 RHI 管道写入 health_snapshots（metric_type=cost_output），新增 GET /api/health/cost-output 端点和 Web 成本/产出 Tab（趋势折线图 + 獭明细 + 缓存命中率 + 成本占比堆叠条）。
 change_type: feature
-status: development
 created_in_conversation: fe63e059-635f-4387-9dcd-5b685a58e6e8
 capability_test: tests/usecases/health/cost-output-collector.test.ts
 tags: [rhi, cost-output, health-dashboard, metrics, efficiency]

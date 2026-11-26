@@ -16,7 +16,6 @@ causal_links:
     - F20260728skrp   # worktree-isolation skill 初始设计
 
 # 元数据
-status: design
 change_type: feature-update
 tags: [skills, worktree-isolation, worktree, prompt-engineering]
 modules: [.pi/skills/]

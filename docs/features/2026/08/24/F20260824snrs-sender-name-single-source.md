@@ -6,7 +6,6 @@ summary: |
   收敛层 resolveSpeakerName() 统一所有运行时解析，前端 resolveDisplayName() 消费本地 name + '我'/'系统'。
   三层各自唯一负责，otter 行不存在时 fallback 到 senderId（永不落入 'Otter'）。
 change_type: refactor
-status: draft
 capability_test: "n/a: 纯代码/数据模型改动（A 类），无 LLM 参与行为"
 created_in_conversation: 0d2efc85-ee7b-49aa-bd05-c114ba9fe817
 ---

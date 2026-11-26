@@ -7,7 +7,6 @@ summary: |
   对抗审视指出目录语义从「type-only 契约」扩展为「含运行时值的契约」缺少显式约定。
   方案：新建 api-contract/README.md 声明目录定位、value 导出准入标准与决策留痕锚点。
 change_type: feature
-status: active
 capability_test: "n/a: 纯文档变更（Design 类），无代码/LLM 行为改动"
 created_in_conversation: 376077f2-7ebb-442b-943e-c7ce547f4f8a
 ---

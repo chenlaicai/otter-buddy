@@ -2,7 +2,6 @@
 id: F20261024trsh
 title: macOS 废纸篓正道白名单：mv → ~/.Trash 目的端豁免（#1418）
 change_type: fix
-status: implemented
 created: 2026-10-24
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

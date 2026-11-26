@@ -16,7 +16,6 @@ causal_links:
     - F20260902gvrd
     - F20260830bsgr
     - F20260831aksp
-status: development
 change_type: fix
 tags: [bash-safety-guard, false-positive, agent, safety]
 modules:

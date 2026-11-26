@@ -15,7 +15,6 @@ causal_links:
     - F20260810ka23  # Skill 系统优化（检视结论 post 到 PR）
     - F20260811rtrd  # 检视模板重设计（消灭「记录」黑洞）
 
-status: development
 change_type: prompt
 tags: [skills, review, prompt]
 modules:

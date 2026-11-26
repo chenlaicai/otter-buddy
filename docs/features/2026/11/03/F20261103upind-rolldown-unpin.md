@@ -2,7 +2,6 @@
 id: F20261103upind
 title: rolldown pin 退役：上游 binding 完整后移除临时锁定（#1606）
 change_type: fix
-status: implemented
 created: 2026-11-03
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

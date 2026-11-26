@@ -2,7 +2,6 @@
 id: F20260922abat
 title: 429 backoff 期间 abort 归因修复（#764）：auto_retry_start 观测窗回填
 change_type: fix
-status: implemented
 created: 2026-09-22
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:

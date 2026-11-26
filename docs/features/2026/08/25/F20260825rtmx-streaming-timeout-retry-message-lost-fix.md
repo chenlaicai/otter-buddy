@@ -15,7 +15,6 @@ causal_links:
     - F20260727guar   # degenerate-loop-silence-fix（OutputGuard 超时机制）
 
 # 元数据
-status: development
 type: fix
 tags: [agent, orchestrator, retry, timeout, message-lifecycle]
 modules: [src/usecases/conversation/agent-turn-orchestrator]

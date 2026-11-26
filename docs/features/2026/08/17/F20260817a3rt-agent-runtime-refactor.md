@@ -15,7 +15,6 @@ causal_links:
     - F20260817bcst
     - R20260817arnt
 
-status: development
 change_type: refactor
 tags: [agent, architecture, port, refactor]
 modules:

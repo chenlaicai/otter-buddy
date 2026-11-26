@@ -14,7 +14,6 @@ causal_links:
     - F20260721spea   # speak Skill
     - F20260722mk74   # startup-reliability-fixes：同日先发的启动修复，本 F 在其基础上继续
 
-status: implemented
 change_type: fix
 tags: [startup, agent, sse, streaming, speak, multi-otter, concurrency]
 modules: [scripts, src/main.ts, src/frameworks/agent, src/interface-adapters/agent-runtime, src/interface-adapters/http, web/src/pages/conversation]

@@ -14,7 +14,6 @@ causal_links:
   from:
     - R20260811rclo
 
-status: implemented
 change_type: feature
 # 状态修正（2026-08-26，R20260826rcmm Phase 0+）：功能已于 2026-08-24 前随 #375 批次实际落地
 # （source 标记/vecCoverage/暗化扫描/extractSnippet/drillDown/版本锚均有代码+测试+运行时证据），

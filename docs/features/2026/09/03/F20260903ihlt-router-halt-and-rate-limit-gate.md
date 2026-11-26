@@ -16,7 +16,6 @@ causal_links:
     - F20260902sgp2   # 信号协议 v2：路由器/台账/pending 语义的母体
     - F20260903damp   # 热循环阻尼（同族失效模式：重扫驱动的自动点火失控）
 
-status: implemented
 change_type: fix
 tags: [signal-router, dispatch, rate-limit, user-abort]
 modules:

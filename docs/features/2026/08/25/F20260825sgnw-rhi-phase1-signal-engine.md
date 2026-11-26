@@ -8,7 +8,6 @@ summary: |
   （critical 信号经 StoreMemory 写入记忆系统可被 search_memory 检索 + 唤醒端口）、
   定时采集 worker（1h 周期全管道，start/stop 生命周期接入 app.ts dispose）。
 change_type: feature
-status: development
 capability_test: "tests/usecases/health/chain-builder.test.ts"
 created_in_conversation: 9e709aca-dd74-42fa-9fe1-4e7bbaf24bdb
 ---

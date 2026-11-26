@@ -15,7 +15,6 @@ causal_links:
     - F20260720h7a4   # TypeScript 路径别名修复
 
 # 元数据
-status: development
 change_type: fix
 tags: [esm, agent, sdk, model, startup, ui]
 modules: [src/frameworks, src/interface-adapters, web, scripts]

@@ -3,7 +3,6 @@ id: F20260830hdbh
 title: 健康面板综合分卡与五维雷达图
 summary: issue #595 PR2（面板展示）：健康面板总览顶部新增综合健康分大卡（大数字+状态色+走向箭头+归因句+五维迷你条）与五维雷达图（recharts RadarChart），消费 PR1 的 GET /api/health/score。纯展示层，零后端改动。
 change_type: feature
-status: implemented
 created_in_conversation: 9e709aca-dd74-42fa-9fe1-4e7bbaf24bdb
 modules:
   - web
