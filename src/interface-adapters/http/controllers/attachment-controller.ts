@@ -169,8 +169,15 @@ export class AttachmentController {
         }),
       };
 
-      const stream = fs.createReadStream(absPath);
-      return new Response(stream as unknown as ReadableStream, { headers });
+      // #2010：fs.ReadStream 是 Node async iterable——直接喂 new Response() 会落入
+      // undici ReadableStreamFrom 包装（node v24 deps/undici/undici.js:1562-1590）：
+      // pull 的 iterator.next() resolve done 后 queueMicrotask(controller.close())，
+      // 若客户端断开（@hono/node-server writable close → reader.cancel()）恰落在
+      // pull pending 窗口内，close 落在已关闭的 controller 上抛 ERR_INVALID_STATE →
+      // uncaughtException → 进程退出。Readable.toWeb() 产生真 WHATWG ReadableStream，
+      // undici extractBody 直接透传（不包装），cancel 走 Node 流的 destroy——竞态面消失。
+      const stream = Readable.toWeb(fs.createReadStream(absPath)) as unknown as ReadableStream<Uint8Array>;
+      return new Response(stream, { headers });
     } catch (err) {
       return handleError(c, err, this.logger);
     }
