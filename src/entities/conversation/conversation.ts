@@ -178,7 +178,7 @@ export function checkMergeFactResource(
   const body = `${title} ${resource.content ?? ""}`;
   const prNums = [...body.matchAll(/#(\d+)/g)].map(m => m[1]);
   if (prNums.length === 0) return { ok: false, reason: "no_pr_number" };
-  // 证据行绑定（对抗审视发现 1 修复）：终态词与对应 PR 号必须在**同一行**内绑定出现——
+  // 证据行绑定（对抗审视对抗审视发现）：终态词与对应 PR 号必须在**同一行**内绑定出现——
   // 全文聚合匹配可被拼凑证据绕过（A 行 9999 MERGED + B 行 1378 OPEN、日期年份撞 对应编号 号）。
   // 否定形态（NOT MERGED / NOT CLOSED / 未合入 / 未合并）不计终态。
   // 残余边界：同一行内混排多个 PR 时以「号在行内出现 + 行内有终态词」近似绑定，
