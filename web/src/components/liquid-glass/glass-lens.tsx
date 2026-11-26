@@ -23,7 +23,10 @@
 // the lens is visible the container carries:
 //   data-glass-moving     — hide the flat highlight:  [[data-glass-moving]_&]:opacity-0
 //   data-glass-traveling  — paint the selected label as unselected, so it reads under clear glass
-// Without WebGL2 or with reduced motion the highlight simply jumps. COPY VERBATIM. MIT.
+// Without WebGL2 or with reduced motion the highlight simply jumps. MIT.
+// Otter Buddy fork: at rest the lens persists as clear resting glass instead of handing
+// back to the flat highlight — the pill shows only in true fallbacks (no WebGL2, reduced
+// motion, GPU context lost).
 
 import { useEffect, useRef } from 'react'
 
@@ -198,17 +201,17 @@ export function GlassLens({ value, disabled = false }: GlassLensProps) {
       }
       return best
     }
-    const stop = () => {
+    // Otter Buddy: the lens never hands back to a flat DOM pill while it can render. At rest
+    // it stays on as clear water glass (see the resting ends in `lens`); the flat highlight
+    // shows only in true fallbacks (reduced motion, no engine, GPU lost).
+    /** True detach: the lens leaves and the flat highlight (plain CSS look) takes over. */
+    const detach = () => {
       active = false
       press.x = press.v = 0
       if (target) place(target)
       delete root.dataset.glassMoving
       delete root.dataset.glassTraveling
       view.dirty = true
-      setTimeout(() => {
-        const el = root.querySelector('[data-glass-highlight]')?.parentElement
-        if (!active && el) selectedColor = getComputedStyle(el).color
-      }, 400)
     }
     const start = () => {
       if (active || !target) return
@@ -224,7 +227,7 @@ export function GlassLens({ value, disabled = false }: GlassLensProps) {
       step: (dt, still) => {
         if (!active || !target) return false
         if (still) {
-          stop()
+          detach()
           return false
         }
         let goal: Box = target
@@ -249,14 +252,17 @@ export function GlassLens({ value, disabled = false }: GlassLensProps) {
         else if ('glassMoving' in root.dataset) root.dataset.glassTraveling = ''
         const e = stepSpring(press, open ? 1 : 0, SPRINGS.press, dt)
         const moving = a || b || c || d || e || f
-        if (!moving && !pressed) stop()
+        // Motion simply settles: the persistent lens stays on as resting glass.
         return moving
       },
       lens: () => {
         if (!active || !target) return null
         const p = clamp(press.x, -0.12, 1.15)
         const pc = clamp(press.x)
-        const frost = 1 - pc
+        // Otter Buddy: the resting end of every curve is clear water glass — no frost, no
+        // milky pill. At rest the lens keeps real refraction, a lit rim and a soft shadow;
+        // the full-motion end (press = 1) is untouched, so the droplet travel is as before.
+        const frost = lerp(0.03, 0, pc)
         const padX = 16
         // Room for the larger of the lens and its target: it may travel between sizes.
         const tall = Math.max(target.h, mh.x)
@@ -288,10 +294,10 @@ export function GlassLens({ value, disabled = false }: GlassLensProps) {
           // within the corner, and the bend keeps the depth it has on a pill.
           bevel: pill ? bevel : Math.min(bevel, (radius / unit) * 1.2),
           band: pill ? undefined : bevel * 0.35,
-          shadow: 0.12 * lerp(0.55, 1, pc),
-          shadowSoftness: 34 * OPTICS * lerp(0.6, 1, pc),
-          shadowOffset: 22 * OPTICS * lerp(0.5, 1, pc),
-          strength: pc,
+          shadow: lerp(0.09, 0.12, pc),
+          shadowSoftness: 34 * OPTICS * lerp(0.75, 1, pc),
+          shadowOffset: 22 * OPTICS * lerp(0.7, 1, pc),
+          strength: lerp(0.5, 1, pc),
           color,
           surface,
           edgeClear: 0,
@@ -304,9 +310,9 @@ export function GlassLens({ value, disabled = false }: GlassLensProps) {
                 engine.wake()
               })
             },
-            refract: lerp(6, 37, pc) * OPTICS * lerp(0.06, 1, pc),
-            magnify: 0.12 * pc,
-            dispersion: 0.12 * pc,
+            refract: lerp(20, 37, pc) * OPTICS,
+            magnify: lerp(0.05, 0.12, pc),
+            dispersion: lerp(0.05, 0.12, pc),
             blurCenter: lerp(0.35, 4, frost),
             blurEdge: lerp(2.2, 4, frost),
             frost,
@@ -338,7 +344,7 @@ export function GlassLens({ value, disabled = false }: GlassLensProps) {
       lost: () => {
         pressed = false
         dragX = null
-        stop()
+        detach()
       },
     }
 
@@ -354,7 +360,9 @@ export function GlassLens({ value, disabled = false }: GlassLensProps) {
       const s = engine.resolveColor(surfaceColorOf(root.parentElement))
       surface = [s[0], s[1], s[2]]
       const st = getComputedStyle(el)
-      if (!active) selectedColor = st.color
+      // Always re-read: the persistent lens keeps `active` true, and the front layer only
+      // shows while frosted, so a mid-travel freeze is already guarded in `sync`.
+      selectedColor = st.color
       // The corners the highlight shows: its own, or its option's when the option clips it.
       let r = cornerOf(hl, b.width, b.height)
       if (st.overflowX !== 'visible' || st.overflowY !== 'visible') r = Math.max(r, cornerOf(el, b.width, b.height))
@@ -377,7 +385,16 @@ export function GlassLens({ value, disabled = false }: GlassLensProps) {
       if (same) return
       if (!slide || !next || !old || !view.visible || reduced.matches) {
         target = next
-        if (active && !pressed) stop()
+        if (!next || reduced.matches) {
+          // No highlight to lens (or reduced motion keeps the plain CSS look): detach.
+          if (active) detach()
+          return
+        }
+        // Snap the persistent lens onto the new target without animation.
+        active = true
+        place(next)
+        view.dirty = true
+        engine.wake()
         return
       }
       selectedColor = keepColor
@@ -430,7 +447,11 @@ export function GlassLens({ value, disabled = false }: GlassLensProps) {
     const touchAction = root.style.touchAction
     root.style.touchAction = 'pan-y'
     const io = new IntersectionObserver(([entry]) => {
+      const was = view.visible
       view.visible = entry.isIntersecting
+      // The persistent resting lens needs its first paint once it is on screen: the wake
+      // from `add` ran while `visible` was still false, and that frame skipped the view.
+      if (!was && view.visible) engine.wake()
     })
     io.observe(root)
     const ro = new ResizeObserver(() => {

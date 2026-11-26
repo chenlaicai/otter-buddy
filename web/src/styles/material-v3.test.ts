@@ -108,7 +108,7 @@ describe('材质 v3.0 契约：瞬态/遮罩层真玻璃保留（白名单闭合
 })
 
 describe('材质 v3.0 契约：小面积一级导航真玻璃例外', () => {
-  it('宽底座保持静止，开源 GlassLens 驱动单枚透镜，乳白静止块与清晰链接独立', () => {
+  it('宽底座保持静止，开源 GlassLens 驱动常驻清玻璃透镜，纯白乳白兜底块退役', () => {
     const topBar = readSrc('web/src/components/TopBar.tsx')
     const lens = readSrc('web/src/components/liquid-glass/glass-lens.tsx')
     const engine = readSrc('web/src/components/liquid-glass/engine.ts')
@@ -121,9 +121,16 @@ describe('材质 v3.0 契约：小面积一级导航真玻璃例外', () => {
     expect(lens).toMatch(/new ResizeObserver/)
     expect(lens).toMatch(/prefers-reduced-motion: reduce/)
     expect(lens).toMatch(/data-glass-option/)
+    // 静止块也是真水玻璃：透镜常驻，静止端 frost 趋零、保留光效与折射，无乳白实心
+    expect(lens).toMatch(/clear resting glass/)
+    expect(lens).toMatch(/const frost = lerp\(0\.03, 0, pc\)/)
+    expect(lens).toMatch(/strength: lerp\(0\.5, 1, pc\)/)
+    expect(lens).not.toMatch(/const frost = 1 - pc/)
     expect(engine).toMatch(/COPY THIS FILE VERBATIM/)
     expect(engine).toMatch(/getContext\(['"]webgl2/)
-    expect(css).toMatch(/\.glass-nav-highlight\s*\{[^}]*background:\s*#ffffff/)
+    // 兜底高亮块跟随主题 token，禁止退回纯白乳白（#ffffff）
+    expect(css).toMatch(/\.glass-nav-highlight\s*\{[^}]*background:\s*var\(--nav-active-bg\)/)
+    expect(css).not.toMatch(/\.glass-nav-highlight\s*\{[^}]*#ffffff/)
     expect(css).toMatch(/\.glass-nav\[data-glass-moving\]\s+\.glass-nav-highlight\s*\{\s*opacity:\s*0/)
     expect(css).toMatch(/\.glass-nav-content\s*\{[^}]*z-index:\s*10/)
     expect(css).toMatch(/\.glass-nav-item-content\s*\{[^}]*z-index:\s*2/)

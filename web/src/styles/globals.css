@@ -235,7 +235,8 @@ body {
 }
 
 /* 一级主导航：宽底座保持静止；bilalgursen/liquid-glass 的 GlassLens
-   以 WebGL2 绘制运动透镜，真实路由链接与乳白静止选中块保留独立语义。 */
+   以 WebGL2 绘制常驻透镜——静止与运动都是透明水玻璃（无乳白、无薄纱），
+   真实路由链接保留独立语义；下方 .glass-nav-highlight 仅作降级兜底。 */
 .glass-nav {
   position: relative;
   isolation: isolate;
@@ -268,7 +269,8 @@ body {
   z-index: 0;
   border-radius: 9999px;
   pointer-events: none;
-  background: #ffffff;
+  /* 仅透镜无法渲染时可见（无 WebGL2 / 减少动效 / GPU 丢失）：跟随主题选中色，不再用纯白乳白块。 */
+  background: var(--nav-active-bg);
   box-shadow:
     0 1px 2px rgba(45, 42, 38, 0.16),
     0 4px 10px rgba(45, 42, 38, 0.12),
@@ -305,7 +307,6 @@ body {
   }
   .glass-nav canvas { display: none; }
   .glass-nav-highlight {
-    background: var(--nav-active-bg);
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.09);
   }
 }
