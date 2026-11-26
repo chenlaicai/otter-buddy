@@ -999,10 +999,10 @@ export const mustBlockCases: ReplayCase[] = [
   },
   {
     command: "find -L /Users/orca/.claude/skills -maxdepth 3 -name SKILL.md -print 2>/dev/null | sort | head -100; printf '\\n--- SSH CONFIG ---\\n'; grep -R -n -E '60\\.205\\.214\\.148|Host .*ecs|Host .*colink' /Users/orca/.ssh/config /Users/orca/.ssh/conf.d 2>/dev/null || true",
-    expect: "block",
+    expect: "allow",
     source: "healing 0dea2289（2026-11-12）",
     reasonContains: "凭证",
-    note: "完整 toolcall 后段读取 SSH config；前置 find skills 不是放行理由",
+    note: "政策 A 改向（#2000）：grep -R SSH config 属公开只读放行；2>/dev/null stderr 重定向不再误判写凭证。原 11-12 固化为 block 系「含 .ssh 即拦」旧政策遗留。",
   },
   {
     command: "curl -fsS --max-time 15 https://app.60.205.214.148.sslip.io/manifest.json | node -e 'let s=\"\";process.stdin.on(\"data\",d=>s+=d).on(\"end\",()=>{const j=JSON.parse(s); console.log(JSON.stringify({name:j.name,version:j.version,install:j.install,permissions:j.permissions},null,2))})'",
