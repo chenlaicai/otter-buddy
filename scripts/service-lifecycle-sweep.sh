@@ -119,9 +119,15 @@ scan_project() {
       lock_file="$project_dir/.otter/worktrees/$wt_name/$lock_file_name"
       
       if [ ! -f "$lock_file" ]; then
-        echo "  Orphan: PID $pid (port $port, cwd: $cwd)" >&2
-        echo "$pid"  # stdout 机器通道
-        orphan_count=$((orphan_count + 1))
+        # 无锁≠孤儿：detached 直拉/锁文件被删的零登记实例照样在用。
+        # 仅当 worktree 目录已删（真孤儿，进程 cwd 指向已不存在的目录）才判孤儿；
+        # 目录仍在 = 对应 worktree 可能仍在验证，fail-closed 保留，交给
+        # post-merge-cleanup（ps + lsof cwd 精确识别）在 worktree 清理时处理。
+        if [ ! -d "$project_dir/.otter/worktrees/$wt_name" ]; then
+          echo "  Orphan: PID $pid (port $port, cwd: $cwd)" >&2
+          echo "$pid"  # stdout 机器通道
+          orphan_count=$((orphan_count + 1))
+        fi
       fi
     done
   done
