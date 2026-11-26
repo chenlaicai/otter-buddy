@@ -137,11 +137,13 @@ export function checkReviewClosure(pr) {
   return { ok: true, status: "closed", reasons: [] };
 }
 
-/** 从 gh CLI 拉 PR 数据（headRefOid / baseRefName / reviews）。查询失败抛错——调用方 fail-closed。 */
-export function fetchPrReviewData(prNumber) {
+/** 从 gh CLI 拉 PR 数据（headRefOid / baseRefName / reviews）。查询失败抛错——调用方 fail-closed。
+ *  --repo：目标仓库（owner/name）——跨仓 PR 合入时 tool-factory 传入，gh 显式按仓解析 PR 号；
+ *  缺省 = gh 进程 cwd 所属仓（本仓 CI/本地调用零变化，#2037）。 */
+export function fetchPrReviewData(prNumber, repo) {
   const stdout = execFileSync(
     "gh",
-    ["pr", "view", String(prNumber), "--json", "headRefOid,baseRefName,author,reviews"],
+    ["pr", "view", String(prNumber), ...(repo ? ["--repo", repo] : []), "--json", "headRefOid,baseRefName,author,reviews"],
     { encoding: "utf8", timeout: 30_000, maxBuffer: 1024 * 1024 },
   );
   return JSON.parse(stdout);
@@ -170,7 +172,14 @@ export function main(argv = process.argv.slice(2)) {
         process.exitCode = 2;
         return;
       }
-      pr = fetchPrReviewData(prNumber);
+      const repoIdx = argv.indexOf("--repo");
+      const repo = repoIdx >= 0 ? argv[repoIdx + 1] : undefined;
+      if (repoIdx >= 0 && !repo) {
+        console.error("[check-pr-review-closure] --repo 缺参数");
+        process.exitCode = 2;
+        return;
+      }
+      pr = fetchPrReviewData(prNumber, repo);
       // docs-only 豁免：diff 全 docs/ 或仓根文档 → 直接闭环（纯文档不改行为面）
       const baseIdx = argv.indexOf("--base");
       const baseRef = baseIdx >= 0 ? argv[baseIdx + 1] : "origin/main";
