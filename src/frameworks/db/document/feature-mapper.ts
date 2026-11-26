@@ -29,7 +29,7 @@ export function rowToEntity(row: FeatureRow): FeatureDocument {
     bodyHash: row.body_hash,
     // 归一值落库（' fix '/'bugfix' 判合法后存规范值，DB 不进脏值）
     changeType: (isKnownChangeType(ct) ? normalizeChangeType(ct) : "feature") as ChangeType,
-    // status 值域已收敛（#2050）：透传 DB 值（active/archived/历史遗留），不再归一到 draft
+    // status 值域已收敛：透传 DB 值（active/archived/历史遗留），不再归一到 draft
     status: row.status as FeatureStatus,
     tags: JSON.parse(row.tags),
     modules: JSON.parse(row.modules),

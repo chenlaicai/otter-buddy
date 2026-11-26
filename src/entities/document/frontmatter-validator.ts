@@ -106,7 +106,7 @@ function validateSummary(summary: unknown, errors: string[]): void {
   }
 }
 
-/** status 字段已退役（#2050）：文档合入即不可变，生命周期状态无法演进；
+/** status 字段已退役：文档合入即不可变，生命周期状态无法演进；
  *  归档（archived）是 sync 在磁盘文档消失时写入 DB 的系统行为，作者不可声明。
  *  frontmatter 出现 status 字段（无论值）→ error 阻断，机械拦住，不依赖执行者读 skill。 */
 function validateStatusRetired(status: unknown, kind: "feature" | "research", errors: string[]): void {

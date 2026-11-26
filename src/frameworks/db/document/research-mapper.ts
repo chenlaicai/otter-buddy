@@ -28,7 +28,7 @@ export function rowToEntity(row: ResearchRow): ResearchDocument {
     summary: row.summary,
     bodyHash: row.body_hash,
     explorationType: (isKnownExplorationType(et) ? et : "technical") as ExplorationType,
-    // status 值域已收敛（#2050）：透传 DB 值（active/archived/历史遗留），不再归一到 draft
+    // status 值域已收敛：透传 DB 值（active/archived/历史遗留），不再归一到 draft
     status: row.status as ResearchStatus,
     tags: JSON.parse(row.tags),
     conclusion: row.conclusion,

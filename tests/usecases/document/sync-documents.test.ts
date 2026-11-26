@@ -251,7 +251,7 @@ describe("SyncDocuments - F20260803mval", () => {
     expect(result.errors.length).toBe(0);
     expect(result.updated).toBe(1);
     expect(featureRepo.store[0].summary).toBe("新摘要");
-    // #2050：落库 status 固定 active，与 frontmatter 输入无关
+    // 落库 status 固定 active，与 frontmatter 输入无关
     expect(featureRepo.store[0].status).toBe("active");
   });
 

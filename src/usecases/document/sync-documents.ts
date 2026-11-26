@@ -424,7 +424,7 @@ export class SyncDocuments {
       bodyHash: computeBodyHash(body),
       // 归一值落库（' fix '/'bugfix' 判合法后存规范值，DB 不进脏值）
       changeType: (isKnownChangeType(ct) ? normalizeChangeType(ct) : "feature") as ChangeType,
-      // status 已脱离 frontmatter 输入（#2050）：活文档固定 active，archived 只由 sync 归档逻辑写入
+      // status 已脱离 frontmatter 输入：活文档固定 active，archived 只由 sync 归档逻辑写入
       status: "active" as FeatureStatus,
       tags: Array.isArray(fm.tags) ? (fm.tags as string[]) : [],
       modules: Array.isArray(fm.modules) ? (fm.modules as string[]) : [],
@@ -453,7 +453,7 @@ export class SyncDocuments {
       summary: (fm.summary as string).trim(),
       bodyHash: computeBodyHash(body),
       explorationType: (isKnownExplorationType(et) ? et : "technical") as ExplorationType,
-      // status 已脱离 frontmatter 输入（#2050）：活文档固定 active，archived 只由 sync 归档逻辑写入
+      // status 已脱离 frontmatter 输入：活文档固定 active，archived 只由 sync 归档逻辑写入
       status: "active" as ResearchStatus,
       tags: Array.isArray(fm.tags) ? (fm.tags as string[]) : [],
       conclusion: (fm.conclusion as string) || null,

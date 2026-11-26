@@ -16,9 +16,9 @@ export const KNOWN_CHANGE_TYPES = [
 ] as const;
 
 /** Feature/Research 文档 DB status 列的值类型。
- * 2026-11 语义收敛（#2050）：frontmatter 的 status 字段整体退役——
+ * 2026-11 语义收敛：frontmatter 的 status 字段整体退役——
  * 文档合入即不可变（lint-historical-docs 机械拦截），「生命周期状态」在机制上无法演进
- * （每日推进器 F20260901dstat 已随 #720 删除，classifyDocStatus 零调用点）。
+ * （每日推进器已删除，classifyDocStatus 零调用点——脉络见本特性的特性文档）。
  * DB 列唯一有效语义是 archived 标记（磁盘文档消失时 sync 自动写入，见 sync-documents 对账逻辑）；
  * 新写入统一落 "active"，历史遗留值（locked/draft/implemented 等）无消费方、随下次 sync 自然收敛。 */
 export type FeatureStatus = string;

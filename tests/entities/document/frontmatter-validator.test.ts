@@ -2,7 +2,7 @@
  * frontmatter validator 规则测试
  *
  * 覆盖：title 可读性（纯 slug 报 warn）、文件名 slug 后缀（裸 ID 报 warn）、
- * status 字段退役（#2050：出现即 error）。规则实现在单一真相源
+ * status 字段退役（出现即 error）。规则实现在单一真相源
  * src/entities/document/frontmatter-validator.ts，本测试直接 import 真实现。
  */
 import { describe, it, expect } from "vitest";
