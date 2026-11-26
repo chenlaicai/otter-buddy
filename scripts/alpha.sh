@@ -127,8 +127,10 @@ is_valid_alpha_port() {
 #   1. 监听端口属于 alpha 段（3100-3198 偶数）
 #   2. 进程 cmdline 含 dist/src/main.js（otter-buddy 形态）
 #   3. 进程 cwd 属于本仓 worktree（.otter/worktrees/ 下）
-#   4. 无对应 .otter-alpha.json 锁文件（有锁文件 = 在册实例，不归 sweep 管）
-# 孤儿形态：worktree 已删 / 锁文件被删 / 手工 detached 直拉零登记（遗留）。
+#   4. 无对应 .otter-alpha.json 锁文件，且 worktree 目录已删（真孤儿）
+# 孤儿形态：仅 worktree 已删（进程 cwd 指向已不存在的目录）。
+# 无锁但目录仍在 = 零登记在用实例（detached 直拉 / 锁被删），fail-closed 不判孤儿，
+# 交给 post-merge-cleanup（ps + lsof cwd 精确识别）在 worktree 清理时处理。
 sweep_orphans() {
   local main port pid cwd wt_name lock_file
   main="$(main_repo_root)"
@@ -153,7 +155,11 @@ sweep_orphans() {
       wt_name="${wt_name%%/*}"
       lock_file="$main/.otter/worktrees/$wt_name/.otter-alpha.json"
       if [ ! -f "$lock_file" ]; then
-        echo "$pid"
+        # 无锁≠孤儿：仅当 worktree 目录已删（真孤儿）才判孤儿；
+        # 目录仍在 = 零登记在用实例，fail-closed 不误杀/不误阻塞 start。
+        if [ ! -d "$main/.otter/worktrees/$wt_name" ]; then
+          echo "$pid"
+        fi
       fi
     done
   done
