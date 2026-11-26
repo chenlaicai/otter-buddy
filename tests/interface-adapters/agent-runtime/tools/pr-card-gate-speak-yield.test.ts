@@ -15,7 +15,7 @@ interface SpeakEntryParams { body: string; conversationId: string; invokeId: str
 
 const DECISION_CARD = [
   "```html-card title=\"PR 1960 合入决策\"",
-  "<div>字段省略</div>",
+  "<div>残留与后续：无残留</div>",
   "<script>document.getElementById('btn').onclick = () => otterCard.submit({ summary: '1960合入', data: { pr: 1960 } });</script>",
   "```",
 ].join("\n");
@@ -111,6 +111,21 @@ describe("#1952 yield 主闸（交棒前拦截）", () => {
 
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toContain("决策卡");
+    expect(yieldCalls).toHaveLength(0);
+  });
+
+  it("#2013 决策卡未披露残留 → yield 仍被拦（卡在场也要交代没做完的部分）", async () => {
+    const { ctx, yieldCalls } = makeCtx();
+    const tools = createTools(ctx);
+    const speak = findTool(tools, "speak");
+    const yieldTool = findTool(tools, "yield");
+
+    await speak.execute("c1", { body: "#1960 可以合入了" });
+    await speak.execute("c2", { body: DECISION_CARD.replace("残留与后续：无残留", "验证：CI 全绿") });
+    const res = await yieldTool.execute("c3", { to: ["user"], reason: "PR #1960 待拍板" });
+
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res.content)).toContain("残留");
     expect(yieldCalls).toHaveLength(0);
   });
 
