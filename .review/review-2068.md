@@ -1,16 +1,16 @@
-# PR #2068 Delta 2 对抗复核报告
+# PR #2068 Delta 3 对抗复核报告
 
 ## 审查者
 
 检视獭-rclfc
 
-复核提交：`edc1b5962384111910fc09b24eaa69300b880e46`（锚点短写 `edc1b59`）。
+复核提交：`fd700ad04df128c07c33ed4c782833b020f901b1`（锚点短写 `fd700ad`）。搭档已于 2026-11-27 裁决 B（格式硬约束），本轮核该裁决实现及全部既往发现。
 
 ## 本轮焦点
 
-1. 结构化终态证据是否真正绑定目标 PR，且只接受完整 MERGED/CLOSED token。
-2. 上轮文档/PR 证据漂移是否完整消除，而非只追加 delta 段。
-3. B10 是否保持通过，当前 head CI 是否形成闭环。
+1. 全锚定模板是否消除此前 8 类误归档，并保持合法 MERGED/CLOSED 放行。
+2. B10、文档/PR 证据、CI 是否与当前 head 一致。
+3. 跨日后的特性编号与工具调用文案是否满足既定契约。
 
 ## 模型多样性
 
@@ -20,122 +20,105 @@
 
 ## 审查结论
 
-**僵局**：同一批问题连续两轮修复验证未通过，触发 review-loop 的「僵尸循环」停止条件。停止当前修补循环，后续方向呈搭档裁决。
-
-- Delta 1（`6d048af`）：三类同根因变体仍误归档。
-- Delta 2（`edc1b59`）：原五类攻击已被拒绝、合法结构仍放行，但另外两类结构变体仍真实误归档；B10 同时从已通过回归为 7 处违规，文档与 PR body 仍保留旧算法和旧测试数。
+**需要修改**：核心判据已通过本轮复核，但仍有 2 个严重发现（B10 一处新增特性编号注释、当前 head CI 尚无成功结果）和 2 个建议发现（跨日编号未顺延、工具主 description 与严格模板口径不齐）。
 
 ## 上轮处置确认
 
 | 上轮发现 | 处置终态 | 证据 |
 |---|---|---|
-| 严重 1：非终态/错配证据误归档 | **连续第二轮未闭环** | 原五类攻击独立复核均 `ok:false`；新两类输入均 `ok:true` 且真实 sqlite DB=`archived`，见严重发现 1。 |
-| 严重 2：文档/PR body 漂移 | **未完整处置** | intent 与新增 delta 段已写结构钉，但 `修法` 32、37 行仍为全文词/号交集，45 行和 PR body 多处仍为 3196，见严重发现 3。 |
-| 严重 3：CI head_not_covered | **等待新 CI 结果** | 当前 head run 45835135093 的 `check` 仍失败于 `head_not_covered`；本报告覆盖 `edc1b59`，见严重发现 4。 |
-| 首轮 B10 注释编号（delta 1 已关闭） | **修复回归，重新打开** | 机械闸本轮检出 5 行共 7 处新增编号，见严重发现 2。 |
-| 首轮建议 1：错误符号/旧契约注释 | 修复 + delta 确认 | `conversation.ts:153-154`、`manage-key-info.ts:194-202 @ edc1b59` 保持订正。 |
-| 首轮建议 2：`archived_at` 断言 | 修复 + delta 确认 | 集成测试 228-234 行保持三列断言。 |
+| 原严重发现 1：8 类非终态/错配证据误归档 | **修复 + delta 确认** | 独立纯函数复跑 8 类攻击全部 `ok:false`；合法 MERGED/CLOSED 均 `ok:true`；真实 sqlite 集成 20/20。 |
+| 文档/PR body 算法与测试数漂移 | 修复 + delta 确认 | 特性文档与 PR body 已更新全锚定模板、20/20、3210/3210；本地复跑一致。 |
+| B10 注释编号 | **新提交重新引入 1 处** | `conversation.ts:173 @ fd700ad` 新增特性编号注释，机械闸非零退出，见严重发现 1。 |
+| CI head_not_covered | **等待新 CI 结果** | 当前 head `check` 失败于 `head_not_covered`；本报告覆盖 `fd700ad`，见严重发现 2。 |
+| 首轮建议：错误符号、旧注释、`archived_at` 断言 | 修复 + delta 确认 | 相关源码与测试保持修复。 |
 
 ## 基础维度检查
 
 | 维度 | 结论 | 实际验证证据 |
 |---|---|---|
-| B1. CI 状态 | **当前 head 未通过** | run 45835135093 `check=failure`，job 日志为 `当前 head edc1b59 无检视覆盖——最近一条 review 覆盖停在 6d048af`；e2e/golden-selftest 通过，guard-macos 核验时仍 queued。 |
-| B2. 文档完整性 | **失败** | 特性文档新增 Delta 1 段，但原修法、验证段未同步，形成同文档内新旧算法与数字并存；PR body 也仍有多处 3196。 |
-| B2.5 方案前提 | 方向不再续审，触发停止条件 | 本轮不重开契约对齐方向；结构化格式钉是原严重发现 1 的第二轮处置，连续未通过后按协议停止循环。 |
-| B3. 全链路验证 | **对抗路径失败** | 现有集成 7/7、相关全目录 260 文件 3197/3197、tsc/eslint 通过；2 个 delta 2 真实 sqlite 探针全部误写 `archived`。 |
-| B4. 变更标识一致性 | 一致 | ID 保持 `F20261126rclfc`；delta 仍只改运行时判据、文档、测试与报告，无净新增机制面，narrow-fix 不变。 |
+| B1. CI 状态 | **当前 head 未通过** | run 45918769250：`check=failure`（`head_not_covered`）；e2e/golden-selftest/guard-macos 均通过。 |
+| B2. 文档完整性 | 特性文档通过；工具文案有建议项 | 特性文档 frontmatter、修法、验证、僵局裁决均与实现一致；工具主 description 与参数描述的严格程度不同，见建议发现 2。 |
+| B2.5 方案前提 | 通过 | 搭档原话「2046选B：格式硬约束，继续实现」已落入实现和文档；本轮按该授权核对，不重开方向。 |
+| B3. 全链路验证 | 通过 | 现有集成 20/20；相关全目录 260 文件 3210/3210；tsc/eslint 退出 0；此前 8 类攻击全部拒绝，两个合法终态均放行。 |
+| B4. 变更标识一致性 | ID 一致；定稿日期有建议项 | commit/PR/frontmatter 均为 `F20261126rclfc`，narrow-fix 与 diff 相符；当前日期已为 2026-11-27，跨日未顺延见建议发现 1。 |
 | B5. 撞车检查 | 无发现 | 当前 open PR 按 #2046 与重叠文件过滤，除本 PR 外为 `[]`。 |
-| B6. Intent 块 | 通过 | intent 块存在且 solution 已更新结构钉；其他文档段不一致归 B2。 |
+| B6. Intent 块 | 通过 | `intent.problem/solution/expected_effect/verify_by` 存在且与严格模板一致。 |
 | B7. Golden Gate | 不适用 | 无 prompt/skill/协议层软代码改动。 |
 | B8. Prompt 体积预算 | 不适用 | 未触及 `prompts/scheduled/`。 |
-| B9. 证据包核验 | **内容失实** | CI evidence 结构闸通过；PR body 的机器锚点和 Verification 仍写 3196/3196，本地独立复跑为 3197/3197。 |
-| B10. 注释编号禁绝 | **失败，修复回归** | `node scripts/check-pr-anchor-discipline.mjs --base origin/main` 检出 7 处新增编号。 |
+| B9. 证据包核验 | 通过 | Rollback 与证据分层齐全，CI evidence gate 通过；20/20、3210/3210、head 与僵局裁决链均抽样复验一致。 |
+| B10. 注释编号禁绝 | **失败** | 机械闸检出 `conversation.ts:173` 的 `F20261126rclfc` 特性编号。 |
 
 ## 严重发现
 
-### 发现 1：结构化格式钉仍允许跨 PR 拼接和非终态前缀 token，原严重发现连续第二轮未闭环
+### 发现 1：实体 JSDoc 新增特性编号，B10 机械闸失败
 
-- **维度**：原严重发现 1 / 正确性 / 边界条件 / B3
-- **位置**：`src/entities/conversation/conversation.ts:191-197 @ edc1b59`
-- **事实与影响**：
-  - `[^\\n]*?` 只排除换行，不排除另一个 `gh pr view` 引用。目标号在前、另一个 PR 的箭头与 MERGED 在后时，正则会跨命令吞入中间文本。
-  - `(MERGED|CLOSED)` 后没有 token 边界，`MERGED_BUT_NOT` 会被当成合法 MERGED。
+- **维度**：B10 / 架构合规
+- **位置**：`src/entities/conversation/conversation.ts:169-176 @ fd700ad`
+- **事实与影响**：新增 JSDoc 在 173 行写入 `F20261126rclfc 僵局记录`，属于非特性文档注释中的特性编号；机械闸非零退出。当前 head 因而没有通过既定注释纪律检查。
+- **证据**：`node scripts/check-pr-anchor-discipline.mjs --base origin/main` 输出 `新增注释行夹带编号 1 处`，精确指向 173 行。
+- **处置**：本 PR 修复。
 
-| Delta 2 对抗输入（title 均声明 `#1378`） | 实际结果 |
-|---|---|
-| `gh pr view 1378 --json state; gh pr view 9999 --json state → MERGED` | `ok:true`，真实 sqlite DB=`archived` |
-| `gh pr view 1378 --json state → MERGED_BUT_NOT` | `ok:true`，真实 sqlite DB=`archived` |
+### 发现 2：当前 head CI `check` 失败于 head_not_covered
 
-  第一项并不含「gh pr view 1378 … → MERGED」这一完整目标结构，第二项的终态 token 也不是 MERGED/CLOSED 枚举值，因此二者不属于文档已披露的「完全伪造合法目标结构」边界。它们直接违反「中间插入其他 PR 引用即断开」与「箭头后紧跟终态词」的格式承诺。
-- **证据**：临时集成探针 `manage-key-info-reconciliation.delta2-probe.test.ts` 经 `npx vitest run` 为 **2/2 passed**，两项均断言并观察到误写的 `archived`；纯函数 `npx tsx -e` 对两项也均返回 `{"ok":true}`。探针已删除，随后相关全目录复跑为 **3197/3197**。
-- **已核验的部分修复**：hyphen 日期、跨行拼合、双空格 NOT、另一个 PR 在前、slash 日期五项均 `ok:false`；合法基本结构与 `state: "MERGED"` 前缀均 `ok:true`。
-- **处置**：停止当前循环，呈搭档裁决。
-
-### 发现 2：B10 注释编号闸从已通过回归为 7 处违规
-
-- **维度**：B10 / 修复回归
-- **位置**：`src/entities/conversation/conversation.ts:186 @ edc1b59`；`tests/usecases/conversation/manage-key-info-reconciliation.integration.test.ts:66,72,78,84,90 @ edc1b59`
-- **事实与影响**：新增注释含 `delta 1`、`delta 2` 和 `#2026`；机械闸按轮次编号与 issue 编号合计检出 7 处。派工所称「anchor 本地全绿」与实际命令结果相反。
-- **证据**：`node scripts/check-pr-anchor-discipline.mjs --base origin/main` 非零退出，逐项列出 entity 186 的 `delta 2`、测试 66/72/78/84 的轮次编号，以及测试 90 的 `delta 2` 与 `#2026`。
-- **处置**：停止当前循环，呈搭档裁决。
-
-### 发现 3：文档与 PR body 只追加新段，旧算法和旧测试数仍保留
-
-- **维度**：B2 / B9 / 上轮严重发现 2 未完整处置
-- **位置**：`docs/features/2026/11/26/F20261126rclfc-fact-reconciliation.md:32,37,45,47-53 @ edc1b59`；PR body「验收结果 / 证据分层声明 / Verification」
-- **事实与影响**：
-  - 文档 32、37 行仍写 `\b(MERGED|CLOSED)\b` 与全文数字交集；47-53 行新增结构钉段落后，同一文档同时存在两套互相矛盾的判据。
-  - 文档 45 行仍写 3196/3196；PR body 验收结果、机器锚点和 Verification 也仍写 3196/3196。独立复跑实际为 3197/3197。
-  - 文档 52 行声称「本节与残留表已更新至结构化判据口径」，但原修法与验证段未更新。
-- **证据**：上述原文、`gh pr view 2068 --json body`、本地 7/7 与 3197/3197 输出。
-- **处置**：停止当前循环，呈搭档裁决。
-
-### 发现 4：当前 head CI `check` 失败于 head_not_covered
-
-- **维度**：B1 / 上轮严重发现 3
-- **位置**：CI run 45835135093 / job 139961874807（https://github.com/chenlaicai/otter-buddy/actions/runs/45835135093）
-- **事实与影响**：当前 head `edc1b59` 尚无成功 CI；失败原因是最近 review 停在 `6d048af`。本报告覆盖当前 head，但历史 run 仍需以新运行接替。
-- **证据**：`gh api /repos/chenlaicai/otter-buddy/actions/jobs/139961874807/logs` 返回 `status=head_not_covered`；e2e 与 golden-selftest 已通过。
-- **处置**：停止当前循环，呈搭档裁决。
+- **维度**：B1
+- **位置**：CI run 45918769250 / job 140244182177（https://github.com/chenlaicai/otter-buddy/actions/runs/45918769250）
+- **事实与影响**：当前 head `fd700ad` 尚无成功 CI；失败日志明确为最近 review 停在 `edc1b59`。本报告提交后覆盖当前 head，但历史 run 不会自动转为成功。
+- **证据**：job 日志 `status=head_not_covered`；同 run 的 e2e、golden-selftest、guard-macos 均通过。
+- **处置**：本 PR 修复。
 
 ## 建议发现
 
-无新增建议发现。
+### 建议 1：PR 已跨日，特性编号日期仍为创建日
 
-## 升级简报
+- **维度**：B4 定稿日期顺延
+- **位置**：PR title；`docs/features/2026/11/26/F20261126rclfc-fact-reconciliation.md:2 @ fd700ad`；commit `fd700ad` 标题
+- **事实与影响**：PR 创建于 2026-11-26，当前复核日期为 2026-11-27，三处 ID 虽一致，但按既定跨日定稿规则，编号日期尚未顺延到当前定稿日。
+- **证据**：PR title、frontmatter 与 commit 标题均为 `F20261126rclfc`；当前会话日期为 2026-11-27。
+- **更好/更差判断**：作者须回答——按跨日规则顺延特性编号，会让系统变好还是变更差。
+- **处置**（作者按决策树选定）：更好 → 本 PR 修复 / 建 issue（须论证本 PR 无法承载并登记）；更差 → 附证据反驳。
 
-### 3 秒层
+### 建议 2：工具主 description 仍是宽松证据口径，只有参数描述写了严格模板
 
-**同一修复连续两轮对抗验证未通过，且 B10、文档证据同步反复回归；推荐停止当前修补循环并退回方向裁决。置信度高：误归档均由真实 sqlite 复现。**
+- **维度**：可维护性 / 调用方契约
+- **位置**：`src/interface-adapters/agent-runtime/tools/artifact-tools.ts:64,69 @ fd700ad`
+- **事实与影响**：64 行主 description 仍写 fact 的 evidence「含 MERGED/CLOSED 终态词且提及对应号」；69 行参数 description 才写「整体匹配单行严格模板」。同一工具的两段调用说明严格程度不同，只读主 description 的调用方可能生成会被实际判据拒绝的自由文本。
+- **证据**：对照上述两行与 `conversation.ts` 的全锚定正则、`manage-key-info.ts:231` 的严格模板拒绝文案。
+- **更好/更差判断**：作者须回答——使主 description 与参数及实现的严格模板口径一致，会让系统变好还是变更差。
+- **处置**（作者按决策树选定）：更好 → 本 PR 修复 / 建 issue（须论证本 PR 无法承载并登记）；更差 → 附证据反驳。
 
-### 30 秒层
+## 核心判据复核明细
 
-- **背景**：首轮发现自由文本证据可误归档；两轮 delta 分别更换行绑定与结构钉，均仍有实际放行非终态/错配证据的输入。
-- **选项 A：继续当前修补循环**。不推荐——已触发 review-loop「连续 2 轮修复验证不通过」停止条件，且每轮同时出现工程闸或证据漂移。
-- **选项 B：停止循环，退回方向裁决**。推荐——遵守既定收敛协议，把后续方向交回搭档，而不是让检视者与实现者继续逐变体往返。
-- **最大代价**：#2046 的修复交付暂停，active fact 对账噪声继续存在至搭档确定方向。
-
-### 完整版
-
-案发现场、逐轮处置、全部锚点与复现数据见上文及 PR review。此处不提出新的实现路线。
+- 以下既往攻击均独立得到 `ok:false`：hyphen 日期撞号、跨行拼合、NOT MERGED、另一个 PR 在前行内混排、双空格 NOT、slash 日期撞号、分号跨 gh 引用、MERGED_BUT_NOT 词尾。
+- `gh pr view 1378 --json state → MERGED` 与同型 CLOSED 均得到 `ok:true`。
+- 当前正则 `^gh pr view (\d+) --json state → (MERGED|CLOSED)$` 使用捕获号与 fact 声明号精确成员匹配，不再有自由文本吞入或终态词后缀空间。
+- pr/worktree/branch、file 拒绝、归属闸、状态机及审计写入路径未改；相关回归测试全部通过。
 
 ## 维度扫视结论
 
 | 维度 | 类型 | 结论 |
 |---|---|---|
-| 正确性 / 边界条件 | 焦点 | 严重发现 1，连续第二轮未闭环 |
-| 文档与证据一致性 | 焦点 | 严重发现 3 |
-| 架构合规 | 焦点 | B10 严重发现 2，修复回归 |
-| 测试覆盖 | 扫视 | 现有 7/7 与 3197/3197 真跑通过；新两类输入未覆盖 |
-| 安全性 | 扫视 | 无新增外部命令、SQL、归属闸变化；fail-closed 归严重发现 1 |
-| 可维护性 | 扫视 | 同文档并存两套判据归严重发现 3；首轮两条建议保持修复 |
+| 正确性 / 边界条件 | 焦点 | 无发现；既往 8 类攻击全部关闭 |
+| 测试覆盖 | 焦点 | 20/20 与 3210/3210 独立复跑通过 |
+| 文档与证据 | 焦点 | 特性文档和 PR body 通过；工具主 description 见建议 2 |
+| 架构合规 | 扫视 | B10 严重发现 1；其余分层与依赖无发现 |
+| 安全性 | 扫视 | 无外部命令、SQL、归属闸或状态机新增面 |
+| 可维护性 | 扫视 | 工具说明见建议 2；其余无发现 |
 
 ## 审查者自省
 
-- 未把「根治」自述当作证据，直接对新正则构造并执行了边界输入。
-- 新严重项均属于原发现或其修复回归，不是 delta 之外另开政策、设计或风格要求。
-- 未提供下一条修复路线或正则草稿；连续两轮失败后按协议停止，而非继续主导实现设计。
-- 临时探针已撤除；除本报告外未改被审代码。
+- 未因搭档已选 B 而降低行为核验；既往 8 个攻击均逐项独立执行。
+- 未把当前 CI 的 review 覆盖失败误报成测试或构建失败。
+- 两个建议均须走处置决策树，没有暗示可忽略。
+- 未提供修复路线、正则草稿或编号改名方案。
+- 本轮未修改被审代码，只更新审视报告。
+
+## 变更完整性
+
+- [x] 搭档裁决 B 已落实为全锚定模板。
+- [x] 既往 8 类误归档全部拒绝，合法终态放行。
+- [x] 特性文档与 PR body 同步当前算法和 20/20、3210/3210。
+- [ ] B10 注释编号闸通过。
+- [ ] 当前 head CI 全部通过。
+- [ ] 跨日特性编号与工具主 description 两项建议完成处置。
 
 🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 检视獭-rclfc

@@ -1,5 +1,5 @@
 ---
-id: F20261126rclfc
+id: F20261127rclfc
 title: "对账归档接受合入事实 fact：工具与日报对账段契约统一"
 summary: "#2046：archive_artifact_for_reconciliation 白名单拒绝一切 fact，但日报对账段真相源要求「合入事实」（title 含合入 + PR 已合入）可经对账归档——跨对话合入事实长期滞留 active。现在 fact 走 merge-fact 格式硬约束判据（title 含「合入」+ #N 号可解析 + evidence 整体匹配单行模板 gh pr view <N> --json state → MERGED/CLOSED），三类结构缺陷分类拒绝，file/url/game 仍一律拒绝。"
 change_type: fix
@@ -61,6 +61,15 @@ modules: [src/entities/conversation/conversation.ts, src/usecases/conversation/m
 | 判据重写 | 全锚定模板 `^gh pr view (\d+) --json state → (MERGED|CLOSED)$` 整体匹配 + 模板捕获号 ∈ fact 声明号 + 显式换行拒绝；剔除宽容面（`\s+`/多箭头变体/大小写/引号/`#?` 前缀/行内插叙） |
 | 僵局记录两类残余绕过 | 分号跨 gh 引用、MERGED_BUT_NOT 词尾——模板首尾锚定后均不可构造，回归用例钉死 |
 | 宽容面收紧项 | 箭头变体 `->`/`-->/==>`、小写终态词、引号包裹、双空格、行内混排多 PR、非严格参数——delta 2 形态下可放行的输入全部转拒，回归用例钉死 |
+
+### Delta 4 处置（delta 3 复核：2 严重 + 2 建议全处置）
+
+| 发现 | 级别 | 处置 |
+| --- | --- | --- |
+| conversation.ts JSDoc 含特性编号，B10 机械闸非零退出 | 严重 | 注释锚点剥除（改「见特性文档僵局记录与裁决节」泛指） |
+| CI check head_not_covered（新 head 无检视覆盖） | 严重 | 流程项：delta 4 复核回执覆盖新 head 后重跑 CI 解锁 |
+| F-ID 未按定稿日期顺延（PR 跨 11-27） | 建议 | 采纳：按定稿改名规程改 F20261127rclfc（文档路径+frontmatter id；后缀保持 rclfc；分支历史 commit 保留旧号双向可搜） |
+| artifact-tools 主 description 宽松口径与参数描述不一致 | 建议 | 采纳：主 description fact 子句同步硬模板口径 |
 
 ## 影响范围
 
