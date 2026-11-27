@@ -70,6 +70,7 @@ modules: [src/entities/conversation/conversation.ts, src/usecases/conversation/m
 | CI check head_not_covered（新 head 无检视覆盖） | 严重 | 流程项：delta 4 复核回执覆盖新 head 后重跑 CI 解锁 |
 | F-ID 未按定稿日期顺延（PR 跨 11-27） | 建议 | 采纳：按定稿改名规程改 F20261127rclfc（文档路径+frontmatter id；后缀保持 rclfc；分支历史 commit 保留旧号双向可搜） |
 | artifact-tools 主 description 宽松口径与参数描述不一致 | 建议 | 采纳：主 description fact 子句同步硬模板口径 |
+| delta 4 复核 B4 发现：定稿改名后 PR/worktree/审视报告三条 active 产物仍挂旧号 groupId，新号 list_artifacts 为空 | 严重 | 产物分组一致性处置：三件产物以新号 F20261127rclfc 重登记（pr a7ba0656 / worktree e006acb4 / file 563d8a60），旧件转 superseded（supersededBy 指向新件）；worktree/分支目录与历史 commit 保留创建日旧号（规程口径，双向可搜） |
 
 ## 影响范围
 
@@ -82,6 +83,7 @@ modules: [src/entities/conversation/conversation.ts, src/usecases/conversation/m
 | 全锚定模板是准入门槛 | 不需要 | evidence 须整体匹配 `gh pr view <对应号> --json state → MERGED/CLOSED`（与日报对账段操作指引同型）；自由文本/宽容变体判据经三轮对抗证伪后按搭档裁决 B 放弃 |
 | 跨仓 fact 的 #N 归属仓未区分 | 不需要 | 模板捕获号与 fact 声明号精确绑定（成员判断非集合交集），跨仓同号各查各的证据；审计 evidence 全文留痕可查 |
 | 日报对账段 prompt 无需改动 | 不需要 | 真相源本来就是它，本修复是工具侧对齐 |
+| 定稿改名规程的产物分组迁移缺口 | 建议（非本 PR 范围） | F20260914prdb 定稿改名规程只覆盖「PR 标题/文档路径/frontmatter」三处，未含产物 groupId 迁移——本次 delta 4 复核实证该断点；是否将「产物分组改挂新号」补入 docs/README.md 成文节，留搭档拍板（跨域改动不入本 PR） |
 
 ## 僵局记录与裁决（2026-11-26 宣布僵局，2026-11-27 搭档裁决 B 并实施）
 
