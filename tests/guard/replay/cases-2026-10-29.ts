@@ -1067,7 +1067,7 @@ export const mustBlockCases: ReplayCase[] = [
     note: "验收末段设备状态 JSON 直接管道 Python；后续落盘到证据文件再解析。",
   },
 
-  // ── 2026-11-26 UTC 日报实录：ALLOW 8 / BLOCK 4 / SKIP 0 ──
+  // ── 2026-11-26 UTC 日报实录：ALLOW 9 / BLOCK 3 / SKIP 0 ──
   {
     command: "curl -s http://localhost:3000/api/health/overview && printf '\\n---signals---\\n' && curl -s 'http://localhost:3000/api/health/signals?status=open' | node -e \"let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const x=JSON.parse(s); const a=x.signals||x; console.log(JSON.stringify({count:x.count||a.length,critical:a.filter(v=>v.severity==='critical').length,untriaged:a.filter(v=>!v.triageStatus).map(v=>({id:v.id,type:v.signalType,severity:v.severity,evidence:v.evidence}))},null,2))})\"",
     expect: "block",
@@ -1084,10 +1084,9 @@ export const mustBlockCases: ReplayCase[] = [
   },
   {
     command: "cd /Users/orca/ai/otter-buddy && FAKE_WT=\"/Users/orca/ai/otter-buddy/.otter/worktrees/zzz-dbg2\" && rm -rf \"$FAKE_WT\" && mkdir -p \"$FAKE_WT/dist/src\" && cat > \"$FAKE_WT/dist/src/main.js\" <<'JS'\nconst http=require('http');\nconst s=http.createServer((q,r)=>r.end('x'));\ns.listen(3160,'127.0.0.1',()=>console.error('LISTENING 3160'));\ns.on('error',e=>console.error('ERR',e.message));\nsetInterval(()=>{},1000);\nJS\necho \"=== \u524d\u53f0\u8d77 3 \u79d2\uff0c\u89c2\u5bdf\u9519\u8bef ===\" \n( cd \"$FAKE_WT\" && node dist/src/main.js ) &\nBG=$!\nsleep 3\necho \"=== \u68c0\u67e5 3160 \u76d1\u542c ===\" \nlsof -iTCP:3160 -sTCP:LISTEN 2>/dev/null || echo \"(lsof \u65e0 3160 \u76d1\u542c)\"\necho \"=== \u68c0\u67e5\u8fdb\u7a0b\u6811 ===\"\nps -p $BG -o pid,command= 2>/dev/null || echo \"(BG pid $BG \u5df2\u6b7b)\"\npgrep -fl \"dist/src/main.js\" | head\nkill -9 $BG 2>/dev/null; pkill -9 -f \"zzz-dbg2\" 2>/dev/null; rm -rf \"$FAKE_WT\"",
-    expect: "block",
+    expect: "allow",
     source: "healing a88b4b81（2026-11-26）",
-    reasonContains: "按名匹配",
-    note: "完整脚本末段实际执行 pkill -9 -f，不能因前文是测试准备而放行。",
+    note: "独立检视归因：末段 pkill 的目标是 zzz-dbg2 非 Otter 特征名，现行政策放行；实际 block 来自前面的只读 pgrep -fl dist/src/main.js，属 pgrep 误拦。",
   },
   {
     command: "cd /Users/orca/ai/otter-buddy/.otter/worktrees/F20261124gcfgr-fix && echo \"=== cases \u91cc .ssh/\u51ed\u8bc1 \u76f8\u5173\u6837\u672c\uff08ALLOW + BLOCK\uff09===\" && grep -n \"\\.ssh\\|cred_dir_access\\|id_rsa\\|\\.pem\\|\\.key\\|credentials\\|known_hosts\\|\\.gnupg\\|\\.aws\" tests/guard/replay/cases-2026-10-29.ts | head -50",
