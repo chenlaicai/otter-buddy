@@ -105,6 +105,64 @@ describe("对抗回归：拼凑证据不再被放行（终态词与号同行绑�
   });
 });
 
+describe("delta 3：全锚定模板（格式硬约束，搭档裁决 B）对抗回归", () => {
+  function buildFixture() {
+    const db = createTestDb();
+    const now = new Date().toISOString();
+    db.prepare("INSERT INTO conversations (id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
+      RECON_TARGET_CONVERSATION, "target", "active", now, now,
+    );
+    const repo = new SqliteConversationRepository(db);
+    const memoryIndex = { indexLinkedResource: async () => {} } as unknown as MemoryIndexGateway;
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+    return { db, repo, uc };
+  }
+
+  it.each([
+    ["分号跨 gh 引用（僵局记录残余绕过①）", "gh pr view 1378 --json state; gh pr view 9999 --json state → MERGED"],
+    ["MERGED_BUT_NOT 词尾（僵局记录残余绕过②）", "gh pr view 1378 --json state → MERGED_BUT_NOT_REALLY"],
+    ["行内混排多 PR", "gh pr view 1378 --json state #9999 OPEN → MERGED"],
+    ["跨行拼合（模板不容换行）", "gh pr view 1378 --json state →\nMERGED"],
+    ["箭头变体 ->", "gh pr view 1378 --json state -> MERGED"],
+    ["小写终态词", "gh pr view 1378 --json state → merged"],
+    ["引号包裹终态词", 'gh pr view 1378 --json state → "MERGED"'],
+    ["双空格（模板要求单倍空格）", "gh pr view 1378  --json state → MERGED"],
+    ["号不匹配（模板合法但号不属于本 fact）", "gh pr view 9999 --json state → MERGED"],
+    ["非严格参数（--json state,headRefName）", "gh pr view 1378 --json state,headRefName → MERGED"],
+  ])("拒绝：%s（不写库）", async (_label, evidence) => {
+    const { db, repo, uc } = buildFixture();
+    try {
+      const id = "atk-hard";
+      await linkFactArtifactAt(repo, id);
+      await expect(uc.archiveResourceForReconciliation({
+        artifactId: id, operatorOtterId: "otter-operator", evidence,
+      })).rejects.toThrow("PR 终态");
+      expect(db.prepare("SELECT status FROM linked_resources WHERE id = ?").pluck().get(id)).toBe("active");
+    } finally {
+      db.close();
+    }
+  });
+
+  it.each([
+    ["单行模板 MERGED", "gh pr view 1378 --json state → MERGED"],
+    ["单行模板 CLOSED", "gh pr view 1378 --json state → CLOSED"],
+    ["首尾空白（usecase trim 后匹配）", "  gh pr view 1378 --json state → MERGED\t"],
+  ])("放行：%s（审计三列落痕）", async (_label, evidence) => {
+    const { db, repo, uc } = buildFixture();
+    try {
+      const id = "ok-hard";
+      await linkFactArtifactAt(repo, id);
+      const result = await uc.archiveResourceForReconciliation({
+        artifactId: id, operatorOtterId: "otter-operator", evidence,
+      });
+      expect(result.status).toBe("archived");
+      expect(db.prepare("SELECT status FROM linked_resources WHERE id = ?").pluck().get(id)).toBe("archived");
+    } finally {
+      db.close();
+    }
+  });
+});
+
 describe("archiveResourceForReconciliation（#1835）", () => {
   const RESOURCE_ID = "cb44aec8-b1a3-4616-bff8-8331bd0d3067"; // 真实资源 ID（issue 案发现场）
   const TARGET_CONVERSATION = "a9260c50-cef6-412e-a0b4-282287a13103"; // 资源所属对话

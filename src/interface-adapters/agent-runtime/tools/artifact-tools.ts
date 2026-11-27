@@ -66,7 +66,7 @@ export function createArchiveArtifactForReconciliationTool(ctx: ToolContext): Ag
       type: "object",
       properties: {
         artifactId: { type: "string", description: "产物 ID（linked_resource ID，可跨对话）" },
-        evidence: { type: "string", description: "机器证据：如 gh pr view 1801 --json state → MERGED / worktree 路径不存在 / 分支 PR 已合入" },
+        evidence: { type: "string", description: "机器证据：pr/worktree/branch 如 gh pr view 1801 --json state → MERGED / worktree 路径不存在 / 分支 PR 已合入；fact 类须整体匹配单行严格模板 gh pr view <PR号> --json state → MERGED|CLOSED（终态词大写，自由文本拒绝）" },
       },
       required: ["artifactId", "evidence"],
     },

@@ -151,7 +151,8 @@ export function canTransitionArtifactStatus(
  * 机械终态可判的资源类型 = 有明确外部机器证据的交付物：
  * pr（PR MERGED/CLOSED）、worktree（路径不存在/PR 已合入）、branch（PR 已合入）。
  * fact 不在此列但可走 merge-fact 判据（checkMergeFactResource——日报对账段真相源口径：
- * title 含「合入」+ PR 号可解析 + evidence 含终态词与对应号）；file/url/game 一律拒绝。
+ * title 含「合入」+ PR 号可解析 + evidence 整体匹配单行模板 gh pr view <N> --json state → MERGED/CLOSED）；
+ * file/url/game 一律拒绝。
  */
 export const RECONCILIATION_ARCHIVABLE_RESOURCE_TYPES: ReadonlySet<string> = new Set(["pr", "worktree", "branch"]);
 
@@ -162,12 +163,23 @@ export type MergeFactCheck =
   | { ok: false; reason: "not_merge_fact" | "no_pr_number" | "no_terminal_evidence" };
 
 /**
- * 「合入事实」类 fact 的结构判据（对账归档扩展，统一工具与日报对账段契约）。
- * 与 pr/worktree/branch 同信任模型：工具做结构校验（title 含「合入」+ PR 号可解析 +
- * evidence 含 MERGED/CLOSED 终态词且含对应 PR 号），PR 终态的真实性由调用方核实、
+ * 「合入事实」类 fact 的格式硬约束判据（对账归档扩展，统一工具与日报对账段契约）。
+ * 与 pr/worktree/branch 同信任模型：工具做格式校验，PR 终态的真实性由调用方核实、
  * evidence 全文落审计三列事后可查——工具不执行外部命令。
  * 三类结构缺陷分别对应日报关闭标准的拒绝面：非合入事实 / 无法解析 PR / 非终态证据缺失。
+ *
+ * evidence 判据 = **全锚定模板**（搭档裁决 B：格式硬约束）——自由文本上的语义判定属
+ * 不可机械判定域（词/号聚合 → 行绑定 → 宽容格式钉三轮均被对抗变体证伪，见特性文档
+ * F20261126rclfc 僵局记录），只接受单一字面形态、整体匹配：
+ *   gh pr view <PR号> --json state → MERGED
+ *   gh pr view <PR号> --json state → CLOSED
+ * 硬约束语义：单倍空格、箭头固定 → 字形、终态词大写、无引号无前后缀、含换行即拒、
+ * PR 号取自模板位置（全行仅一个号）。号与终态的绑定由模板位置保证，不存在近似语义——
+ * 分号跨引用、MERGED_BUT_NOT 词尾、行内混排多 PR、双空格、小写、引号、跨行拼合
+ * 在模板上均不可构造。
  */
+const MERGE_FACT_EVIDENCE_TEMPLATE = /^gh pr view (\d+) --json state → (MERGED|CLOSED)$/;
+
 export function checkMergeFactResource(
   resource: { resourceType: string; title?: string | null; content?: string | null },
   evidence: string,
@@ -178,23 +190,11 @@ export function checkMergeFactResource(
   const body = `${title} ${resource.content ?? ""}`;
   const prNums = [...body.matchAll(/#(\d+)/g)].map(m => m[1]);
   if (prNums.length === 0) return { ok: false, reason: "no_pr_number" };
-  // 证据行绑定（对抗审视对抗审视发现）：终态词与对应 PR 号必须在**同一行**内绑定出现——
-  // 全文聚合匹配可被拼凑证据绕过（A 行 9999 MERGED + B 行 1378 OPEN、日期年份撞 对应编号 号）。
-  // 否定形态（NOT MERGED / NOT CLOSED / 未合入 / 未合并）不计终态。
-  // 残余边界：同一行内混排多个 PR 时以「号在行内出现 + 行内有终态词」近似绑定，
-  // 构造性行内错配靠 evidence 全文审计留痕兜底（事后可查可追责）。
-  // 终态证据采用结构化格式钉（对抗审视 根治）：自由文本上的语义近似（词/号聚合、
-  // 行绑定）均被对抗输入证伪（跨行拼合、行内混排、日期撞号、否定变体）——改为钉
-  // 「gh pr view <对应号> … → MERGED/CLOSED」单行单 PR 终态结构：号与终态词在同一
-  // gh 命令引用内、箭头后紧跟终态词（容许 --json state 等查询参数与 state: 前缀），
-  // 中间不得跨行或插入其他 PR 引用。伪造该结构属故意作弊，由 evidence 全文审计留痕兜底。
-  const hasTerminal = prNums.some(n =>
-    new RegExp(
-      `gh\\s+pr\\s+view\\s+#?${n}(?!\\d)\\s+[^\\n]*?(?:→|->|-->|==>)\\s*(?:state\\s*[:=]\\s*)?"?(MERGED|CLOSED)"?`,
-      "i",
-    ).test(evidence),
-  );
-  if (!hasTerminal) return { ok: false, reason: "no_terminal_evidence" };
+  // 格式硬约束（全锚定模板）：任何自由文本变体（含换行）都不匹配模板，直接落
+  // no_terminal_evidence 拒绝面——不存在「近似放行」路径。
+  if (evidence.includes("\n")) return { ok: false, reason: "no_terminal_evidence" };
+  const matched = MERGE_FACT_EVIDENCE_TEMPLATE.exec(evidence);
+  if (!matched || !prNums.includes(matched[1])) return { ok: false, reason: "no_terminal_evidence" };
   return { ok: true, prNums };
 }
 export function isReconciliationArchivableType(resourceType: string): boolean {

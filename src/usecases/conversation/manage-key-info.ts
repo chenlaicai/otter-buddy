@@ -197,7 +197,8 @@ export class ManageKeyInfo {
    * 与普通 update_artifact_status 的关键差异：
    * 1. 不需 conversation 归属——按资源 ID 全局定位（resolve 目标是别的对话的产物）；
    * 2. 只能归档（status → archived），不能 superseded / 不能改其他字段；
-   * 3. 机械终态可判资源类型 = pr/worktree/branch + 「合入事实」fact（结构判据见实体层）——file/url/game 及非合入 fact 一律拒绝；
+   * 3. 机械终态可判资源类型 = pr/worktree/branch + 「合入事实」fact（格式硬约束判据见实体层——
+   *    evidence 须整体匹配单行模板 `gh pr view <N> --json state → MERGED/CLOSED`）——file/url/game 及非合入 fact 一律拒绝；
    * 4. 必须附机器证据（如 `gh pr view 1801 --json state → MERGED`），写入审计列；
    * 5. 审计三列（archivedByOtterId / archivedAt / archiveEvidence）与目标 conversation 均留痕。
    *
@@ -214,7 +215,7 @@ export class ManageKeyInfo {
       throw new DomainError(`LinkedResource ${params.artifactId} not found`, "not_found");
     }
     // 类型闸（契约统一，日报对账段真相源口径）：pr/worktree/branch 直接过；fact 走
-    // merge-fact 结构判据（判据单一真相源在实体层 checkMergeFactResource）；file/url/game 拒绝。
+    // merge-fact 格式硬约束判据（判据单一真相源在实体层 checkMergeFactResource）；file/url/game 拒绝。
     if (!isReconciliationArchivableType(resource.resourceType) && resource.resourceType !== "fact") {
       throw new DomainError(
         `非机械可判资源（${resource.resourceType}）不能经对账路径归档；仅 pr/worktree/branch 允许`,
@@ -227,7 +228,7 @@ export class ManageKeyInfo {
         const reasons: Record<string, string> = {
           not_merge_fact: "fact 归档仅限「合入事实」（title 须含「合入」）；非合入事实仍走原对话的 update_artifact_status",
           no_pr_number: "合入事实无法解析 PR 号（title/content 须含 #N 引用）——无法机械核对，拒绝归档",
-          no_terminal_evidence: "合入事实的证据须含 PR 终态（MERGED/CLOSED）且提及对应 PR 号（如 gh pr view <N> --json state → MERGED）",
+          no_terminal_evidence: "合入事实的 evidence 须整体匹配单行严格模板 gh pr view <PR号> --json state → MERGED/CLOSED（全行匹配、单倍空格、终态词大写、全行仅一个 PR 号；自由文本叙述不算 PR 终态证据）",
         };
         throw new DomainError(reasons[mergeFact.reason], "validation");
       }
